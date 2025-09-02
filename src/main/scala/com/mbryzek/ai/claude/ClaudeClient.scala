@@ -5,8 +5,7 @@ import cats.data.Validated
 import cats.data.Validated.{Invalid, Valid}
 import cats.data.{NonEmptyChain, ValidatedNec}
 import cats.implicits.*
-import com.bryzek.claude.v0.models.{
-  Environment,
+import com.bryzek.claude.response.v0.models.{
   CommentsResponse,
   Recommendation,
   RecommendationResponse,
@@ -25,6 +24,12 @@ import javax.inject.{Inject, Singleton}
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
+
+sealed trait ClaudeEnvironment
+object ClaudeEnvironment {
+  case object Sandbox extends ClaudeEnvironment
+  case object Production extends ClaudeEnvironment
+}
 
 class ClaudeClient @Inject() (
   acumenConfig: AcumenConfig,
