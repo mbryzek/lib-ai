@@ -1,4 +1,4 @@
-package claude
+package com.mbryzek.ai.claude
 
 import com.bryzek.claude.v0.interfaces.Client
 import com.bryzek.claude.v0.models.*
@@ -21,10 +21,13 @@ class TestMessages extends com.bryzek.claude.v0.Messages {
       id = "test-response-id",
       `type` = "message",
       role = ClaudeRole.Assistant,
-      content = Seq(ClaudeResponseContent(
-        `type` = ClaudeContentType.Text,
-        text = """{"steps": [{"explanation": "Test response", "output": "Test"}], "comments": ["This is a test response from Claude."]}"""
-      )),
+      content = Seq(
+        ClaudeResponseContent(
+          `type` = ClaudeContentType.Text,
+          text =
+            """{"steps": [{"explanation": "Test response", "output": "Test"}], "comments": ["This is a test response from Claude."]}"""
+        )
+      ),
       model = ClaudeModel.ClaudeSonnet420250514,
       stopReason = ClaudeStopReason.EndTurn,
       stopSequence = None,

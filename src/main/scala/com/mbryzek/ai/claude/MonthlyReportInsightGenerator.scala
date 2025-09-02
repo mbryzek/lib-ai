@@ -1,4 +1,4 @@
-package claude
+package com.mbryzek.ai.claude
 
 import cats.data.Validated.{Invalid, Valid}
 import cats.data.ValidatedNec
@@ -48,7 +48,9 @@ IMPORTANT: You must respond in JSON format with the following structure:
 IMPORTANT: DO NOT wrap the json with "```json" - only output the JSON
 """
 
-  def generate(groupId: String, month: LocalDate)(implicit ec: ExecutionContext): Future[ValidatedNec[String, MonthlyReport]] = {
+  def generate(groupId: String, month: LocalDate)(implicit
+    ec: ExecutionContext
+  ): Future[ValidatedNec[String, MonthlyReport]] = {
     val data = monthlyReportData(groupId, month)
     if (data.isEmpty) {
       Future.successful(MonthlyReport.NoDataAvailable.validNec)
@@ -56,14 +58,19 @@ IMPORTANT: DO NOT wrap the json with "```json" - only output the JSON
       internalGroupsDao.findById(groupId) match {
         case None => Future.successful("Group not found".invalidNec)
         case Some(group) => {
-          client.chatSingleInsight(group.environment, ClaudeRequest(
-            model = Model,
-            messages = Seq(
-              client.makeClaudeMessage(ClaudeRole.Assistant, Prompt),
-              client.makeClaudeMessage(ClaudeRole.User, data*),
-              client.makeClaudeMessage(ClaudeRole.User, "Generate an insight for the month of " + month)
-            )
-          ))(using ec).map(_.leftMap(_.map(_.message)).map(MonthlyReport.Report.apply))
+          client
+            .chatSingleInsight(
+              group.environment,
+              ClaudeRequest(
+                model = Model,
+                messages = Seq(
+                  client.makeClaudeMessage(ClaudeRole.Assistant, Prompt),
+                  client.makeClaudeMessage(ClaudeRole.User, data*),
+                  client.makeClaudeMessage(ClaudeRole.User, "Generate an insight for the month of " + month)
+                )
+              )
+            )(using ec)
+            .map(_.leftMap(_.map(_.message)).map(MonthlyReport.Report.apply))
         }
       }
     }
@@ -76,7 +83,7 @@ IMPORTANT: DO NOT wrap the json with "```json" - only output the JSON
         Seq(
           s"Data for ${report.month}",
           s"Top Expenses: " + report.topExpenses.map(_.toString).mkString(", "),
-          s"Biggest Changes: " + report.topChangesFromPriorMonth.map(_.toString).mkString(", "),
+          s"Biggest Changes: " + report.topChangesFromPriorMonth.map(_.toString).mkString(", ")
         )
       }
     }

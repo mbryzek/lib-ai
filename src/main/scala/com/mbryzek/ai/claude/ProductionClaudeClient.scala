@@ -1,4 +1,4 @@
-package claude
+package com.mbryzek.ai.claude
 
 import com.bryzek.claude.v0.Client
 import play.api.libs.ws.WSClient

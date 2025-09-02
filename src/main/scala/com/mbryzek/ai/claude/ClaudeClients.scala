@@ -1,4 +1,4 @@
-package claude
+package com.mbryzek.ai.claude
 
 import com.bryzek.acumen.api.v0.models.Environment
 import com.bryzek.claude.v0.interfaces.Client
