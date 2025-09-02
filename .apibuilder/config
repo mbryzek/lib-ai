@@ -1,0 +1,7 @@
+code:
+  bryzek:
+    claude:
+      version: latest
+      generators:
+        play_2_9_scala_3_client: main/scala/com/mbryzek/ai/generated
+        play_2_8_mock_client: test/scala/com/mbryzek/ai/generated

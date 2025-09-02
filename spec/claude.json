@@ -1,0 +1,114 @@
+{
+    "name": "claude",
+    "base_url": "https://api.anthropic.com",
+    "enums": {
+        "claude_model": {
+            "values": [
+                { "name": "claude-sonnet-4-20250514" },
+                { "name": "claude-opus-4-1-20250805" }
+            ]
+        },
+        "claude_role": {
+            "values": [
+                { "name": "user" },
+                { "name": "assistant" }
+            ]
+        },
+        "claude_content_type": {
+            "values": [
+                { "name": "text" }
+            ]
+        },
+        "claude_stop_reason": {
+            "values": [
+                { "name": "end_turn" },
+                { "name": "max_tokens" },
+                { "name": "stop_sequence" },
+                { "name": "tool_use" }
+            ]
+        }
+    },
+
+    "models": {
+        "claude_request": {
+            "fields": [
+                { "name": "model", "type": "claude_model" },
+                { "name": "messages", "type": "[claude_message]" },
+                { "name": "max_tokens", "type": "long", "default": 30000 },
+                { "name": "temperature", "type": "decimal", "required": false, "minimum": 0.0, "maximum": 1.0 },
+                { "name": "system", "type": "string", "required": false }
+            ]
+        },
+        "claude_message": {
+            "fields": [
+                { "name": "role", "type": "claude_role" },
+                { "name": "content", "type": "[claude_content]" }
+            ]
+        },
+        "claude_content": {
+            "fields": [
+                { "name": "type", "type": "claude_content_type" },
+                { "name": "text", "type": "string" }
+            ]
+        },
+        "claude_response": {
+            "fields": [
+                { "name": "id", "type": "string" },
+                { "name": "type", "type": "string" },
+                { "name": "role", "type": "claude_role" },
+                { "name": "content", "type": "[claude_response_content]" },
+                { "name": "model", "type": "claude_model" },
+                { "name": "stop_reason", "type": "claude_stop_reason" },
+                { "name": "stop_sequence", "type": "string", "required": false },
+                { "name": "usage", "type": "claude_usage" }
+            ]
+        },
+        "claude_response_content": {
+            "fields": [
+                { "name": "type", "type": "claude_content_type" },
+                { "name": "text", "type": "string" }
+            ]
+        },
+        "claude_usage": {
+            "fields": [
+                { "name": "input_tokens", "type": "long" },
+                { "name": "output_tokens", "type": "long" }
+            ]
+        },
+        "claude_error_response": {
+            "fields": [
+                { "name": "error", "type": "claude_error" }
+            ]
+        },
+        "claude_error": {
+            "fields": [
+                { "name": "message", "type": "string" },
+                { "name": "raw", "type": "string", "required": false }
+            ]
+        },
+        "message": {
+            "fields": [
+                { "name": "placeholder", "type": "string", "required": false }
+            ]
+        }
+    },
+    "resources": {
+        "message": {
+            "path": "/v1/messages",
+            "operations": [
+                {
+                    "method": "post",
+                    "body": { "type": "claude_request"},
+                    "responses": {
+                        "200": { "type": "claude_response" },
+                        "400": { "type": "claude_error_response" },
+                        "401": { "type": "claude_error_response" },
+                        "403": { "type": "claude_error_response" },
+                        "429": { "type": "claude_error_response" },
+                        "500": { "type": "claude_error_response" }
+                    }
+                }
+            ]
+        }
+    }
+}
