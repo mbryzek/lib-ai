@@ -55,33 +55,33 @@ class ClaudeClient @Inject() (
     )
   }
 
-  def chatComments(env: Environment, request: ClaudeRequest)(implicit
+  def chatComments(env: ClaudeEnvironment, request: ClaudeRequest)(implicit
     ec: ExecutionContext = claudeEC
   ): Future[ValidatedNec[ClaudeError, Seq[String]]] = {
     chatCompletion[CommentsResponse](env, request, ResponseFormat.Comments)(using ec).map(_.map(_.content.comments))
   }
 
-  def chatRecommendations(env: Environment, request: ClaudeRequest)(implicit
+  def chatRecommendations(env: ClaudeEnvironment, request: ClaudeRequest)(implicit
     ec: ExecutionContext = claudeEC
   ): Future[ValidatedNec[ClaudeError, Seq[Recommendation]]] = {
     chatCompletion[RecommendationResponse](env, request, ResponseFormat.Recommendations)(using ec)
       .map(_.map(_.content.recommendations))
   }
 
-  def chatInsight(env: Environment, request: ClaudeRequest)(implicit
+  def chatInsight(env: ClaudeEnvironment, request: ClaudeRequest)(implicit
     ec: ExecutionContext = claudeEC
   ): Future[ValidatedNec[ClaudeError, Seq[String]]] = {
     chatComments(env, request)(using ec)
   }
 
-  def chatSingleInsight(env: Environment, request: ClaudeRequest)(implicit
+  def chatSingleInsight(env: ClaudeEnvironment, request: ClaudeRequest)(implicit
     ec: ExecutionContext = claudeEC
   ): Future[ValidatedNec[ClaudeError, String]] = {
     chatCompletion[SingleInsightResponse](env, request, ResponseFormat.SingleInsight)(using ec)
       .map(_.map(_.content.insight))
   }
 
-  private def chatCompletion[T](env: Environment, originalRequest: ClaudeRequest, responseFormat: String)(implicit
+  private def chatCompletion[T](env: ClaudeEnvironment, originalRequest: ClaudeRequest, responseFormat: String)(implicit
     ec: ExecutionContext = claudeEC,
     reads: Reads[T]
   ): Future[ValidatedNec[ClaudeError, ClaudeContentResponse[T]]] = {
