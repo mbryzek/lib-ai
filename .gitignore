@@ -1,4 +1,4 @@
-hoa-backend*.tar.gz
+.apibuilder/.tracked_files
 run.sh
 .bsp
 sample-csvs/*csv
