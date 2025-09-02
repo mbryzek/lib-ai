@@ -20,6 +20,7 @@ lazy val allScalacOptions = Seq(
 
 lazy val root = project
   .in(file("."))
+  .enablePlugins(PlayScala)
   .settings(
     resolvers += "scalaz-bintray" at "https://dl.bintray.com/scalaz/releases",
     scalafmtOnCompile := true,
