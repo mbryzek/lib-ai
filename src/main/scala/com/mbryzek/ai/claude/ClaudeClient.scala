@@ -18,6 +18,12 @@ import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
 
+case class ClaudeConfig(key: String, anthropicVersion: String)
+object ClaudeConfig {
+  private val Version = "2023-06-01"
+  def apply(key: String): ClaudeConfig = ClaudeConfig(key = key, anthropicVersion = Version)
+}
+
 sealed trait ClaudeEnvironment
 object ClaudeEnvironment {
   case object Sandbox extends ClaudeEnvironment
@@ -25,9 +31,6 @@ object ClaudeEnvironment {
 }
 
 class ClaudeClient @Inject() (
-  acumenConfig: AcumenConfig,
-  requestsDao: RequestsDao,
-  responsesDao: ResponsesDao,
   clients: ClaudeClients,
   claudeEC: ClaudeEC
 ) {

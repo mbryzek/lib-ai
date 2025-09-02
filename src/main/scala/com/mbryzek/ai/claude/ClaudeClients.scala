@@ -1,6 +1,5 @@
 package com.mbryzek.ai.claude
 
-import com.bryzek.acumen.api.v0.models.Environment
 import com.bryzek.claude.v0.interfaces.Client
 
 import javax.inject.{Inject, Singleton}
@@ -11,11 +10,10 @@ class ClaudeClients @Inject() (
   testClaudeClient: TestClaudeClient
 ) {
 
-  def get(env: Environment): Client = {
+  def get(env: ClaudeEnvironment): Client = {
     env match {
-      case Environment.Production => productionClaudeClient
-      case Environment.Sandbox => testClaudeClient
-      case Environment.UNDEFINED(_) => testClaudeClient
+      case ClaudeEnvironment.Production => productionClaudeClient
+      case ClaudeEnvironment.Sandbox => testClaudeClient
     }
   }
 }
