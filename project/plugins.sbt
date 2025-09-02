@@ -1,3 +1,5 @@
 logLevel := Level.Warn
 
-addSbtPlugin("org.scalameta" % "sbt-scalafmt" % "2.5.4")
+resolvers += "Typesafe repository" at "https://repo.typesafe.com/typesafe/releases/"
+
+addSbtPlugin("org.scalameta" % "sbt-scalafmt" % "2.5.5")

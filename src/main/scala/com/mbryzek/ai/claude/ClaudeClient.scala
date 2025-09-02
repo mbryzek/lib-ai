@@ -5,19 +5,12 @@ import cats.data.Validated
 import cats.data.Validated.{Invalid, Valid}
 import cats.data.{NonEmptyChain, ValidatedNec}
 import cats.implicits.*
-import com.bryzek.claude.response.v0.models.{
-  CommentsResponse,
-  Recommendation,
-  RecommendationResponse,
-  SingleInsightResponse
-}
+import com.bryzek.claude.response.v0.models.*
 import com.bryzek.claude.v0.models.json.*
 import com.bryzek.claude.v0.errors.ClaudeErrorResponseResponse
 import com.bryzek.claude.v0.interfaces.Client
 import com.bryzek.claude.v0.models.*
 import com.bryzek.claude.v0.models.json.*
-import db.generated.claude.{RequestForm, RequestsDao, ResponseForm, ResponsesDao}
-import play.api.libs.concurrent.CustomExecutionContext
 import play.api.libs.json.*
 
 import javax.inject.{Inject, Singleton}
