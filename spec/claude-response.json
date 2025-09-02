@@ -1,0 +1,49 @@
+{
+    "name": "claude-response",
+    "imports": [
+        { "uri": "https://app.apibuilder.io/bryzek/claude/latest/service.json" }
+    ],
+
+    "models": {
+        "comments_response": {
+            "fields": [
+                { "name": "steps", "type": "[claude_step]" },
+                { "name": "comments", "type": "[string]" }
+            ]
+        },
+
+        "single_insight_response": {
+          "fields": [
+            { "name": "steps", "type": "[claude_step]" },
+            { "name": "insight", "type": "string" }
+          ]
+        },
+
+        "recommendation_response": {
+            "fields": [
+                { "name": "steps", "type": "[claude_step]" },
+                { "name": "recommendations", "type": "[recommendation]" }
+            ]
+        },
+
+        "recommendations": {
+            "fields": [
+                { "name": "recommendations", "type": "[recommendation]" }
+            ]
+        },
+
+        "recommendation": {
+            "fields": [
+                { "name": "category", "type": "string" },
+                { "name": "confidence", "type": "long", "minimum": 0, "maximum": 100 }
+            ]
+        },
+
+        "claude_step": {
+            "fields": [
+                { "name": "explanation", "type": "string" },
+                { "name": "output", "type": "string" }
+            ]
+        }
+    }
+}

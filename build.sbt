@@ -29,6 +29,7 @@ lazy val root = project
     scalacOptions ++= allScalacOptions,
     libraryDependencies ++= Seq(
       "joda-time" % "joda-time" % "2.14.0",
+      "com.google.inject" % "guice" % "5.1.0",
       "org.typelevel" %% "cats-core" % "2.12.0",
       "org.scalatestplus.play" %% "scalatestplus-play" % "7.0.1" % Test,
     ),

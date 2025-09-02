@@ -2,19 +2,17 @@ package com.mbryzek.ai.claude
 
 import cats.implicits.*
 import cats.data.Validated
-import _root_.util.{AcumenConfig, AcumenConstants}
-import org.apache.pekko.actor.ActorSystem
 import cats.data.Validated.{Invalid, Valid}
 import cats.data.{NonEmptyChain, ValidatedNec}
 import cats.implicits.*
-import com.bryzek.acumen.api.v0.models.Environment
-import com.bryzek.acumen.claude.v0.models.{
+import com.bryzek.claude.v0.models.{
+  Environment,
   CommentsResponse,
   Recommendation,
   RecommendationResponse,
   SingleInsightResponse
 }
-import com.bryzek.acumen.claude.v0.models.json.*
+import com.bryzek.claude.v0.models.json.*
 import com.bryzek.claude.v0.errors.ClaudeErrorResponseResponse
 import com.bryzek.claude.v0.interfaces.Client
 import com.bryzek.claude.v0.models.*
@@ -27,9 +25,6 @@ import javax.inject.{Inject, Singleton}
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
-
-@Singleton
-class ClaudeEC @Inject() (system: ActorSystem) extends CustomExecutionContext(system, "claude-context")
 
 class ClaudeClient @Inject() (
   acumenConfig: AcumenConfig,
