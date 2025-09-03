@@ -105,7 +105,7 @@ case class ClaudeClient(
       .map(_.map(_.content.insight))
   }
 
-  private def chatCompletion[T](env: ClaudeEnvironment, originalRequest: ClaudeRequest, responseFormat: String)(implicit
+  def chatCompletion[T](env: ClaudeEnvironment, originalRequest: ClaudeRequest, responseFormat: String)(implicit
     ec: ExecutionContext,
     reads: Reads[T]
   ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]] = {
