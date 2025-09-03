@@ -117,6 +117,7 @@ case class ClaudeClient(
       }
     )
     val rm = ClaudeRequestMetadata(client, randomId("req"), request)
+    store.storeRequest(rm)
     client.messages
       .post(request, requestHeaders = defaultHeaders)
       .map(parseContent[T](rm, _))
