@@ -40,8 +40,9 @@ case class ClaudeResponseMetadata[T](request: ClaudeRequestMetadata, response: C
 }
 
 trait ClaudeStore {
-  def storeRequest(request: ClaudeRequest): String
-  def storeResponse[T](response: ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]): Unit
+  def storeRequest(request: ClaudeRequestMetadata): Unit
+  def storeResponseError(request: ClaudeRequestMetadata, errors: Seq[ClaudeError]): Unit
+  def storeResponseSuccess[T](response: ClaudeResponseMetadata[T]): Unit
 }
 
 class ClaudeClientFactory @Inject() (
@@ -122,8 +123,18 @@ case class ClaudeClient(
         case NonFatal(e) => rm.error(e.getMessage).invalidNec
       }
       .map { res =>
-        store.storeResponse(res); res
+        storeResponse(rm, res); res
       }
+  }
+
+  private def storeResponse[T](
+    request: ClaudeRequestMetadata,
+    response: ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]
+  ): Unit = {
+    response match {
+      case Invalid(e) => store.storeResponseError(request, e.toList)
+      case Valid(r) => store.storeResponseSuccess(r)
+    }
   }
 
   private def parseContent[T](rm: ClaudeRequestMetadata, response: ClaudeResponse)(implicit
