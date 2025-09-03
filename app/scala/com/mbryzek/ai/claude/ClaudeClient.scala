@@ -48,7 +48,7 @@ trait ClaudeStore {
 class ClaudeClientFactory @Inject() (
   clients: ClaudeClients
 ) {
-  def instance(config: ClaudeConfig)(store: ClaudeStore): ClaudeClient = ClaudeClient(clients, config, store)
+  def instance(apiKey: String)(store: ClaudeStore): ClaudeClient = ClaudeClient(clients, ClaudeConfig(apiKey), store)
 }
 
 object ClaudeClient {
