@@ -6,13 +6,14 @@ import cats.data.Validated.{Invalid, Valid}
 import cats.data.{NonEmptyChain, ValidatedNec}
 import cats.implicits.*
 import com.bryzek.claude.response.v0.models.*
-import com.bryzek.claude.v0.models.json.*
+import com.bryzek.claude.response.v0.models.json.*
 import com.bryzek.claude.v0.errors.ClaudeErrorResponseResponse
 import com.bryzek.claude.v0.interfaces.Client
 import com.bryzek.claude.v0.models.*
 import com.bryzek.claude.v0.models.json.*
 import play.api.libs.json.*
 
+import java.util.UUID
 import javax.inject.{Inject, Singleton}
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
@@ -30,23 +31,29 @@ object ClaudeEnvironment {
   case object Production extends ClaudeEnvironment
 }
 
-class ClaudeClient @Inject() (
-  clients: ClaudeClients,
-  claudeEC: ClaudeEC
+case class ClaudeRequestMetadata(client: Client, id: String, request: ClaudeRequest) {
+  val start: Long = System.currentTimeMillis()
+
+  def error(msg: String, raw: Option[String] = None): ClaudeError =
+    ClaudeError(message = s"$msg [Request ID: $id]", raw = raw)
+}
+
+case class ClaudeResponseMetadata[T](request: ClaudeRequestMetadata, response: ClaudeResponse, content: T) {
+  val duration: Long = System.currentTimeMillis() - request.start
+}
+
+trait ClaudeStore {
+  def storeRequest(request: ClaudeRequest): String
+  def storeResponse[T](response: ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]): Unit
+}
+
+class ClaudeClientFactory @Inject() (
+  clients: ClaudeClients
 ) {
-  private val defaultHeaders = Seq(
-    "x-api-key" -> acumenConfig.claudeConfig.key,
-    "Content-Type" -> "application/json",
-    "anthropic-version" -> acumenConfig.claudeConfig.anthropicVersion
-  )
+  def instance(config: ClaudeConfig)(store: ClaudeStore): ClaudeClient = ClaudeClient(clients, config, store)
+}
 
-  private case class RequestMetadata(id: String) {
-    val start: Long = System.currentTimeMillis()
-    def error(msg: String, raw: Option[String] = None): ClaudeError =
-      ClaudeError(message = s"$msg [Request ID: $id]", raw = raw)
-  }
-
-  private case class ClaudeContentResponse[T](response: ClaudeResponse, content: T)
+object ClaudeClient {
 
   def makeClaudeMessage(role: ClaudeRole, msg: String*): ClaudeMessage = {
     ClaudeMessage(
@@ -55,36 +62,53 @@ class ClaudeClient @Inject() (
     )
   }
 
+}
+
+case class ClaudeClient(
+  clients: ClaudeClients,
+  config: ClaudeConfig,
+  store: ClaudeStore
+) {
+  private val defaultHeaders = Seq(
+    "x-api-key" -> config.key,
+    "Content-Type" -> "application/json",
+    "anthropic-version" -> config.anthropicVersion
+  )
+
+  private def randomId(prefix: String): String = {
+    UUID.randomUUID().toString.replaceAll("-", "")
+  }
+
   def chatComments(env: ClaudeEnvironment, request: ClaudeRequest)(implicit
-    ec: ExecutionContext = claudeEC
+    ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[String]]] = {
     chatCompletion[CommentsResponse](env, request, ResponseFormat.Comments)(using ec).map(_.map(_.content.comments))
   }
 
   def chatRecommendations(env: ClaudeEnvironment, request: ClaudeRequest)(implicit
-    ec: ExecutionContext = claudeEC
+    ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[Recommendation]]] = {
     chatCompletion[RecommendationResponse](env, request, ResponseFormat.Recommendations)(using ec)
       .map(_.map(_.content.recommendations))
   }
 
   def chatInsight(env: ClaudeEnvironment, request: ClaudeRequest)(implicit
-    ec: ExecutionContext = claudeEC
+    ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[String]]] = {
     chatComments(env, request)(using ec)
   }
 
   def chatSingleInsight(env: ClaudeEnvironment, request: ClaudeRequest)(implicit
-    ec: ExecutionContext = claudeEC
+    ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, String]] = {
     chatCompletion[SingleInsightResponse](env, request, ResponseFormat.SingleInsight)(using ec)
       .map(_.map(_.content.insight))
   }
 
   private def chatCompletion[T](env: ClaudeEnvironment, originalRequest: ClaudeRequest, responseFormat: String)(implicit
-    ec: ExecutionContext = claudeEC,
+    ec: ExecutionContext,
     reads: Reads[T]
-  ): Future[ValidatedNec[ClaudeError, ClaudeContentResponse[T]]] = {
+  ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]] = {
     val client = clients.get(env)
     val request = originalRequest.copy(
       system = originalRequest.system match {
@@ -92,7 +116,7 @@ class ClaudeClient @Inject() (
         case Some(s) => Some(s + ". " + responseFormat)
       }
     )
-    val rm = RequestMetadata(storeRequest(client, request))
+    val rm = ClaudeRequestMetadata(client, randomId("req"), request)
     client.messages
       .post(request, requestHeaders = defaultHeaders)
       .map(parseContent[T](rm, _))
@@ -100,21 +124,21 @@ class ClaudeClient @Inject() (
         case r: ClaudeErrorResponseResponse => r.claudeErrorResponse.error.invalidNec
         case NonFatal(e) => rm.error(e.getMessage).invalidNec
       }
-      .map(storeResponse(rm))
+      .map { res => store.storeResponse(res); res }
   }
 
-  private def parseContent[T](rm: RequestMetadata, response: ClaudeResponse)(implicit
+  private def parseContent[T](rm: ClaudeRequestMetadata, response: ClaudeResponse)(implicit
     reads: Reads[T]
-  ): ValidatedNec[ClaudeError, ClaudeContentResponse[T]] = {
+  ): ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]] = {
     response.content.map(_.text).mkString("\n") match {
       case content if content.nonEmpty => parseContent[T](rm, response, content)
       case _ => rm.error("No content found in message").invalidNec
     }
   }
 
-  private def parseContent[T](rm: RequestMetadata, response: ClaudeResponse, content: String)(implicit
+  private def parseContent[T](rm: ClaudeRequestMetadata, response: ClaudeResponse, content: String)(implicit
     reads: Reads[T]
-  ): ValidatedNec[ClaudeError, ClaudeContentResponse[T]] = {
+  ): ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]] = {
     def parseError(msg: String) = {
       rm.error(msg, raw = Some(response.content.map(_.text).mkString("\n"))).invalidNec
     }
@@ -123,79 +147,13 @@ class ClaudeClient @Inject() (
       case Failure(_) => parseError("Content is not valid JSON")
       case Success(js) =>
         js.validate[T] match {
-          case JsSuccess(value, _) => ClaudeContentResponse(response, value).validNec
+          case JsSuccess(value, _) => ClaudeResponseMetadata(rm, response, value).validNec
           case JsError(errors) => {
             val messages = errors.flatMap(e => e._2.map(m => s"${e._1}: ${m.message}"))
             parseError(s"Content is not valid: ${messages.mkString(", ")}")
           }
         }
     }
-  }
-
-  private def storeRequest(client: Client, request: ClaudeRequest): String = {
-    requestsDao.insert(
-      AcumenConstants.SystemUser.id,
-      RequestForm(
-        client = client.getClass.getName,
-        raw = Json.toJson(request)
-      )
-    )
-  }
-
-  private def storeResponse[T](request: RequestMetadata)(
-    response: ValidatedNec[ClaudeError, ClaudeContentResponse[T]]
-  ): ValidatedNec[ClaudeError, ClaudeContentResponse[T]] = {
-    response match {
-      case Invalid(e) => storeResponseError(request, e)
-      case Valid(e) => storeResponseValid(request, e)
-    }
-    response
-  }
-
-  private def storeResponseError(request: RequestMetadata, error: NonEmptyChain[ClaudeError]): Unit = {
-    responsesDao.insert(
-      AcumenConstants.SystemUser.id,
-      emptyResponseForm(request).copy(
-        error = Some(Json.toJson(error.head)),
-        raw = error.head.raw
-      )
-    )
-  }
-
-  private def storeResponseValid(request: RequestMetadata, response: ClaudeContentResponse[?]): Unit = {
-    val r = response.response
-
-    responsesDao.insert(
-      AcumenConstants.SystemUser.id,
-      emptyResponseForm(request).copy(
-        raw = Some(r.content.map(_.text).mkString("\n")),
-        `type` = Some(r.`type`),
-        model = Some(r.model.toString),
-        role = Some(r.role.toString),
-        content = Some(r.content.map(c => Json.toJson(c).asInstanceOf[JsObject])).filterNot(_.isEmpty),
-        stopReason = Some(r.stopReason.toString),
-        stopSequence = r.stopSequence,
-        usageInputTokens = Some(r.usage.inputTokens),
-        usageOutputTokens = Some(r.usage.outputTokens)
-      )
-    )
-  }
-
-  private def emptyResponseForm(request: RequestMetadata): ResponseForm = {
-    ResponseForm(
-      requestId = request.id,
-      durationMs = System.currentTimeMillis() - request.start,
-      error = None,
-      raw = None,
-      `type` = None,
-      model = None,
-      role = None,
-      content = None,
-      stopReason = None,
-      stopSequence = None,
-      usageInputTokens = None,
-      usageOutputTokens = None
-    )
   }
 
   private object ResponseFormat {
