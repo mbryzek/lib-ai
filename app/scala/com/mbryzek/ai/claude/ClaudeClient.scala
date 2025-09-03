@@ -77,6 +77,8 @@ case class ClaudeClient(
     prefix + "-" + UUID.randomUUID().toString.replaceAll("-", "")
   }
 
+  def makeClaudeMessage(role: ClaudeRole, msg: String*): ClaudeMessage = ClaudeClient.makeClaudeMessage(role, msg*)
+
   def chatComments(env: ClaudeEnvironment, request: ClaudeRequest)(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[String]]] = {
