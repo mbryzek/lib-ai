@@ -124,7 +124,9 @@ case class ClaudeClient(
         case r: ClaudeErrorResponseResponse => r.claudeErrorResponse.error.invalidNec
         case NonFatal(e) => rm.error(e.getMessage).invalidNec
       }
-      .map { res => store.storeResponse(res); res }
+      .map { res =>
+        store.storeResponse(res); res
+      }
   }
 
   private def parseContent[T](rm: ClaudeRequestMetadata, response: ClaudeResponse)(implicit
@@ -155,58 +157,58 @@ case class ClaudeClient(
         }
     }
   }
+}
 
-  private object ResponseFormat {
-    private val Steps: String = """
-      "steps": [
-        { "explanation": "Brief explanation of your analysis step",
-          "output": "The result or finding from this step"
-        }
+private[claude] object ResponseFormat {
+  private val Steps: String = """
+    "steps": [
+      { "explanation": "Brief explanation of your analysis step",
+        "output": "The result or finding from this step"
+      }
+    ]
+  """.strip
+
+  val Comments: String = buildJsonMessage(s"""{
+    $Steps,
+    "comments": [
+      "Your main response or advice as a string",
+      "Additional comments if needed"
+    ]
+  }""")
+
+  val Recommendations: String = buildJsonMessage(s"""{
+    $Steps,
+    "recommendations": [
+      [{"category":"name","confidence":75},
+       {"category":"second name","confidence":50}
       ]
-    """.strip
+    ]
+  }""")
 
-    val Comments: String = buildJsonMessage(s"""{
-      $Steps,
-      "comments": [
-        "Your main response or advice as a string",
-        "Additional comments if needed"
-      ]
-    }""")
+  val SingleInsight: String = buildJsonMessage(s"""{
+    $Steps,
+    "insight":"Your insightful comment"
+  }""")
 
-    val Recommendations: String = buildJsonMessage(s"""{
-      $Steps,
-      "recommendations": [
-        [{"category":"name","confidence":75},
-         {"category":"second name","confidence":50}
-        ]
-      ]
-    }""")
-
-    val SingleInsight: String = buildJsonMessage(s"""{
-      $Steps,
-      "insight":"Your insightful comment"
-    }""")
-
-    private def buildJsonMessage(structure: String): String = {
-      validateJsonObject(structure) match {
-        case Invalid(e) => sys.error(s"Invalid JSON Structure: $e. Structure:\n$structure")
-        case Valid(s) => {
-          s"ALWAYS respond in the following JSON format. IMPORTANT: Return only the raw JSON without any markdown formatting or code blocks. Format:\n${Json
-              .prettyPrint(s)}\n"
-        }
+  private def buildJsonMessage(structure: String): String = {
+    validateJsonObject(structure) match {
+      case Invalid(e) => sys.error(s"Invalid JSON Structure: $e. Structure:\n$structure")
+      case Valid(s) => {
+        s"ALWAYS respond in the following JSON format. IMPORTANT: Return only the raw JSON without any markdown formatting or code blocks. Format:\n${Json
+            .prettyPrint(s)}\n"
       }
     }
+  }
 
-    private def validateJsonObject(str: String): Validated[String, JsObject] = {
-      try {
-        val jsValue = Json.parse(str)
-        jsValue.validate[JsObject] match {
-          case JsSuccess(obj, _) => Valid(obj)
-          case JsError(errors) => Invalid(s"Not a JSON object: ${JsError.toJson(errors)}")
-        }
-      } catch {
-        case ex: Exception => Invalid(s"Invalid JSON: ${ex.getMessage}")
+  private def validateJsonObject(str: String): Validated[String, JsObject] = {
+    try {
+      val jsValue = Json.parse(str)
+      jsValue.validate[JsObject] match {
+        case JsSuccess(obj, _) => Valid(obj)
+        case JsError(errors) => Invalid(s"Not a JSON object: ${JsError.toJson(errors)}")
       }
+    } catch {
+      case ex: Exception => Invalid(s"Invalid JSON: ${ex.getMessage}")
     }
   }
 }
