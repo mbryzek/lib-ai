@@ -2,6 +2,9 @@ package com.mbryzek.ai.claude
 
 import com.bryzek.claude.v0.interfaces.Client
 import com.bryzek.claude.v0.models.*
+import com.bryzek.claude.response.v0.models.*
+import com.bryzek.claude.response.v0.models.json.*
+import play.api.libs.json.Json
 
 import javax.inject.Singleton
 import scala.concurrent.{ExecutionContext, Future}
@@ -24,8 +27,12 @@ class TestMessages extends com.bryzek.claude.v0.Messages {
       content = Seq(
         ClaudeResponseContent(
           `type` = ClaudeContentType.Text,
-          text =
-            """{"steps": [{"explanation": "Test response", "output": "Test"}], "comments": ["This is a test response from Claude."]}"""
+          text = Json.toJson(
+            CommentsResponse(
+              steps = Seq(ClaudeStep(explanation = "Test explanation", output = "Test output")),
+              comments = Seq("This is a test response from Claude.")
+            )
+          )
         )
       ),
       model = ClaudeModel.ClaudeSonnet420250514,
