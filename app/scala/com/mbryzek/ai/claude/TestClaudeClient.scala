@@ -27,10 +27,12 @@ class TestMessages extends com.bryzek.claude.v0.Messages {
       content = Seq(
         ClaudeResponseContent(
           `type` = ClaudeContentType.Text,
-          text = Json.toJson(
-            CommentsResponse(
-              steps = Seq(ClaudeStep(explanation = "Test explanation", output = "Test output")),
-              comments = Seq("This is a test response from Claude.")
+          text = Json.prettyPrint(
+            Json.toJson(
+              CommentsResponse(
+                steps = Seq(ClaudeStep(explanation = "Test explanation", output = "Test output")),
+                comments = Seq("This is a test response from Claude.")
+              )
             )
           )
         )

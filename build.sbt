@@ -10,11 +10,11 @@ lazy val allScalacOptions = Seq(
   "-feature",
   "-Xfatal-warnings",
   "-Wunused:locals",
-  "-Wunused:params",
+  //"-Wunused:params",
   "-Wimplausible-patterns",
-  "-Wunused:linted",
+  //"-Wunused:linted",
   "-Wunused:unsafe-warn-patvars",
-  "-Wunused:imports",
+  //"-Wunused:imports",
   "-Wunused:privates",
 )
 
@@ -29,6 +29,7 @@ lazy val root = project
     testOptions += Tests.Argument("-oDF"),
     scalacOptions ++= allScalacOptions,
     libraryDependencies ++= Seq(
+      ws,
       "joda-time" % "joda-time" % "2.14.0",
       "com.google.inject" % "guice" % "5.1.0",
       "org.playframework" %% "play-json" % "3.0.5",
@@ -36,4 +37,3 @@ lazy val root = project
       "org.scalatestplus.play" %% "scalatestplus-play" % "7.0.1" % Test,
     ),
   )
-

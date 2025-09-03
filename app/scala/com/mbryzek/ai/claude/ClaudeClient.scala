@@ -1,20 +1,17 @@
 package com.mbryzek.ai.claude
 
-import cats.implicits.*
-import cats.data.Validated
 import cats.data.Validated.{Invalid, Valid}
-import cats.data.{NonEmptyChain, ValidatedNec}
+import cats.data.{Validated, ValidatedNec}
 import cats.implicits.*
 import com.bryzek.claude.response.v0.models.*
 import com.bryzek.claude.response.v0.models.json.*
 import com.bryzek.claude.v0.errors.ClaudeErrorResponseResponse
 import com.bryzek.claude.v0.interfaces.Client
 import com.bryzek.claude.v0.models.*
-import com.bryzek.claude.v0.models.json.*
 import play.api.libs.json.*
 
 import java.util.UUID
-import javax.inject.{Inject, Singleton}
+import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
@@ -76,7 +73,7 @@ case class ClaudeClient(
   )
 
   private def randomId(prefix: String): String = {
-    UUID.randomUUID().toString.replaceAll("-", "")
+    prefix + "-" + UUID.randomUUID().toString.replaceAll("-", "")
   }
 
   def chatComments(env: ClaudeEnvironment, request: ClaudeRequest)(implicit
