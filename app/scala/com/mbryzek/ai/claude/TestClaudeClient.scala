@@ -7,7 +7,7 @@ import com.bryzek.claude.response.v0.models.*
 import com.bryzek.claude.response.v0.models.json.*
 import com.bryzek.claude.v0.interfaces.Client
 import com.bryzek.claude.v0.models.*
-import play.api.libs.json.{JsArray, JsObject, JsValue, Json, Reads}
+import play.api.libs.json.{JsValue, Json}
 
 import javax.inject.Singleton
 import scala.concurrent.{ExecutionContext, Future}
@@ -18,14 +18,10 @@ class TestClaudeClient extends Client {
   override def messages = new TestMessages
 }
 
-sealed trait TestResponseFormat[T](implicit reads: Reads[T]) {
+sealed trait TestResponseFormat {
   def format: ResponseFormat
 
-  def generateResponse: T
-
-  final def generateResponseJson: JsValue = Json.toJson(generateResponse)
-
-
+  def generateResponse: JsValue
   protected def steps: Seq[ClaudeStep] = Seq(
     ClaudeStep(
       explanation = "Test explanation",
