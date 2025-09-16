@@ -34,35 +34,71 @@ object TestResponseFormat {
   val Comments: TestResponseFormat = new TestResponseFormat {
     override val format: ResponseFormat = ResponseFormat.Comments
 
-    override def generateResponse: JsValue = Json.toJson(CommentsResponse(
-      steps = steps,
-      comments = Seq("Test comment")
-    ))
+    override def generateResponse: JsValue = Json.toJson(
+      CommentsResponse(
+        steps = steps,
+        comments = Seq("Test comment")
+      )
+    )
   }
 
   val Recommendations: TestResponseFormat = new TestResponseFormat {
     override val format: ResponseFormat = ResponseFormat.Recommendations
 
-    override def generateResponse: JsValue = Json.toJson(RecommendationResponse(
-      steps = steps,
-      recommendations = Seq(
-        Recommendation(category = "coffee", confidence = 75),
-        Recommendation(category = "restaurants", confidence = 50),
+    override def generateResponse: JsValue = Json.toJson(
+      RecommendationResponse(
+        steps = steps,
+        recommendations = Seq(
+          Recommendation(category = "coffee", confidence = 75),
+          Recommendation(category = "restaurants", confidence = 50)
+        )
       )
-    ))
+    )
   }
 
   val SingleInsight: TestResponseFormat = new TestResponseFormat {
     override val format: ResponseFormat = ResponseFormat.SingleInsight
 
-    override def generateResponse: JsValue = Json.toJson(SingleInsightResponse(
-      steps = steps,
-      insight = "You are doing amazing"
-    ))
+    override def generateResponse: JsValue = Json.toJson(
+      SingleInsightResponse(
+        steps = steps,
+        insight = "You are doing amazing"
+      )
+    )
   }
 }
 
 class TestMessages extends com.bryzek.claude.v0.Messages {
+  def post(
+    claudeRequest: ClaudeRequest,
+    requestHeaders: Seq[(String, String)] = Nil
+  )(implicit ec: ExecutionContext): Future[ClaudeResponse] = Future {
+    val format = expectValid {
+      validateResponseType(claudeRequest.system)
+    }
+
+    ClaudeResponse(
+      id = "test-response-id",
+      `type` = "message",
+      role = ClaudeRole.Assistant,
+      content = Seq(
+        ClaudeResponseContent(
+          `type` = ClaudeContentType.Text,
+          text = Json.prettyPrint(
+            format.generateResponse
+          )
+        )
+      ),
+      model = ClaudeModel.ClaudeSonnet420250514,
+      stopReason = ClaudeStopReason.EndTurn,
+      stopSequence = None,
+      usage = ClaudeUsage(
+        inputTokens = 10,
+        outputTokens = 20
+      )
+    )
+  }
+
   private def validateResponseType(system: Option[String]): ValidatedNec[String, TestResponseFormat] = {
     system.toValidNec("Request does not have a system message - cannot identify expected response type").andThen {
       system =>
@@ -89,35 +125,5 @@ class TestMessages extends com.bryzek.claude.v0.Messages {
       case Invalid(e) => sys.error(e.toNonEmptyList.toList.mkString(", "))
       case Valid(result) => result
     }
-  }
-
-  def post(
-    claudeRequest: ClaudeRequest,
-    requestHeaders: Seq[(String, String)] = Nil
-  )(implicit ec: ExecutionContext): Future[ClaudeResponse] = Future {
-    val format = expectValid {
-      validateResponseType(claudeRequest.system)
-    }
-    println("format: " + format.generateResponse.toString)
-    ClaudeResponse(
-      id = "test-response-id",
-      `type` = "message",
-      role = ClaudeRole.Assistant,
-      content = Seq(
-        ClaudeResponseContent(
-          `type` = ClaudeContentType.Text,
-          text = Json.prettyPrint(
-            format.generateResponse
-          )
-        )
-      ),
-      model = ClaudeModel.ClaudeSonnet420250514,
-      stopReason = ClaudeStopReason.EndTurn,
-      stopSequence = None,
-      usage = ClaudeUsage(
-        inputTokens = 10,
-        outputTokens = 20
-      )
-    )
   }
 }
