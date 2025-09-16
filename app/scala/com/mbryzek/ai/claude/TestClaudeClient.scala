@@ -17,6 +17,21 @@ class TestClaudeClient extends Client {
   override def baseUrl: String = "http://mock.localhost"
   override def messages = new TestMessages
 
+  private def validateResponseType(system: Option[String]): ValidatedNec[String, TestResponseFormat] = {
+    system
+      .toValidNec("Request does not have a system message - cannot identify expected response type")
+      .andThen(validateResponseType)
+  }
+
+  protected def validateResponseType(system: String): ValidatedNec[String, TestResponseFormat] = {
+    ResponseFormat.all
+      .find { f =>
+        system.contains(f.structure)
+      }
+      .toValidNec(s"Could not identify response format from system message: $system")
+      .andThen(toTestResponseType)
+  }
+
   def postClaudeRequest(
     claudeRequest: ClaudeRequest,
     format: TestResponseFormat,
@@ -56,18 +71,6 @@ class TestClaudeClient extends Client {
     }
   }
 
-  private def validateResponseType(system: Option[String]): ValidatedNec[String, TestResponseFormat] = {
-    system.toValidNec("Request does not have a system message - cannot identify expected response type").andThen {
-      system =>
-        ResponseFormat.all
-          .find { f =>
-            system.contains(f.structure)
-          }
-          .toValidNec(s"Could not identify response format from system message: $system")
-          .andThen(toTestResponseType)
-    }
-  }
-
   private def toTestResponseType(f: ResponseFormat): ValidatedNec[String, TestResponseFormat] = {
     f match {
       case ResponseFormat.Comments => TestResponseFormat.Comments.validNec
@@ -85,10 +88,10 @@ class TestClaudeClient extends Client {
   }
 }
 
-sealed trait TestResponseFormat {
-  def format: ResponseFormat
+abstract class TestResponseFormat(format: ResponseFormat) {
 
   def generateResponse(claudeRequest: ClaudeRequest): JsValue
+
   protected def steps: Seq[ClaudeStep] = Seq(
     ClaudeStep(
       explanation = "Test explanation",
@@ -98,8 +101,7 @@ sealed trait TestResponseFormat {
 }
 
 object TestResponseFormat {
-  val Comments: TestResponseFormat = new TestResponseFormat {
-    override val format: ResponseFormat = ResponseFormat.Comments
+  val Comments: TestResponseFormat = new TestResponseFormat(ResponseFormat.Comments) {
 
     override def generateResponse(claudeRequest: ClaudeRequest): JsValue = buildJs(
       Seq("Test comment")
@@ -113,9 +115,7 @@ object TestResponseFormat {
     )
   }
 
-  val Recommendations: TestResponseFormat = new TestResponseFormat {
-    override val format: ResponseFormat = ResponseFormat.Recommendations
-
+  val Recommendations: TestResponseFormat = new TestResponseFormat(ResponseFormat.Recommendations) {
     override def generateResponse(claudeRequest: ClaudeRequest): JsValue = buildJs(
       Seq(
         Recommendation(category = "coffee", confidence = 75),
@@ -132,9 +132,7 @@ object TestResponseFormat {
 
   }
 
-  val SingleInsight: TestResponseFormat = new TestResponseFormat {
-    override val format: ResponseFormat = ResponseFormat.SingleInsight
-
+  val SingleInsight: TestResponseFormat = new TestResponseFormat(ResponseFormat.SingleInsight) {
     override def generateResponse(claudeRequest: ClaudeRequest): JsValue = buildJs("You are doing amazing")
 
     def buildJs(insight: String): JsValue = Json.toJson(
