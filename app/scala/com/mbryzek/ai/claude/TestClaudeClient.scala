@@ -22,12 +22,10 @@ sealed trait TestResponseFormat {
   def generateResponse: JsValue
   protected def generateSteps: JsObject = {
     Json.obj(
-      "steps" -> Json.toJson(
-        Seq(
-          Json.obj(
-            "explanation" -> "Test explanation",
-            "output" -> "Test result"
-          )
+      "steps" -> Seq(
+        Map(
+          "explanation" -> "Test explanation",
+          "output" -> "Test result"
         )
       )
     )
@@ -38,12 +36,10 @@ object TestResponseFormat {
   val Comments: TestResponseFormat = new TestResponseFormat {
     override val format: ResponseFormat = ResponseFormat.Comments
 
-    override def generateResponse: JsValue = Json.toJson(
-      generateSteps ++ Json.obj(
-        "comments" -> Json.toJson(
-          Seq(
-            "Test comment"
-          )
+    override def generateResponse: JsValue = generateSteps ++ Json.toJsObject(
+      Map(
+        "comments" -> Seq(
+          "Test comment"
         )
       )
     )
