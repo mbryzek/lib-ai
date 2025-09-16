@@ -16,87 +16,44 @@ import scala.concurrent.{ExecutionContext, Future}
 class TestClaudeClient extends Client {
   override def baseUrl: String = "http://mock.localhost"
   override def messages = new TestMessages
-}
 
-sealed trait TestResponseFormat {
-  def format: ResponseFormat
-
-  def generateResponse: JsValue
-  protected def steps: Seq[ClaudeStep] = Seq(
-    ClaudeStep(
-      explanation = "Test explanation",
-      output = "Test result"
-    )
-  )
-}
-
-object TestResponseFormat {
-  val Comments: TestResponseFormat = new TestResponseFormat {
-    override val format: ResponseFormat = ResponseFormat.Comments
-
-    override def generateResponse: JsValue = Json.toJson(
-      CommentsResponse(
-        steps = steps,
-        comments = Seq("Test comment")
-      )
-    )
-  }
-
-  val Recommendations: TestResponseFormat = new TestResponseFormat {
-    override val format: ResponseFormat = ResponseFormat.Recommendations
-
-    override def generateResponse: JsValue = Json.toJson(
-      RecommendationResponse(
-        steps = steps,
-        recommendations = Seq(
-          Recommendation(category = "coffee", confidence = 75),
-          Recommendation(category = "restaurants", confidence = 50)
-        )
-      )
-    )
-  }
-
-  val SingleInsight: TestResponseFormat = new TestResponseFormat {
-    override val format: ResponseFormat = ResponseFormat.SingleInsight
-
-    override def generateResponse: JsValue = Json.toJson(
-      SingleInsightResponse(
-        steps = steps,
-        insight = "You are doing amazing"
-      )
-    )
-  }
-}
-
-class TestMessages extends com.bryzek.claude.v0.Messages {
-  def post(
+  def postClaudeRequest(
     claudeRequest: ClaudeRequest,
+    format: TestResponseFormat,
     requestHeaders: Seq[(String, String)] = Nil
-  )(implicit ec: ExecutionContext): Future[ClaudeResponse] = Future {
-    val format = expectValid {
-      validateResponseType(claudeRequest.system)
-    }
+  ): JsValue = {
+    format.generateResponse(claudeRequest)
+  }
 
-    ClaudeResponse(
-      id = "test-response-id",
-      `type` = "message",
-      role = ClaudeRole.Assistant,
-      content = Seq(
-        ClaudeResponseContent(
-          `type` = ClaudeContentType.Text,
-          text = Json.prettyPrint(
-            format.generateResponse
+  class TestMessages extends com.bryzek.claude.v0.Messages {
+    def post(
+      claudeRequest: ClaudeRequest,
+      requestHeaders: Seq[(String, String)] = Nil
+    )(implicit ec: ExecutionContext): Future[ClaudeResponse] = Future {
+      val format = expectValid {
+        validateResponseType(claudeRequest.system)
+      }
+      ClaudeResponse(
+        id = "test-response-id",
+        `type` = "message",
+        role = ClaudeRole.Assistant,
+        content = Seq(
+          ClaudeResponseContent(
+            `type` = ClaudeContentType.Text,
+            text = Json.prettyPrint(
+              postClaudeRequest(claudeRequest, format, requestHeaders)
+            )
           )
+        ),
+        model = ClaudeModel.ClaudeSonnet420250514,
+        stopReason = ClaudeStopReason.EndTurn,
+        stopSequence = None,
+        usage = ClaudeUsage(
+          inputTokens = 10,
+          outputTokens = 20
         )
-      ),
-      model = ClaudeModel.ClaudeSonnet420250514,
-      stopReason = ClaudeStopReason.EndTurn,
-      stopSequence = None,
-      usage = ClaudeUsage(
-        inputTokens = 10,
-        outputTokens = 20
       )
-    )
+    }
   }
 
   private def validateResponseType(system: Option[String]): ValidatedNec[String, TestResponseFormat] = {
@@ -125,5 +82,66 @@ class TestMessages extends com.bryzek.claude.v0.Messages {
       case Invalid(e) => sys.error(e.toNonEmptyList.toList.mkString(", "))
       case Valid(result) => result
     }
+  }
+}
+
+sealed trait TestResponseFormat {
+  def format: ResponseFormat
+
+  def generateResponse(claudeRequest: ClaudeRequest): JsValue
+  protected def steps: Seq[ClaudeStep] = Seq(
+    ClaudeStep(
+      explanation = "Test explanation",
+      output = "Test result"
+    )
+  )
+}
+
+object TestResponseFormat {
+  val Comments: TestResponseFormat = new TestResponseFormat {
+    override val format: ResponseFormat = ResponseFormat.Comments
+
+    override def generateResponse(claudeRequest: ClaudeRequest): JsValue = buildJs(
+      Seq("Test comment")
+    )
+
+    def buildJs(comments: Seq[String]): JsValue = Json.toJson(
+      CommentsResponse(
+        steps = steps,
+        comments = comments
+      )
+    )
+  }
+
+  val Recommendations: TestResponseFormat = new TestResponseFormat {
+    override val format: ResponseFormat = ResponseFormat.Recommendations
+
+    override def generateResponse(claudeRequest: ClaudeRequest): JsValue = buildJs(
+      Seq(
+        Recommendation(category = "coffee", confidence = 75),
+        Recommendation(category = "restaurants", confidence = 50)
+      )
+    )
+
+    def buildJs(recommendations: Seq[Recommendation]): JsValue = Json.toJson(
+      RecommendationResponse(
+        steps = steps,
+        recommendations = recommendations
+      )
+    )
+
+  }
+
+  val SingleInsight: TestResponseFormat = new TestResponseFormat {
+    override val format: ResponseFormat = ResponseFormat.SingleInsight
+
+    override def generateResponse(claudeRequest: ClaudeRequest): JsValue = buildJs("You are doing amazing")
+
+    def buildJs(insight: String): JsValue = Json.toJson(
+      SingleInsightResponse(
+        steps = steps,
+        insight = insight
+      )
+    )
   }
 }
