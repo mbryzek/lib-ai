@@ -105,15 +105,15 @@ case class ClaudeClient(
       .map(_.map(_.content.insight))
   }
 
-  def chatCompletion[T](env: ClaudeEnvironment, originalRequest: ClaudeRequest, responseFormat: String)(implicit
+  def chatCompletion[T](env: ClaudeEnvironment, originalRequest: ClaudeRequest, responseFormat: ResponseFormat)(implicit
     ec: ExecutionContext,
     reads: Reads[T]
   ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]] = {
     val client = clients.get(env)
     val request = originalRequest.copy(
       system = originalRequest.system match {
-        case None => Some(responseFormat)
-        case Some(s) => Some(s + ". " + responseFormat)
+        case None => Some(responseFormat.structure)
+        case Some(s) => Some(s + ". " + responseFormat.structure)
       }
     )
     val rm = ClaudeRequestMetadata(client, randomId("req"), request)
@@ -170,7 +170,11 @@ case class ClaudeClient(
   }
 }
 
-private[claude] object ResponseFormat {
+sealed trait ResponseFormat {
+  def structure: String
+}
+
+object ResponseFormat {
   private val Steps: String = """
     "steps": [
       { "explanation": "Brief explanation of your analysis step",
@@ -179,27 +183,35 @@ private[claude] object ResponseFormat {
     ]
   """.strip
 
-  val Comments: String = buildJsonMessage(s"""{
+  val Comments: ResponseFormat = new ResponseFormat {
+    override val structure: String = buildJsonMessage(s"""{
     $Steps,
     "comments": [
       "Your main response or advice as a string",
       "Additional comments if needed"
     ]
   }""")
+  }
 
-  val Recommendations: String = buildJsonMessage(s"""{
-    $Steps,
-    "recommendations": [
-      [{"category":"name","confidence":75},
-       {"category":"second name","confidence":50}
+  val Recommendations: ResponseFormat = new ResponseFormat {
+    override def structure: String = buildJsonMessage(s"""{
+      $Steps,
+      "recommendations": [
+        [{"category":"name","confidence":75},
+         {"category":"second name","confidence":50}
+        ]
       ]
-    ]
-  }""")
+    }""")
+  }
 
-  val SingleInsight: String = buildJsonMessage(s"""{
+  val SingleInsight: ResponseFormat = new ResponseFormat {
+    override def structure: String = buildJsonMessage(s"""{
     $Steps,
     "insight":"Your insightful comment"
   }""")
+  }
+
+  val all: List[ResponseFormat] = List(Comments, Recommendations, SingleInsight)
 
   private def buildJsonMessage(structure: String): String = {
     validateJsonObject(structure) match {
