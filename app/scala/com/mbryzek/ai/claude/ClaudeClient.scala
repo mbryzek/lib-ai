@@ -8,6 +8,7 @@ import com.bryzek.claude.response.v0.models.json.*
 import com.bryzek.claude.v0.errors.ClaudeErrorResponseResponse
 import com.bryzek.claude.v0.interfaces.Client
 import com.bryzek.claude.v0.models.*
+import com.google.inject.ImplementedBy
 import play.api.libs.json.*
 
 import java.util.UUID
@@ -45,10 +46,31 @@ trait ClaudeStore {
   def storeResponseSuccess[T](response: ClaudeResponseMetadata[T]): Unit
 }
 
-class ClaudeClientFactory @Inject() (
-  clients: ClaudeClients
-) {
-  def instance(apiKey: String)(store: ClaudeStore): ClaudeClient = ClaudeClient(clients, ClaudeConfig(apiKey), store)
+case object NoopClaudeStore extends ClaudeStore {
+  override def storeRequest(request: ClaudeRequestMetadata): Unit = ()
+  override def storeResponseError(request: ClaudeRequestMetadata, errors: Seq[ClaudeError]): Unit = ()
+  override def storeResponseSuccess[T](response: ClaudeResponseMetadata[T]): Unit = ()
+}
+
+@ImplementedBy(classOf[ClaudeClientFactoryImpl])
+trait ClaudeClientFactory {
+  final def instance(env: ClaudeEnvironment, apiKey: String)(store: ClaudeStore): ClaudeClient = {
+    ClaudeClient(getClient(env), ClaudeConfig(apiKey), store)
+  }
+
+  def getClient(env: ClaudeEnvironment): Client
+}
+
+class ClaudeClientFactoryImpl @Inject() (
+  productionClaudeClient: ProductionClaudeClient,
+  testClaudeClient: TestClaudeClient
+) extends ClaudeClientFactory {
+  override def getClient(env: ClaudeEnvironment): Client = {
+    env match {
+      case ClaudeEnvironment.Production => productionClaudeClient
+      case ClaudeEnvironment.Sandbox => testClaudeClient
+    }
+  }
 }
 
 object ClaudeClient {
@@ -63,7 +85,7 @@ object ClaudeClient {
 }
 
 case class ClaudeClient(
-  clients: ClaudeClients,
+  client: Client,
   config: ClaudeConfig,
   store: ClaudeStore
 ) {
@@ -79,37 +101,36 @@ case class ClaudeClient(
 
   def makeClaudeMessage(role: ClaudeRole, msg: String*): ClaudeMessage = ClaudeClient.makeClaudeMessage(role, msg*)
 
-  def chatComments(env: ClaudeEnvironment, request: ClaudeRequest)(implicit
+  def chatComments(request: ClaudeRequest)(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[String]]] = {
-    chatCompletion[CommentsResponse](env, request, ResponseFormat.Comments)(using ec).map(_.map(_.content.comments))
+    chatCompletion[CommentsResponse](request, ResponseFormat.Comments)(using ec).map(_.map(_.content.comments))
   }
 
-  def chatRecommendations(env: ClaudeEnvironment, request: ClaudeRequest)(implicit
+  def chatRecommendations(request: ClaudeRequest)(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[Recommendation]]] = {
-    chatCompletion[RecommendationResponse](env, request, ResponseFormat.Recommendations)(using ec)
+    chatCompletion[RecommendationResponse](request, ResponseFormat.Recommendations)(using ec)
       .map(_.map(_.content.recommendations))
   }
 
-  def chatInsight(env: ClaudeEnvironment, request: ClaudeRequest)(implicit
+  def chatInsight(request: ClaudeRequest)(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[String]]] = {
-    chatComments(env, request)(using ec)
+    chatComments(request)(using ec)
   }
 
-  def chatSingleInsight(env: ClaudeEnvironment, request: ClaudeRequest)(implicit
+  def chatSingleInsight(request: ClaudeRequest)(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, String]] = {
-    chatCompletion[SingleInsightResponse](env, request, ResponseFormat.SingleInsight)(using ec)
+    chatCompletion[SingleInsightResponse](request, ResponseFormat.SingleInsight)(using ec)
       .map(_.map(_.content.insight))
   }
 
-  def chatCompletion[T](env: ClaudeEnvironment, originalRequest: ClaudeRequest, responseFormat: ResponseFormat)(implicit
+  def chatCompletion[T](originalRequest: ClaudeRequest, responseFormat: ResponseFormat)(implicit
     ec: ExecutionContext,
     reads: Reads[T]
   ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]] = {
-    val client = clients.get(env)
     val request = originalRequest.copy(
       system = originalRequest.system match {
         case None => Some(responseFormat.structure)
@@ -170,7 +191,7 @@ case class ClaudeClient(
   }
 }
 
-sealed trait ResponseFormat {
+trait ResponseFormat {
   def structure: String
 }
 
