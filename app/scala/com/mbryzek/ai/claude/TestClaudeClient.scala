@@ -3,9 +3,11 @@ package com.mbryzek.ai.claude
 import cats.data.Validated.{Invalid, Valid}
 import cats.data.ValidatedNec
 import cats.implicits.*
+import com.bryzek.claude.response.v0.models.*
+import com.bryzek.claude.response.v0.models.json.*
 import com.bryzek.claude.v0.interfaces.Client
 import com.bryzek.claude.v0.models.*
-import play.api.libs.json.{JsArray, JsObject, JsValue, Json}
+import play.api.libs.json.{JsArray, JsObject, JsValue, Json, Reads}
 
 import javax.inject.Singleton
 import scala.concurrent.{ExecutionContext, Future}
@@ -16,58 +18,51 @@ class TestClaudeClient extends Client {
   override def messages = new TestMessages
 }
 
-sealed trait TestResponseFormat {
+sealed trait TestResponseFormat[T](implicit reads: Reads[T]) {
   def format: ResponseFormat
 
-  def generateResponse: JsValue
-  protected def generateSteps: JsObject = {
-    Json.obj(
-      "steps" -> Seq(
-        Map(
-          "explanation" -> "Test explanation",
-          "output" -> "Test result"
-        )
-      )
+  def generateResponse: T
+
+  final def generateResponseJson: JsValue = Json.toJson(generateResponse)
+
+
+  protected def steps: Seq[ClaudeStep] = Seq(
+    ClaudeStep(
+      explanation = "Test explanation",
+      output = "Test result"
     )
-  }
+  )
 }
 
 object TestResponseFormat {
   val Comments: TestResponseFormat = new TestResponseFormat {
     override val format: ResponseFormat = ResponseFormat.Comments
 
-    override def generateResponse: JsValue = generateSteps ++ Json.toJsObject(
-      Map(
-        "comments" -> Seq(
-          "Test comment"
-        )
-      )
-    )
+    override def generateResponse: JsValue = Json.toJson(CommentsResponse(
+      steps = steps,
+      comments = Seq("Test comment")
+    ))
   }
 
   val Recommendations: TestResponseFormat = new TestResponseFormat {
     override val format: ResponseFormat = ResponseFormat.Recommendations
 
-    override def generateResponse: JsValue = Json.toJson(
-      generateSteps ++ Json.obj(
-        "recommendations" -> Json.toJson(
-          Seq(
-            Json.obj("category" -> "coffee", "confidence" -> 75),
-            Json.obj("category" -> "restaurants", "confidence" -> 50)
-          )
-        )
+    override def generateResponse: JsValue = Json.toJson(RecommendationResponse(
+      steps = steps,
+      recommendations = Seq(
+        Recommendation(category = "coffee", confidence = 75),
+        Recommendation(category = "restaurants", confidence = 50),
       )
-    )
+    ))
   }
 
   val SingleInsight: TestResponseFormat = new TestResponseFormat {
     override val format: ResponseFormat = ResponseFormat.SingleInsight
 
-    override def generateResponse: JsValue = Json.toJson(
-      generateSteps ++ Json.obj(
-        "insight" -> "You are doing amazing"
-      )
-    )
+    override def generateResponse: JsValue = Json.toJson(SingleInsightResponse(
+      steps = steps,
+      insight = "You are doing amazing"
+    ))
   }
 }
 
