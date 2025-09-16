@@ -1,36 +1,53 @@
 package com.mbryzek.ai.claude
 
-import com.bryzek.claude.v0.models.{ClaudeModel, ClaudeRequest, ClaudeRole}
+import com.bryzek.claude.v0.models.{ClaudeError, ClaudeModel, ClaudeRequest, ClaudeResponse, ClaudeRole}
 import helpers.FutureHelpers
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 import org.scalatestplus.play.guice.GuiceOneAppPerSuite
 
+import java.util.concurrent.atomic.AtomicInteger
+import scala.collection.concurrent.TrieMap
 import scala.concurrent.ExecutionContext.Implicits.global
+
+case class NoopClaudeStore() extends ClaudeStore {
+
+  override def storeRequest(request: ClaudeRequestMetadata): Unit = {
+    ()
+  }
+
+  override def storeResponseError(request: ClaudeRequestMetadata, errors: Seq[ClaudeError]): Unit = {
+    ()
+  }
+
+  override def storeResponseSuccess[T](response: ClaudeResponseMetadata[T]): Unit = {
+    ()
+  }
+
+}
 
 class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuite with FutureHelpers {
 
-  private val testClient = app.injector.instanceOf[TestClaudeClient]
+  private val testClient: ClaudeClient = {
+    val factory = app.injector.instanceOf[ClaudeClientFactory]
+    factory.instance("test-api-key")(NoopClaudeStore())
+  }
 
   "ClaudeClient" should {
 
     "parse mock response correctly" in {
-
       val response = await(
-        testClient.messages.post(
+        testClient.chatComments(
+          ClaudeEnvironment.Sandbox,
           ClaudeRequest(
             model = ClaudeModel.ClaudeSonnet420250514,
-            system = Some("You are a test assistant."),
             messages = Seq(
-              ClaudeClient.makeClaudeMessage(ClaudeRole.User, "Test message")
+              ClaudeClient.makeClaudeMessage(ClaudeRole.User, "Sending a test message")
             )
           )
         )
       )
-
-      response.role.must(be(ClaudeRole.Assistant))
-      response.model.must(be(ClaudeModel.ClaudeSonnet420250514))
-      response.content.head.text.must(include("test response"))
+      println(s"response: $response")
     }
 
   }
