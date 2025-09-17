@@ -2,7 +2,7 @@ name := "lib-ai"
 
 organization := "com.mbryzek"
 
-ThisBuild / scalaVersion := "3.7.2"
+ThisBuild / scalaVersion := "3.7.3"
 
 ThisBuild / javacOptions ++= Seq("-source", "17", "-target", "17")
 
