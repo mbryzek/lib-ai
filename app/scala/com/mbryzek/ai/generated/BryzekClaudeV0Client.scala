@@ -229,7 +229,7 @@ package com.bryzek.claude.v0.models {
           case _ => {
             (js \ "value").validate[String] match {
               case play.api.libs.json.JsSuccess(v, _) => play.api.libs.json.JsSuccess(com.bryzek.claude.v0.models.ClaudeContentType(v))
-              case _: play.api.libs.json.JsError =>
+              case err: play.api.libs.json.JsError =>
                 (js \ "claude_content_type").validate[String] match {
                   case play.api.libs.json.JsSuccess(v, _) => play.api.libs.json.JsSuccess(com.bryzek.claude.v0.models.ClaudeContentType(v))
                   case err: play.api.libs.json.JsError => err
@@ -261,7 +261,7 @@ package com.bryzek.claude.v0.models {
           case _ => {
             (js \ "value").validate[String] match {
               case play.api.libs.json.JsSuccess(v, _) => play.api.libs.json.JsSuccess(com.bryzek.claude.v0.models.ClaudeModel(v))
-              case _: play.api.libs.json.JsError =>
+              case err: play.api.libs.json.JsError =>
                 (js \ "claude_model").validate[String] match {
                   case play.api.libs.json.JsSuccess(v, _) => play.api.libs.json.JsSuccess(com.bryzek.claude.v0.models.ClaudeModel(v))
                   case err: play.api.libs.json.JsError => err
@@ -293,7 +293,7 @@ package com.bryzek.claude.v0.models {
           case _ => {
             (js \ "value").validate[String] match {
               case play.api.libs.json.JsSuccess(v, _) => play.api.libs.json.JsSuccess(com.bryzek.claude.v0.models.ClaudeRole(v))
-              case _: play.api.libs.json.JsError =>
+              case err: play.api.libs.json.JsError =>
                 (js \ "claude_role").validate[String] match {
                   case play.api.libs.json.JsSuccess(v, _) => play.api.libs.json.JsSuccess(com.bryzek.claude.v0.models.ClaudeRole(v))
                   case err: play.api.libs.json.JsError => err
@@ -325,7 +325,7 @@ package com.bryzek.claude.v0.models {
           case _ => {
             (js \ "value").validate[String] match {
               case play.api.libs.json.JsSuccess(v, _) => play.api.libs.json.JsSuccess(com.bryzek.claude.v0.models.ClaudeStopReason(v))
-              case _: play.api.libs.json.JsError =>
+              case err: play.api.libs.json.JsError =>
                 (js \ "claude_stop_reason").validate[String] match {
                   case play.api.libs.json.JsSuccess(v, _) => play.api.libs.json.JsSuccess(com.bryzek.claude.v0.models.ClaudeStopReason(v))
                   case err: play.api.libs.json.JsError => err
