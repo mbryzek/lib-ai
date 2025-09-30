@@ -13,6 +13,7 @@ import play.api.libs.json.*
 
 import java.util.UUID
 import javax.inject.Inject
+import scala.annotation.tailrec
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
@@ -177,7 +178,7 @@ case class ClaudeClient(
       rm.error(msg, raw = Some(response.content.map(_.text).mkString("\n"))).invalidNec
     }
 
-    Try(Json.parse(content)) match {
+    Try(Json.parse(removeDelimiters(content))) match {
       case Failure(_) => parseError("Content is not valid JSON")
       case Success(js) =>
         js.validate[T] match {
@@ -189,6 +190,18 @@ case class ClaudeClient(
         }
     }
   }
+
+  @tailrec
+  private def removeDelimiters(str: String): String = {
+    val trimmed = str.trim
+    if (trimmed.startsWith("```json")) {
+      removeDelimiters(trimmed.drop(7))
+    } else if (trimmed.endsWith("```")) {
+      trimmed.dropRight(3)
+    } else {
+      trimmed
+    }
+  }
 }
 
 trait ResponseFormat {
@@ -196,7 +209,8 @@ trait ResponseFormat {
 }
 
 object ResponseFormat {
-  private val Steps: String = """
+  private val Steps: String =
+    """
     "steps": [
       { "explanation": "Brief explanation of your analysis step",
         "output": "The result or finding from this step"
@@ -238,7 +252,7 @@ object ResponseFormat {
     validateJsonObject(structure) match {
       case Invalid(e) => sys.error(s"Invalid JSON Structure: $e. Structure:\n$structure")
       case Valid(s) => {
-        s"ALWAYS respond in the following JSON format. IMPORTANT: Return only the raw JSON without any markdown formatting or code blocks. Format:\n${Json
+        s"ALWAYS respond in the following JSON format. Format:\n${Json
             .prettyPrint(s)}\n"
       }
     }
@@ -255,4 +269,5 @@ object ResponseFormat {
       case ex: Exception => Invalid(s"Invalid JSON: ${ex.getMessage}")
     }
   }
+
 }
