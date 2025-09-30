@@ -34,7 +34,7 @@ package com.bryzek.claude.v0.mock {
 
     def makeClaudeContentType(): com.bryzek.claude.v0.models.ClaudeContentType = com.bryzek.claude.v0.models.ClaudeContentType.Text
 
-    def makeClaudeModel(): com.bryzek.claude.v0.models.ClaudeModel = com.bryzek.claude.v0.models.ClaudeModel.ClaudeSonnet420250514
+    def makeClaudeModel(): com.bryzek.claude.v0.models.ClaudeModel = com.bryzek.claude.v0.models.ClaudeModel.ClaudeSonnet45
 
     def makeClaudeRole(): com.bryzek.claude.v0.models.ClaudeRole = com.bryzek.claude.v0.models.ClaudeRole.User
 

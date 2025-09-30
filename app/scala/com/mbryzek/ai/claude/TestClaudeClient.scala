@@ -60,7 +60,7 @@ class TestClaudeClient extends Client {
             )
           )
         ),
-        model = ClaudeModel.ClaudeSonnet420250514,
+        model = ClaudeModel.ClaudeSonnet45,
         stopReason = ClaudeStopReason.EndTurn,
         stopSequence = None,
         usage = ClaudeUsage(

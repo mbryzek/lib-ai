@@ -92,7 +92,7 @@ package com.bryzek.claude.v0.models {
 
   object ClaudeModel {
 
-    case object ClaudeSonnet420250514 extends ClaudeModel { override def toString = "claude-sonnet-4-20250514" }
+    case object ClaudeSonnet45 extends ClaudeModel { override def toString = "claude-sonnet-4-5" }
     case object ClaudeOpus4120250805 extends ClaudeModel { override def toString = "claude-opus-4-1-20250805" }
     /**
      * UNDEFINED captures values that are sent either in error or
@@ -110,7 +110,7 @@ package com.bryzek.claude.v0.models {
      * lower case to avoid collisions with the camel cased values
      * above.
      */
-    val all: scala.List[ClaudeModel] = scala.List(ClaudeSonnet420250514, ClaudeOpus4120250805)
+    val all: scala.List[ClaudeModel] = scala.List(ClaudeSonnet45, ClaudeOpus4120250805)
 
     private
     val byName: Map[String, ClaudeModel] = all.map(x => x.toString.toLowerCase -> x).toMap
@@ -585,7 +585,7 @@ package com.bryzek.claude.v0 {
       val claudeModelConverter: ApibuilderTypeConverter[com.bryzek.claude.v0.models.ClaudeModel] = new ApibuilderTypeConverter[com.bryzek.claude.v0.models.ClaudeModel] {
         override def convert(value: String): com.bryzek.claude.v0.models.ClaudeModel = com.bryzek.claude.v0.models.ClaudeModel(value)
         override def convert(value: com.bryzek.claude.v0.models.ClaudeModel): String = value.toString
-        override def example: com.bryzek.claude.v0.models.ClaudeModel = com.bryzek.claude.v0.models.ClaudeModel.ClaudeSonnet420250514
+        override def example: com.bryzek.claude.v0.models.ClaudeModel = com.bryzek.claude.v0.models.ClaudeModel.ClaudeSonnet45
         override def validValues: Seq[com.bryzek.claude.v0.models.ClaudeModel] = com.bryzek.claude.v0.models.ClaudeModel.all
       }
       implicit def pathBindableClaudeModel(implicit stringBinder: QueryStringBindable[String]): PathBindable[com.bryzek.claude.v0.models.ClaudeModel] = ApibuilderPathBindable(claudeModelConverter)

@@ -21,7 +21,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       await(
         testClient.chatComments(
           ClaudeRequest(
-            model = ClaudeModel.ClaudeSonnet420250514,
+            model = ClaudeModel.ClaudeSonnet45,
             messages = Seq(
               ClaudeClient.makeClaudeMessage(ClaudeRole.User, "Sending a test message")
             )
