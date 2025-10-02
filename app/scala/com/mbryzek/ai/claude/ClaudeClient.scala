@@ -196,8 +196,10 @@ case class ClaudeClient(
     val trimmed = str.trim
     if (trimmed.startsWith("```json")) {
       removeDelimiters(trimmed.drop(7))
+    } else if (trimmed.startsWith("```")) {
+      removeDelimiters(trimmed.drop(3))
     } else if (trimmed.endsWith("```")) {
-      trimmed.dropRight(3)
+      removeDelimiters(trimmed.dropRight(3))
     } else {
       trimmed
     }
@@ -232,9 +234,8 @@ object ResponseFormat {
     override def structure: String = buildJsonMessage(s"""{
       $Steps,
       "recommendations": [
-        [{"category":"name","confidence":75},
-         {"category":"second name","confidence":50}
-        ]
+        {"category":"name","confidence":75},
+        {"category":"second name","confidence":50}
       ]
     }""")
   }
@@ -252,8 +253,7 @@ object ResponseFormat {
     validateJsonObject(structure) match {
       case Invalid(e) => sys.error(s"Invalid JSON Structure: $e. Structure:\n$structure")
       case Valid(s) => {
-        s"ALWAYS respond in the following JSON format. Format:\n${Json
-            .prettyPrint(s)}\n"
+        s"ALWAYS respond in the following JSON format. Format:\n${Json.prettyPrint(s)}\n"
       }
     }
   }
