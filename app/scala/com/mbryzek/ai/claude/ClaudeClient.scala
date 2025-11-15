@@ -1,7 +1,7 @@
 package com.mbryzek.ai.claude
 
 import cats.data.Validated.{Invalid, Valid}
-import cats.data.{Validated, ValidatedNec}
+import cats.data.ValidatedNec
 import cats.implicits.*
 import com.bryzek.claude.response.v0.models.*
 import com.bryzek.claude.response.v0.models.json.*
@@ -13,15 +13,20 @@ import play.api.libs.json.*
 
 import java.util.UUID
 import javax.inject.Inject
-import scala.annotation.tailrec
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
 
-case class ClaudeConfig(key: String, anthropicVersion: String)
+case class ClaudeConfig(key: String, anthropicVersion: String, betaHeaders: Seq[String] = Seq.empty)
 object ClaudeConfig {
   private val Version = "2023-06-01"
-  def apply(key: String): ClaudeConfig = ClaudeConfig(key = key, anthropicVersion = Version)
+  private val StructuredOutputsBeta = "structured-outputs-2025-11-13"
+
+  def apply(key: String): ClaudeConfig = ClaudeConfig(
+    key = key,
+    anthropicVersion = Version,
+    betaHeaders = Seq(StructuredOutputsBeta)
+  )
 }
 
 sealed trait ClaudeEnvironment
@@ -90,11 +95,16 @@ case class ClaudeClient(
   config: ClaudeConfig,
   store: ClaudeStore
 ) {
-  private val defaultHeaders = Seq(
-    "x-api-key" -> config.key,
-    "Content-Type" -> "application/json",
-    "anthropic-version" -> config.anthropicVersion
-  )
+  private val defaultHeaders: Seq[(String, String)] = {
+    Seq(
+      "x-api-key" -> config.key,
+      "Content-Type" -> "application/json",
+      "anthropic-version" -> config.anthropicVersion
+    ) ++ (config.betaHeaders.toList match {
+      case Nil => Nil
+      case all => Seq("anthropic-beta" -> all.mkString(","))
+    })
+  }
 
   private def randomId(prefix: String): String = {
     prefix + "-" + UUID.randomUUID().toString.replaceAll("-", "")
@@ -133,10 +143,7 @@ case class ClaudeClient(
     reads: Reads[T]
   ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]] = {
     val request = originalRequest.copy(
-      system = originalRequest.system match {
-        case None => Some(responseFormat.structure)
-        case Some(s) => Some(s + ". " + responseFormat.structure)
-      }
+      outputFormat = Some(responseFormat.toOutputFormat)
     )
     val rm = ClaudeRequestMetadata(client, randomId("req"), request)
     store.storeRequest(rm)
@@ -178,8 +185,9 @@ case class ClaudeClient(
       rm.error(msg, raw = Some(response.content.map(_.text).mkString("\n"))).invalidNec
     }
 
-    Try(Json.parse(removeDelimiters(content))) match {
-      case Failure(_) => parseError("Content is not valid JSON")
+    // With structured outputs, Claude returns clean JSON without markdown delimiters
+    Try(Json.parse(content.trim)) match {
+      case Failure(ex) => parseError(s"Content is not valid JSON: ${ex.getMessage}")
       case Success(js) =>
         js.validate[T] match {
           case JsSuccess(value, _) => ClaudeResponseMetadata(rm, response, value).validNec
@@ -190,84 +198,95 @@ case class ClaudeClient(
         }
     }
   }
-
-  @tailrec
-  private def removeDelimiters(str: String): String = {
-    val trimmed = str.trim
-    if (trimmed.startsWith("```json")) {
-      removeDelimiters(trimmed.drop(7))
-    } else if (trimmed.startsWith("```")) {
-      removeDelimiters(trimmed.drop(3))
-    } else if (trimmed.endsWith("```")) {
-      removeDelimiters(trimmed.dropRight(3))
-    } else {
-      trimmed
-    }
-  }
 }
 
 trait ResponseFormat {
-  def structure: String
+  def name: String
+  def toOutputFormat: ClaudeOutputFormat
 }
 
 object ResponseFormat {
-  private val Steps: String =
-    """
-    "steps": [
-      { "explanation": "Brief explanation of your analysis step",
-        "output": "The result or finding from this step"
-      }
-    ]
-  """.strip
+  private def createSchema(name: String, properties: JsObject, required: Seq[String]): ClaudeOutputFormat = {
+    ClaudeOutputFormat(
+      jsonSchema = ClaudeJsonSchema(
+        name = name,
+        schema = Json.obj(
+          "type" -> "object",
+          "properties" -> properties,
+          "required" -> required,
+          "additionalProperties" -> false
+        ),
+        strict = Some(true)
+      )
+    )
+  }
+
+  private val stepsProperty = Json.obj(
+    "type" -> "array",
+    "items" -> Json.obj(
+      "type" -> "object",
+      "properties" -> Json.obj(
+        "explanation" -> Json.obj("type" -> "string"),
+        "output" -> Json.obj("type" -> "string")
+      ),
+      "required" -> Json.arr("explanation", "output"),
+      "additionalProperties" -> false
+    )
+  )
 
   val Comments: ResponseFormat = new ResponseFormat {
-    override val structure: String = buildJsonMessage(s"""{
-    $Steps,
-    "comments": [
-      "Your main response or advice as a string",
-      "Additional comments if needed"
-    ]
-  }""")
+    override val name: String = "comments_response"
+    override def toOutputFormat: ClaudeOutputFormat = createSchema(
+      name,
+      Json.obj(
+        "steps" -> stepsProperty,
+        "comments" -> Json.obj(
+          "type" -> "array",
+          "items" -> Json.obj("type" -> "string")
+        )
+      ),
+      Seq("steps", "comments")
+    )
   }
 
   val Recommendations: ResponseFormat = new ResponseFormat {
-    override def structure: String = buildJsonMessage(s"""{
-      $Steps,
-      "recommendations": [
-        {"category":"name","confidence":75},
-        {"category":"second name","confidence":50}
-      ]
-    }""")
+    override val name: String = "recommendation_response"
+    override def toOutputFormat: ClaudeOutputFormat = createSchema(
+      name,
+      Json.obj(
+        "steps" -> stepsProperty,
+        "recommendations" -> Json.obj(
+          "type" -> "array",
+          "items" -> Json.obj(
+            "type" -> "object",
+            "properties" -> Json.obj(
+              "category" -> Json.obj("type" -> "string"),
+              "confidence" -> Json.obj(
+                "type" -> "integer",
+                "minimum" -> 0,
+                "maximum" -> 100
+              )
+            ),
+            "required" -> Json.arr("category", "confidence"),
+            "additionalProperties" -> false
+          )
+        )
+      ),
+      Seq("steps", "recommendations")
+    )
   }
 
   val SingleInsight: ResponseFormat = new ResponseFormat {
-    override def structure: String = buildJsonMessage(s"""{
-    $Steps,
-    "insight":"Your insightful comment"
-  }""")
+    override val name: String = "single_insight_response"
+    override def toOutputFormat: ClaudeOutputFormat = createSchema(
+      name,
+      Json.obj(
+        "steps" -> stepsProperty,
+        "insight" -> Json.obj("type" -> "string")
+      ),
+      Seq("steps", "insight")
+    )
   }
 
   val all: List[ResponseFormat] = List(Comments, Recommendations, SingleInsight)
-
-  private def buildJsonMessage(structure: String): String = {
-    validateJsonObject(structure) match {
-      case Invalid(e) => sys.error(s"Invalid JSON Structure: $e. Structure:\n$structure")
-      case Valid(s) => {
-        s"ALWAYS respond in the following JSON format. Format:\n${Json.prettyPrint(s)}\n"
-      }
-    }
-  }
-
-  private def validateJsonObject(str: String): Validated[String, JsObject] = {
-    try {
-      val jsValue = Json.parse(str)
-      jsValue.validate[JsObject] match {
-        case JsSuccess(obj, _) => Valid(obj)
-        case JsError(errors) => Invalid(s"Not a JSON object: ${JsError.toJson(errors)}")
-      }
-    } catch {
-      case ex: Exception => Invalid(s"Invalid JSON: ${ex.getMessage}")
-    }
-  }
-
 }
