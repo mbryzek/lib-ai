@@ -1,7 +1,7 @@
 package com.mbryzek.ai.claude
 
 import cats.data.Validated.{Invalid, Valid}
-import cats.data.{Validated, ValidatedNec}
+import cats.data.ValidatedNec
 import cats.implicits.*
 import com.bryzek.claude.response.v0.models.*
 import com.bryzek.claude.response.v0.models.json.*
@@ -95,17 +95,15 @@ case class ClaudeClient(
   config: ClaudeConfig,
   store: ClaudeStore
 ) {
-  private val defaultHeaders = {
-    val baseHeaders = Seq(
+  private val defaultHeaders: Seq[(String, String)] = {
+    Seq(
       "x-api-key" -> config.key,
       "Content-Type" -> "application/json",
       "anthropic-version" -> config.anthropicVersion
-    )
-    if (config.betaHeaders.nonEmpty) {
-      baseHeaders :+ ("anthropic-beta" -> config.betaHeaders.mkString(","))
-    } else {
-      baseHeaders
-    }
+    ) ++ (config.betaHeaders.toList match {
+      case Nil => Nil
+      case all => Seq("anthropic-beta" -> all.mkString(","))
+    })
   }
 
   private def randomId(prefix: String): String = {

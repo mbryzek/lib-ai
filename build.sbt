@@ -13,7 +13,7 @@ lazy val allScalacOptions = Seq(
   //"-Wunused:params",
   "-Wimplausible-patterns",
   //"-Wunused:linted",
-  "-Wunused:unsafe-warn-patvars",
+  //"-Wunused:unsafe-warn-patvars", // Disabled due to warnings in generated code
   //"-Wunused:imports",
   "-Wunused:privates",
 )

@@ -17,18 +17,21 @@ class TestClaudeClient extends Client {
   override def baseUrl: String = "http://mock.localhost"
   override def messages = new TestMessages
 
-  private def validateResponseType(system: Option[String]): ValidatedNec[String, TestResponseFormat] = {
-    system
-      .toValidNec("Request does not have a system message - cannot identify expected response type")
+  private def validateResponseType(
+    outputFormat: Option[ClaudeOutputFormat]
+  ): ValidatedNec[String, TestResponseFormat] = {
+    outputFormat
+      .toValidNec("Request does not have an output format - cannot identify expected response type")
       .andThen(validateResponseType)
   }
 
-  protected def validateResponseType(system: String): ValidatedNec[String, TestResponseFormat] = {
+  protected def validateResponseType(outputFormat: ClaudeOutputFormat): ValidatedNec[String, TestResponseFormat] = {
+    val schemaName = outputFormat.jsonSchema.name
     ResponseFormat.all
       .find { f =>
-        system.contains(f.structure)
+        f.name == schemaName
       }
-      .toValidNec(s"Could not identify response format from system message: $system")
+      .toValidNec(s"Could not identify response format from output format name: $schemaName")
       .andThen(toTestResponseType)
   }
 
@@ -46,7 +49,7 @@ class TestClaudeClient extends Client {
       requestHeaders: Seq[(String, String)] = Nil
     )(implicit ec: ExecutionContext): Future[ClaudeResponse] = Future {
       val format = expectValid {
-        validateResponseType(claudeRequest.system)
+        validateResponseType(claudeRequest.outputFormat)
       }
       ClaudeResponse(
         id = "test-response-id",
