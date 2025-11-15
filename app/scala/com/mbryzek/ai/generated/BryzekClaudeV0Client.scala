@@ -43,7 +43,7 @@ package com.bryzek.claude.v0.models {
    */
 
   final case class ClaudeOutputFormat(
-    `type`: String = "json_schema",
+    `type`: com.bryzek.claude.v0.models.ClaudeOutputFormatType = com.bryzek.claude.v0.models.ClaudeOutputFormatType.JsonSchema,
     jsonSchema: com.bryzek.claude.v0.models.ClaudeJsonSchema
   )
 
@@ -142,6 +142,38 @@ package com.bryzek.claude.v0.models {
     def apply(value: String): ClaudeModel = fromString(value).getOrElse(UNDEFINED(value))
 
     def fromString(value: String): _root_.scala.Option[ClaudeModel] = byName.get(value.toLowerCase)
+
+  }
+
+  sealed trait ClaudeOutputFormatType extends _root_.scala.Product with _root_.scala.Serializable
+
+  object ClaudeOutputFormatType {
+
+    case object JsonSchema extends ClaudeOutputFormatType { override def toString = "json_schema" }
+    /**
+     * UNDEFINED captures values that are sent either in error or
+     * that were added by the server after this library was
+     * generated. We want to make it easy and obvious for users of
+     * this library to handle this case gracefully.
+     *
+     * We use all CAPS for the variable name to avoid collisions
+     * with the camel cased values above.
+     */
+    final case class UNDEFINED(override val toString: String) extends ClaudeOutputFormatType
+
+    /**
+     * all returns a list of all the valid, known values. We use
+     * lower case to avoid collisions with the camel cased values
+     * above.
+     */
+    val all: scala.List[ClaudeOutputFormatType] = scala.List(JsonSchema)
+
+    private
+    val byName: Map[String, ClaudeOutputFormatType] = all.map(x => x.toString.toLowerCase -> x).toMap
+
+    def apply(value: String): ClaudeOutputFormatType = fromString(value).getOrElse(UNDEFINED(value))
+
+    def fromString(value: String): _root_.scala.Option[ClaudeOutputFormatType] = byName.get(value.toLowerCase)
 
   }
 
@@ -307,6 +339,38 @@ package com.bryzek.claude.v0.models {
     implicit def jsonWritesClaudeClaudeModel: play.api.libs.json.Writes[ClaudeModel] = {
       (obj: com.bryzek.claude.v0.models.ClaudeModel) => {
         com.bryzek.claude.v0.models.json.jsonWritesClaudeClaudeModel(obj)
+      }
+    }
+
+    implicit val jsonReadsClaudeClaudeOutputFormatType: play.api.libs.json.Reads[com.bryzek.claude.v0.models.ClaudeOutputFormatType] = new play.api.libs.json.Reads[com.bryzek.claude.v0.models.ClaudeOutputFormatType] {
+      def reads(js: play.api.libs.json.JsValue): play.api.libs.json.JsResult[com.bryzek.claude.v0.models.ClaudeOutputFormatType] = {
+        js match {
+          case v: play.api.libs.json.JsString => play.api.libs.json.JsSuccess(com.bryzek.claude.v0.models.ClaudeOutputFormatType(v.value))
+          case _ => {
+            (js \ "value").validate[String] match {
+              case play.api.libs.json.JsSuccess(v, _) => play.api.libs.json.JsSuccess(com.bryzek.claude.v0.models.ClaudeOutputFormatType(v))
+              case err: play.api.libs.json.JsError =>
+                (js \ "claude_output_format_type").validate[String] match {
+                  case play.api.libs.json.JsSuccess(v, _) => play.api.libs.json.JsSuccess(com.bryzek.claude.v0.models.ClaudeOutputFormatType(v))
+                  case err: play.api.libs.json.JsError => err
+                }
+            }
+          }
+        }
+      }
+    }
+
+    def jsonWritesClaudeClaudeOutputFormatType(obj: com.bryzek.claude.v0.models.ClaudeOutputFormatType) = {
+      play.api.libs.json.JsString(obj.toString)
+    }
+
+    def jsObjectClaudeOutputFormatType(obj: com.bryzek.claude.v0.models.ClaudeOutputFormatType) = {
+      play.api.libs.json.Json.obj("value" -> play.api.libs.json.JsString(obj.toString))
+    }
+
+    implicit def jsonWritesClaudeClaudeOutputFormatType: play.api.libs.json.Writes[ClaudeOutputFormatType] = {
+      (obj: com.bryzek.claude.v0.models.ClaudeOutputFormatType) => {
+        com.bryzek.claude.v0.models.json.jsonWritesClaudeClaudeOutputFormatType(obj)
       }
     }
 
@@ -478,14 +542,14 @@ package com.bryzek.claude.v0.models {
 
     implicit def jsonReadsClaudeClaudeOutputFormat: play.api.libs.json.Reads[com.bryzek.claude.v0.models.ClaudeOutputFormat] = {
       for {
-        `type` <- (__ \ "type").read[String]
+        `type` <- (__ \ "type").read[com.bryzek.claude.v0.models.ClaudeOutputFormatType]
         jsonSchema <- (__ \ "json_schema").read[com.bryzek.claude.v0.models.ClaudeJsonSchema]
       } yield ClaudeOutputFormat(`type`, jsonSchema)
     }
 
     def jsObjectClaudeOutputFormat(obj: com.bryzek.claude.v0.models.ClaudeOutputFormat): play.api.libs.json.JsObject = {
       play.api.libs.json.Json.obj(
-        "type" -> play.api.libs.json.JsString(obj.`type`),
+        "type" -> play.api.libs.json.JsString(obj.`type`.toString),
         "json_schema" -> com.bryzek.claude.v0.models.json.jsObjectClaudeJsonSchema(obj.jsonSchema)
       )
     }
@@ -663,6 +727,15 @@ package com.bryzek.claude.v0 {
       }
       implicit def pathBindableClaudeModel(implicit stringBinder: QueryStringBindable[String]): PathBindable[com.bryzek.claude.v0.models.ClaudeModel] = ApibuilderPathBindable(claudeModelConverter)
       implicit def queryStringBindableClaudeModel(implicit stringBinder: QueryStringBindable[String]): QueryStringBindable[com.bryzek.claude.v0.models.ClaudeModel] = ApibuilderQueryStringBindable(claudeModelConverter)
+
+      val claudeOutputFormatTypeConverter: ApibuilderTypeConverter[com.bryzek.claude.v0.models.ClaudeOutputFormatType] = new ApibuilderTypeConverter[com.bryzek.claude.v0.models.ClaudeOutputFormatType] {
+        override def convert(value: String): com.bryzek.claude.v0.models.ClaudeOutputFormatType = com.bryzek.claude.v0.models.ClaudeOutputFormatType(value)
+        override def convert(value: com.bryzek.claude.v0.models.ClaudeOutputFormatType): String = value.toString
+        override def example: com.bryzek.claude.v0.models.ClaudeOutputFormatType = com.bryzek.claude.v0.models.ClaudeOutputFormatType.JsonSchema
+        override def validValues: Seq[com.bryzek.claude.v0.models.ClaudeOutputFormatType] = com.bryzek.claude.v0.models.ClaudeOutputFormatType.all
+      }
+      implicit def pathBindableClaudeOutputFormatType(implicit stringBinder: QueryStringBindable[String]): PathBindable[com.bryzek.claude.v0.models.ClaudeOutputFormatType] = ApibuilderPathBindable(claudeOutputFormatTypeConverter)
+      implicit def queryStringBindableClaudeOutputFormatType(implicit stringBinder: QueryStringBindable[String]): QueryStringBindable[com.bryzek.claude.v0.models.ClaudeOutputFormatType] = ApibuilderQueryStringBindable(claudeOutputFormatTypeConverter)
 
       val claudeRoleConverter: ApibuilderTypeConverter[com.bryzek.claude.v0.models.ClaudeRole] = new ApibuilderTypeConverter[com.bryzek.claude.v0.models.ClaudeRole] {
         override def convert(value: String): com.bryzek.claude.v0.models.ClaudeRole = com.bryzek.claude.v0.models.ClaudeRole(value)

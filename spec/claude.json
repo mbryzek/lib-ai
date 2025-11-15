@@ -26,6 +26,11 @@
                 { "name": "stop_sequence" },
                 { "name": "tool_use" }
             ]
+        },
+        "claude_output_format_type": {
+          "values": [
+            { "name": "json_schema" }
+          ]
         }
     },
 
@@ -43,7 +48,7 @@
         "claude_output_format": {
             "description": "Structured output configuration for guaranteed JSON schema compliance",
             "fields": [
-                { "name": "type", "type": "string", "default": "json_schema" },
+                { "name": "type", "type": "claude_output_format_type", "default": "json_schema" },
                 { "name": "json_schema", "type": "claude_json_schema" }
             ]
         },

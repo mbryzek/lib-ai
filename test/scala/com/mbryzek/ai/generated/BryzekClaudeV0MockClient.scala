@@ -36,6 +36,8 @@ package com.bryzek.claude.v0.mock {
 
     def makeClaudeModel(): com.bryzek.claude.v0.models.ClaudeModel = com.bryzek.claude.v0.models.ClaudeModel.ClaudeSonnet45
 
+    def makeClaudeOutputFormatType(): com.bryzek.claude.v0.models.ClaudeOutputFormatType = com.bryzek.claude.v0.models.ClaudeOutputFormatType.JsonSchema
+
     def makeClaudeRole(): com.bryzek.claude.v0.models.ClaudeRole = com.bryzek.claude.v0.models.ClaudeRole.User
 
     def makeClaudeStopReason(): com.bryzek.claude.v0.models.ClaudeStopReason = com.bryzek.claude.v0.models.ClaudeStopReason.EndTurn
@@ -66,7 +68,7 @@ package com.bryzek.claude.v0.mock {
     )
 
     def makeClaudeOutputFormat(): com.bryzek.claude.v0.models.ClaudeOutputFormat = com.bryzek.claude.v0.models.ClaudeOutputFormat(
-      `type` = Factories.randomString(24),
+      `type` = com.bryzek.claude.v0.mock.Factories.makeClaudeOutputFormatType(),
       jsonSchema = com.bryzek.claude.v0.mock.Factories.makeClaudeJsonSchema()
     )
 
