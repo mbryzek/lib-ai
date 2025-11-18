@@ -7,7 +7,7 @@ import com.bryzek.claude.response.v0.models.*
 import com.bryzek.claude.response.v0.models.json.*
 import com.bryzek.claude.v0.errors.ClaudeErrorResponseResponse
 import com.bryzek.claude.v0.interfaces.Client
-import com.bryzek.claude.v0.models.*
+import com.bryzek.claude.v0.models.{ClaudeJsonSchema, *}
 import com.google.inject.ImplementedBy
 import play.api.libs.json.*
 
@@ -115,13 +115,14 @@ case class ClaudeClient(
   def chatComments(request: ClaudeRequest)(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[String]]] = {
-    chatCompletion[CommentsResponse](request, ResponseFormat.Comments)(using ec).map(_.map(_.content.comments))
+    chatCompletion[CommentsResponse](request, ClaudeJsonSchemas.CommentsResponse)(using ec)
+      .map(_.map(_.content.comments))
   }
 
   def chatRecommendations(request: ClaudeRequest)(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[Recommendation]]] = {
-    chatCompletion[RecommendationResponse](request, ResponseFormat.Recommendations)(using ec)
+    chatCompletion[RecommendationResponse](request, ClaudeJsonSchemas.RecommendationsResponse)(using ec)
       .map(_.map(_.content.recommendations))
   }
 
@@ -134,16 +135,20 @@ case class ClaudeClient(
   def chatSingleInsight(request: ClaudeRequest)(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, String]] = {
-    chatCompletion[SingleInsightResponse](request, ResponseFormat.SingleInsight)(using ec)
+    chatCompletion[SingleInsightResponse](request, ClaudeJsonSchemas.SingleInsight)(using ec)
       .map(_.map(_.content.insight))
   }
 
-  def chatCompletion[T](originalRequest: ClaudeRequest, responseFormat: ResponseFormat)(implicit
+  def chatCompletion[T](originalRequest: ClaudeRequest, jsonSchema: ClaudeJsonSchema)(implicit
     ec: ExecutionContext,
     reads: Reads[T]
   ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]] = {
     val request = originalRequest.copy(
-      outputFormat = Some(responseFormat.toOutputFormat)
+      outputFormat = Some(
+        ClaudeOutputFormat(
+          jsonSchema = jsonSchema
+        )
+      )
     )
     val rm = ClaudeRequestMetadata(client, randomId("req"), request)
     store.storeRequest(rm)
@@ -200,24 +205,17 @@ case class ClaudeClient(
   }
 }
 
-trait ResponseFormat {
-  def name: String
-  def toOutputFormat: ClaudeOutputFormat
-}
-
-object ResponseFormat {
-  private def createSchema(name: String, properties: JsObject, required: Seq[String]): ClaudeOutputFormat = {
-    ClaudeOutputFormat(
-      jsonSchema = ClaudeJsonSchema(
-        name = name,
-        schema = Json.obj(
-          "type" -> "object",
-          "properties" -> properties,
-          "required" -> required,
-          "additionalProperties" -> false
-        ),
-        strict = Some(true)
-      )
+object ClaudeJsonSchemas {
+  def create(name: String, properties: JsObject, required: Seq[String]): ClaudeJsonSchema = {
+    ClaudeJsonSchema(
+      name = name,
+      schema = Json.obj(
+        "type" -> "object",
+        "properties" -> properties,
+        "required" -> required,
+        "additionalProperties" -> false
+      ),
+      strict = Some(true)
     )
   }
 
@@ -234,59 +232,50 @@ object ResponseFormat {
     )
   )
 
-  val Comments: ResponseFormat = new ResponseFormat {
-    override val name: String = "comments_response"
-    override def toOutputFormat: ClaudeOutputFormat = createSchema(
-      name,
-      Json.obj(
-        "steps" -> stepsProperty,
-        "comments" -> Json.obj(
-          "type" -> "array",
-          "items" -> Json.obj("type" -> "string")
+  val CommentsResponse: ClaudeJsonSchema = ClaudeJsonSchemas.create(
+    "comments_response",
+    Json.obj(
+      "steps" -> stepsProperty,
+      "comments" -> Json.obj(
+        "type" -> "array",
+        "items" -> Json.obj("type" -> "string")
+      )
+    ),
+    Seq("steps", "comments")
+  )
+
+  val RecommendationsResponse: ClaudeJsonSchema = ClaudeJsonSchemas.create(
+    "recommendation_response",
+    Json.obj(
+      "steps" -> stepsProperty,
+      "recommendations" -> Json.obj(
+        "type" -> "array",
+        "items" -> Json.obj(
+          "type" -> "object",
+          "properties" -> Json.obj(
+            "category" -> Json.obj("type" -> "string"),
+            "confidence" -> Json.obj(
+              "type" -> "integer",
+              "minimum" -> 0,
+              "maximum" -> 100
+            )
+          ),
+          "required" -> Json.arr("category", "confidence"),
+          "additionalProperties" -> false
         )
-      ),
-      Seq("steps", "comments")
-    )
-  }
+      )
+    ),
+    Seq("steps", "recommendations")
+  )
 
-  val Recommendations: ResponseFormat = new ResponseFormat {
-    override val name: String = "recommendation_response"
-    override def toOutputFormat: ClaudeOutputFormat = createSchema(
-      name,
-      Json.obj(
-        "steps" -> stepsProperty,
-        "recommendations" -> Json.obj(
-          "type" -> "array",
-          "items" -> Json.obj(
-            "type" -> "object",
-            "properties" -> Json.obj(
-              "category" -> Json.obj("type" -> "string"),
-              "confidence" -> Json.obj(
-                "type" -> "integer",
-                "minimum" -> 0,
-                "maximum" -> 100
-              )
-            ),
-            "required" -> Json.arr("category", "confidence"),
-            "additionalProperties" -> false
-          )
-        )
-      ),
-      Seq("steps", "recommendations")
-    )
-  }
+  val SingleInsight: ClaudeJsonSchema = ClaudeJsonSchemas.create(
+    "single_insight_response",
+    Json.obj(
+      "steps" -> stepsProperty,
+      "insight" -> Json.obj("type" -> "string")
+    ),
+    Seq("steps", "insight")
+  )
 
-  val SingleInsight: ResponseFormat = new ResponseFormat {
-    override val name: String = "single_insight_response"
-    override def toOutputFormat: ClaudeOutputFormat = createSchema(
-      name,
-      Json.obj(
-        "steps" -> stepsProperty,
-        "insight" -> Json.obj("type" -> "string")
-      ),
-      Seq("steps", "insight")
-    )
-  }
-
-  val all: List[ResponseFormat] = List(Comments, Recommendations, SingleInsight)
+  val all: List[ClaudeJsonSchema] = List(CommentsResponse, RecommendationsResponse, SingleInsight)
 }

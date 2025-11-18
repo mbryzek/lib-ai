@@ -27,7 +27,7 @@ class TestClaudeClient extends Client {
 
   protected def validateResponseType(outputFormat: ClaudeOutputFormat): ValidatedNec[String, TestResponseFormat] = {
     val schemaName = outputFormat.jsonSchema.name
-    ResponseFormat.all
+    ClaudeJsonSchemas.all
       .find { f =>
         f.name == schemaName
       }
@@ -74,11 +74,11 @@ class TestClaudeClient extends Client {
     }
   }
 
-  private def toTestResponseType(f: ResponseFormat): ValidatedNec[String, TestResponseFormat] = {
+  private def toTestResponseType(f: ClaudeJsonSchema): ValidatedNec[String, TestResponseFormat] = {
     f match {
-      case ResponseFormat.Comments => TestResponseFormat.Comments.validNec
-      case ResponseFormat.Recommendations => TestResponseFormat.Recommendations.validNec
-      case ResponseFormat.SingleInsight => TestResponseFormat.SingleInsight.validNec
+      case ClaudeJsonSchemas.CommentsResponse => TestResponseFormat.Comments.validNec
+      case ClaudeJsonSchemas.RecommendationsResponse => TestResponseFormat.Recommendations.validNec
+      case ClaudeJsonSchemas.SingleInsight => TestResponseFormat.SingleInsight.validNec
       case other => s"Could not find test response format for class ${other.getClass.getName}".invalidNec
     }
   }
@@ -91,7 +91,7 @@ class TestClaudeClient extends Client {
   }
 }
 
-abstract class TestResponseFormat(format: ResponseFormat) {
+abstract class TestResponseFormat(schema: ClaudeJsonSchema) {
 
   def generateResponse(claudeRequest: ClaudeRequest): JsValue
 
@@ -104,7 +104,7 @@ abstract class TestResponseFormat(format: ResponseFormat) {
 }
 
 object TestResponseFormat {
-  val Comments: TestResponseFormat = new TestResponseFormat(ResponseFormat.Comments) {
+  val Comments: TestResponseFormat = new TestResponseFormat(ClaudeJsonSchemas.CommentsResponse) {
 
     override def generateResponse(claudeRequest: ClaudeRequest): JsValue = buildJs(
       Seq("Test comment")
@@ -118,7 +118,7 @@ object TestResponseFormat {
     )
   }
 
-  val Recommendations: TestResponseFormat = new TestResponseFormat(ResponseFormat.Recommendations) {
+  val Recommendations: TestResponseFormat = new TestResponseFormat(ClaudeJsonSchemas.RecommendationsResponse) {
     override def generateResponse(claudeRequest: ClaudeRequest): JsValue = buildJs(
       Seq(
         Recommendation(category = "coffee", confidence = 75),
@@ -135,7 +135,7 @@ object TestResponseFormat {
 
   }
 
-  val SingleInsight: TestResponseFormat = new TestResponseFormat(ResponseFormat.SingleInsight) {
+  val SingleInsight: TestResponseFormat = new TestResponseFormat(ClaudeJsonSchemas.SingleInsight) {
     override def generateResponse(claudeRequest: ClaudeRequest): JsValue = buildJs("You are doing amazing")
 
     def buildJs(insight: String): JsValue = Json.toJson(
