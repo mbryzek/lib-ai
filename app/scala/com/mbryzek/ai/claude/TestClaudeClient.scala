@@ -17,21 +17,20 @@ class TestClaudeClient extends Client {
   override def baseUrl: String = "http://mock.localhost"
   override def messages = new TestMessages
 
-  private def validateResponseType(
+  private def validateOutputFormat(
     outputFormat: Option[ClaudeOutputFormat]
   ): ValidatedNec[String, TestResponseFormat] = {
     outputFormat
       .toValidNec("Request does not have an output format - cannot identify expected response type")
-      .andThen(validateResponseType)
+      .andThen { f => validateJsonSchema(f.jsonSchema) }
   }
 
-  protected def validateResponseType(outputFormat: ClaudeOutputFormat): ValidatedNec[String, TestResponseFormat] = {
-    val schemaName = outputFormat.jsonSchema.name
+  protected def validateJsonSchema(jsonSchema: ClaudeJsonSchema): ValidatedNec[String, TestResponseFormat] = {
     ClaudeJsonSchemas.all
       .find { f =>
-        f.name == schemaName
+        f.name == jsonSchema.name
       }
-      .toValidNec(s"Could not identify response format from output format name: $schemaName")
+      .toValidNec(s"Could not identify json schema with name: ${jsonSchema.name}")
       .andThen(toTestResponseType)
   }
 
@@ -49,7 +48,7 @@ class TestClaudeClient extends Client {
       requestHeaders: Seq[(String, String)] = Nil
     )(implicit ec: ExecutionContext): Future[ClaudeResponse] = Future {
       val format = expectValid {
-        validateResponseType(claudeRequest.outputFormat)
+        validateOutputFormat(claudeRequest.outputFormat)
       }
       ClaudeResponse(
         id = "test-response-id",
