@@ -7,7 +7,7 @@ import com.bryzek.claude.response.v0.models.*
 import com.bryzek.claude.response.v0.models.json.*
 import com.bryzek.claude.v0.interfaces.Client
 import com.bryzek.claude.v0.models.*
-import play.api.libs.json.{JsValue, Json}
+import play.api.libs.json.{JsObject, JsValue, Json}
 
 import javax.inject.Singleton
 import scala.concurrent.{ExecutionContext, Future}
@@ -22,7 +22,18 @@ class TestClaudeClient extends Client {
   ): ValidatedNec[String, TestResponseFormat] = {
     outputFormat
       .toValidNec("Request does not have an output format - cannot identify expected response type")
-      .andThen { f => validateJsonSchema(f.schema) }
+      .andThen { f => validateJsonSchemaFromObject(f.schema) }
+  }
+
+  protected def validateJsonSchemaFromObject(schemaObject: JsObject): ValidatedNec[String, TestResponseFormat] = {
+    // Extract the schema name from properties if available, or use a default approach
+    ClaudeJsonSchemas.all
+      .find { f =>
+        // Compare the schema structure
+        f.schema == schemaObject
+      }
+      .toValidNec(s"Could not identify json schema from object")
+      .andThen(toTestResponseType)
   }
 
   protected def validateJsonSchema(jsonSchema: ClaudeJsonSchema): ValidatedNec[String, TestResponseFormat] = {

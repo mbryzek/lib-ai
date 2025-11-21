@@ -49,7 +49,7 @@
             "description": "Structured output configuration for guaranteed JSON schema compliance",
             "fields": [
                 { "name": "type", "type": "claude_output_format_type", "default": "json_schema" },
-                { "name": "schema", "type": "claude_json_schema" }
+                { "name": "schema", "type": "object", "description": "JSON schema object defining the structure" }
             ]
         },
         "claude_json_schema": {
