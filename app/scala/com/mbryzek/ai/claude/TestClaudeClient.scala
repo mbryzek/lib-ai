@@ -22,7 +22,7 @@ class TestClaudeClient extends Client {
   ): ValidatedNec[String, TestResponseFormat] = {
     outputFormat
       .toValidNec("Request does not have an output format - cannot identify expected response type")
-      .andThen { f => validateJsonSchema(f.jsonSchema) }
+      .andThen { f => validateJsonSchema(f.schema) }
   }
 
   protected def validateJsonSchema(jsonSchema: ClaudeJsonSchema): ValidatedNec[String, TestResponseFormat] = {

@@ -146,7 +146,7 @@ case class ClaudeClient(
     val request = originalRequest.copy(
       outputFormat = Some(
         ClaudeOutputFormat(
-          jsonSchema = jsonSchema
+          schema = jsonSchema
         )
       )
     )
