@@ -48,16 +48,10 @@
         "claude_output_format": {
             "description": "Structured output configuration for guaranteed JSON schema compliance",
             "fields": [
-                { "name": "type", "type": "claude_output_format_type", "default": "json_schema" },
-                { "name": "schema", "type": "object", "description": "JSON schema object defining the structure" }
-            ]
-        },
-        "claude_json_schema": {
-            "description": "JSON schema definition for structured outputs",
-            "fields": [
-                { "name": "name", "type": "string", "description": "Name of the schema" },
-                { "name": "schema", "type": "object", "description": "JSON schema object defining the structure" },
-                { "name": "strict", "type": "boolean", "required": false, "description": "Whether to enforce strict schema validation" }
+              { "name": "name", "type": "string", "description": "Name of the schema" },
+              { "name": "type", "type": "claude_output_format_type", "default": "json_schema" },
+              { "name": "schema", "type": "object", "description": "JSON schema object defining the structure" },
+              { "name": "strict", "type": "boolean", "default": true }
             ]
         },
         "claude_message": {

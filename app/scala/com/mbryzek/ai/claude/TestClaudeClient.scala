@@ -22,26 +22,13 @@ class TestClaudeClient extends Client {
   ): ValidatedNec[String, TestResponseFormat] = {
     outputFormat
       .toValidNec("Request does not have an output format - cannot identify expected response type")
-      .andThen { f => validateJsonSchemaFromObject(f.schema) }
+      .andThen { f => validateOutputFormatByName(f.name) }
   }
 
-  protected def validateJsonSchemaFromObject(schemaObject: JsObject): ValidatedNec[String, TestResponseFormat] = {
-    // Extract the schema name from properties if available, or use a default approach
-    ClaudeJsonSchemas.all
-      .find { f =>
-        // Compare the schema structure
-        f.schema == schemaObject
-      }
+  protected def validateOutputFormatByName(name: String): ValidatedNec[String, TestResponseFormat] = {
+    ClaudeOutputFormats.all
+      .find(_.name == name)
       .toValidNec(s"Could not identify json schema from object")
-      .andThen(toTestResponseType)
-  }
-
-  protected def validateJsonSchema(jsonSchema: ClaudeJsonSchema): ValidatedNec[String, TestResponseFormat] = {
-    ClaudeJsonSchemas.all
-      .find { f =>
-        f.name == jsonSchema.name
-      }
-      .toValidNec(s"Could not identify json schema with name: ${jsonSchema.name}")
       .andThen(toTestResponseType)
   }
 
@@ -84,11 +71,11 @@ class TestClaudeClient extends Client {
     }
   }
 
-  private def toTestResponseType(f: ClaudeJsonSchema): ValidatedNec[String, TestResponseFormat] = {
+  private def toTestResponseType(f: ClaudeOutputFormat): ValidatedNec[String, TestResponseFormat] = {
     f match {
-      case ClaudeJsonSchemas.CommentsResponse => TestResponseFormat.Comments.validNec
-      case ClaudeJsonSchemas.RecommendationsResponse => TestResponseFormat.Recommendations.validNec
-      case ClaudeJsonSchemas.SingleInsight => TestResponseFormat.SingleInsight.validNec
+      case ClaudeOutputFormats.CommentsResponse => TestResponseFormat.Comments.validNec
+      case ClaudeOutputFormats.RecommendationsResponse => TestResponseFormat.Recommendations.validNec
+      case ClaudeOutputFormats.SingleInsight => TestResponseFormat.SingleInsight.validNec
       case other => s"Could not find test response format for class ${other.getClass.getName}".invalidNec
     }
   }
@@ -101,7 +88,7 @@ class TestClaudeClient extends Client {
   }
 }
 
-abstract class TestResponseFormat(schema: ClaudeJsonSchema) {
+abstract class TestResponseFormat(schema: ClaudeOutputFormat) {
 
   def generateResponse(claudeRequest: ClaudeRequest): JsValue
 
@@ -114,7 +101,7 @@ abstract class TestResponseFormat(schema: ClaudeJsonSchema) {
 }
 
 object TestResponseFormat {
-  val Comments: TestResponseFormat = new TestResponseFormat(ClaudeJsonSchemas.CommentsResponse) {
+  val Comments: TestResponseFormat = new TestResponseFormat(ClaudeOutputFormats.CommentsResponse) {
 
     override def generateResponse(claudeRequest: ClaudeRequest): JsValue = buildJs(
       Seq("Test comment")
@@ -128,7 +115,7 @@ object TestResponseFormat {
     )
   }
 
-  val Recommendations: TestResponseFormat = new TestResponseFormat(ClaudeJsonSchemas.RecommendationsResponse) {
+  val Recommendations: TestResponseFormat = new TestResponseFormat(ClaudeOutputFormats.RecommendationsResponse) {
     override def generateResponse(claudeRequest: ClaudeRequest): JsValue = buildJs(
       Seq(
         Recommendation(category = "coffee", confidence = 75),
@@ -145,7 +132,7 @@ object TestResponseFormat {
 
   }
 
-  val SingleInsight: TestResponseFormat = new TestResponseFormat(ClaudeJsonSchemas.SingleInsight) {
+  val SingleInsight: TestResponseFormat = new TestResponseFormat(ClaudeOutputFormats.SingleInsight) {
     override def generateResponse(claudeRequest: ClaudeRequest): JsValue = buildJs("You are doing amazing")
 
     def buildJs(insight: String): JsValue = Json.toJson(

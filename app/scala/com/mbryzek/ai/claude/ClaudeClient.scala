@@ -7,7 +7,7 @@ import com.bryzek.claude.response.v0.models.*
 import com.bryzek.claude.response.v0.models.json.*
 import com.bryzek.claude.v0.errors.ClaudeErrorResponseResponse
 import com.bryzek.claude.v0.interfaces.Client
-import com.bryzek.claude.v0.models.{ClaudeJsonSchema, *}
+import com.bryzek.claude.v0.models.{ClaudeOutputFormat, *}
 import com.google.inject.ImplementedBy
 import play.api.libs.json.*
 
@@ -115,14 +115,14 @@ case class ClaudeClient(
   def chatComments(request: ClaudeRequest)(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[String]]] = {
-    chatCompletion[CommentsResponse](request, ClaudeJsonSchemas.CommentsResponse)(using ec)
+    chatCompletion[CommentsResponse](request, ClaudeOutputFormats.CommentsResponse)(using ec)
       .map(_.map(_.content.comments))
   }
 
   def chatRecommendations(request: ClaudeRequest)(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[Recommendation]]] = {
-    chatCompletion[RecommendationResponse](request, ClaudeJsonSchemas.RecommendationsResponse)(using ec)
+    chatCompletion[RecommendationResponse](request, ClaudeOutputFormats.RecommendationsResponse)(using ec)
       .map(_.map(_.content.recommendations))
   }
 
@@ -135,20 +135,16 @@ case class ClaudeClient(
   def chatSingleInsight(request: ClaudeRequest)(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, String]] = {
-    chatCompletion[SingleInsightResponse](request, ClaudeJsonSchemas.SingleInsight)(using ec)
+    chatCompletion[SingleInsightResponse](request, ClaudeOutputFormats.SingleInsight)(using ec)
       .map(_.map(_.content.insight))
   }
 
-  def chatCompletion[T](originalRequest: ClaudeRequest, jsonSchema: ClaudeJsonSchema)(implicit
+  def chatCompletion[T](originalRequest: ClaudeRequest, outputFormat: ClaudeOutputFormat)(implicit
     ec: ExecutionContext,
     reads: Reads[T]
   ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]] = {
     val request = originalRequest.copy(
-      outputFormat = Some(
-        ClaudeOutputFormat(
-          schema = jsonSchema.schema // Use the schema content directly
-        )
-      )
+      outputFormat = Some(outputFormat)
     )
     val rm = ClaudeRequestMetadata(client, randomId("req"), request)
     store.storeRequest(rm)
@@ -205,17 +201,16 @@ case class ClaudeClient(
   }
 }
 
-object ClaudeJsonSchemas {
-  def create(name: String, properties: JsObject, required: Seq[String]): ClaudeJsonSchema = {
-    ClaudeJsonSchema(
+object ClaudeOutputFormats {
+  def create(name: String, properties: JsObject, required: Seq[String]): ClaudeOutputFormat = {
+    ClaudeOutputFormat(
       name = name,
       schema = Json.obj(
         "type" -> "object",
         "properties" -> properties,
         "required" -> required,
         "additionalProperties" -> false
-      ),
-      strict = Some(true)
+      )
     )
   }
 
@@ -232,7 +227,7 @@ object ClaudeJsonSchemas {
     )
   )
 
-  val CommentsResponse: ClaudeJsonSchema = ClaudeJsonSchemas.create(
+  val CommentsResponse: ClaudeOutputFormat = ClaudeOutputFormats.create(
     "comments_response",
     Json.obj(
       "steps" -> stepsProperty,
@@ -244,7 +239,7 @@ object ClaudeJsonSchemas {
     Seq("steps", "comments")
   )
 
-  val RecommendationsResponse: ClaudeJsonSchema = ClaudeJsonSchemas.create(
+  val RecommendationsResponse: ClaudeOutputFormat = ClaudeOutputFormats.create(
     "recommendation_response",
     Json.obj(
       "steps" -> stepsProperty,
@@ -268,7 +263,7 @@ object ClaudeJsonSchemas {
     Seq("steps", "recommendations")
   )
 
-  val SingleInsight: ClaudeJsonSchema = ClaudeJsonSchemas.create(
+  val SingleInsight: ClaudeOutputFormat = ClaudeOutputFormats.create(
     "single_insight_response",
     Json.obj(
       "steps" -> stepsProperty,
@@ -277,5 +272,5 @@ object ClaudeJsonSchemas {
     Seq("steps", "insight")
   )
 
-  val all: List[ClaudeJsonSchema] = List(CommentsResponse, RecommendationsResponse, SingleInsight)
+  val all: List[ClaudeOutputFormat] = List(CommentsResponse, RecommendationsResponse, SingleInsight)
 }
