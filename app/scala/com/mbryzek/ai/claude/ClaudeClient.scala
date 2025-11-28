@@ -7,7 +7,7 @@ import com.bryzek.claude.response.v0.models.*
 import com.bryzek.claude.response.v0.models.json.*
 import com.bryzek.claude.v0.errors.ClaudeErrorResponseResponse
 import com.bryzek.claude.v0.interfaces.Client
-import com.bryzek.claude.v0.models.{ClaudeOutputFormat, *}
+import com.bryzek.claude.v0.models.*
 import com.google.inject.ImplementedBy
 import play.api.libs.json.*
 
@@ -90,6 +90,16 @@ object ClaudeClient {
 
 }
 
+final case class ClaudeOutputFormat(
+  name: String,
+  schema: _root_.play.api.libs.json.JsObject
+) {
+  def toApi: ClaudeApiOutputFormat = ClaudeApiOutputFormat(
+    `type` = com.bryzek.claude.v0.models.ClaudeOutputFormatType.JsonSchema,
+    schema = schema
+  )
+}
+
 case class ClaudeClient(
   client: Client,
   config: ClaudeConfig,
@@ -144,12 +154,15 @@ case class ClaudeClient(
     reads: Reads[T]
   ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]] = {
     val request = originalRequest.copy(
-      outputFormat = Some(outputFormat)
+      outputFormat = Some(outputFormat.toApi)
     )
     val rm = ClaudeRequestMetadata(client, randomId("req"), request)
     store.storeRequest(rm)
     client.messages
-      .post(request, requestHeaders = defaultHeaders)
+      .post(
+        request,
+        requestHeaders = defaultHeaders ++ Seq((TestClaudeClient.OutputFormatNameHeader, outputFormat.name))
+      )
       .map(parseContent[T](rm, _))
       .recover {
         case r: ClaudeErrorResponseResponse => r.claudeErrorResponse.error.invalidNec

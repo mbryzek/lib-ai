@@ -12,17 +12,22 @@ import play.api.libs.json.{JsObject, JsValue, Json}
 import javax.inject.Singleton
 import scala.concurrent.{ExecutionContext, Future}
 
+object TestClaudeClient {
+  val OutputFormatNameHeader: String = "X-Output-Format"
+}
+
 @Singleton
 class TestClaudeClient extends Client {
   override def baseUrl: String = "http://mock.localhost"
   override def messages = new TestMessages
 
-  private def validateOutputFormat(
-    outputFormat: Option[ClaudeOutputFormat]
-  ): ValidatedNec[String, TestResponseFormat] = {
-    outputFormat
-      .toValidNec("Request does not have an output format - cannot identify expected response type")
-      .andThen { f => validateOutputFormatByName(f.name) }
+  private def getHeader(requestHeaders: Seq[(String, String)], name: String): Option[String] = {
+    requestHeaders.find(_._1.toLowerCase.trim == name.toLowerCase.trim).map(_._2).toList.distinct match {
+      case Nil => None
+      case one :: Nil => None
+      case multiple =>
+        sys.error(s"Found multiple request headers named '$name' with values: ${multiple.mkString(", ")}")
+    }
   }
 
   protected def validateOutputFormatByName(name: String): ValidatedNec[String, TestResponseFormat] = {
@@ -45,8 +50,11 @@ class TestClaudeClient extends Client {
       claudeRequest: ClaudeRequest,
       requestHeaders: Seq[(String, String)] = Nil
     )(implicit ec: ExecutionContext): Future[ClaudeResponse] = Future {
+      val name = getHeader(requestHeaders, TestClaudeClient.OutputFormatNameHeader).getOrElse {
+        sys.error(s"Missing header ${TestClaudeClient.OutputFormatNameHeader}")
+      }
       val format = expectValid {
-        validateOutputFormat(claudeRequest.outputFormat)
+        validateOutputFormatByName(name)
       }
       ClaudeResponse(
         id = "test-response-id",

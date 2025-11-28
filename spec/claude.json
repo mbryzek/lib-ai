@@ -42,16 +42,14 @@
                 { "name": "max_tokens", "type": "long", "default": 30000 },
                 { "name": "temperature", "type": "decimal", "required": false, "minimum": 0.0, "maximum": 1.0 },
                 { "name": "system", "type": "string", "required": false },
-                { "name": "output_format", "type": "claude_output_format", "required": false }
+                { "name": "output_format", "type": "claude_api_output_format", "required": false }
             ]
         },
-        "claude_output_format": {
+        "claude_api_output_format": {
             "description": "Structured output configuration for guaranteed JSON schema compliance",
             "fields": [
-              { "name": "name", "type": "string", "description": "Name of the schema" },
               { "name": "type", "type": "claude_output_format_type", "default": "json_schema" },
-              { "name": "schema", "type": "object", "description": "JSON schema object defining the structure" },
-              { "name": "strict", "type": "boolean", "default": true }
+              { "name": "schema", "type": "object", "description": "JSON schema object defining the structure" }
             ]
         },
         "claude_message": {
