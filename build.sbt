@@ -2,9 +2,11 @@ name := "lib-ai"
 
 organization := "com.mbryzek"
 
-ThisBuild / scalaVersion := "3.7.3"
+ThisBuild / scalaVersion := "3.7.4"
 
 ThisBuild / javacOptions ++= Seq("-source", "17", "-target", "17")
+
+version := "0.1.15"
 
 lazy val allScalacOptions = Seq(
   "-feature",

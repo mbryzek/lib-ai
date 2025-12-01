@@ -24,7 +24,7 @@ class TestClaudeClient extends Client {
   private def getHeader(requestHeaders: Seq[(String, String)], name: String): Option[String] = {
     requestHeaders.find(_._1.toLowerCase.trim == name.toLowerCase.trim).map(_._2).toList.distinct match {
       case Nil => None
-      case one :: Nil => None
+      case one :: Nil => Some(one)
       case multiple =>
         sys.error(s"Found multiple request headers named '$name' with values: ${multiple.mkString(", ")}")
     }
@@ -51,7 +51,13 @@ class TestClaudeClient extends Client {
       requestHeaders: Seq[(String, String)] = Nil
     )(implicit ec: ExecutionContext): Future[ClaudeResponse] = Future {
       val name = getHeader(requestHeaders, TestClaudeClient.OutputFormatNameHeader).getOrElse {
-        sys.error(s"Missing header ${TestClaudeClient.OutputFormatNameHeader}")
+        sys.error(
+          s"Missing header ${TestClaudeClient.OutputFormatNameHeader}. Available headers: " + requestHeaders
+            .map(_._1)
+            .mkString(
+              ", "
+            )
+        )
       }
       val format = expectValid {
         validateOutputFormatByName(name)
