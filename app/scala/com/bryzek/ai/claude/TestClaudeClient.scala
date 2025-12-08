@@ -1,4 +1,4 @@
-package com.mbryzek.ai.claude
+package com.bryzek.ai.claude
 
 import cats.data.Validated.{Invalid, Valid}
 import cats.data.ValidatedNec
