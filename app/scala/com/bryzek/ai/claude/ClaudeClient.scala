@@ -263,9 +263,7 @@ object ClaudeOutputFormats {
           "properties" -> Json.obj(
             "category" -> Json.obj("type" -> "string"),
             "confidence" -> Json.obj(
-              "type" -> "integer",
-              "minimum" -> 0,
-              "maximum" -> 100
+              "type" -> "integer"
             )
           ),
           "required" -> Json.arr("category", "confidence"),
