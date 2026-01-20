@@ -149,6 +149,13 @@ case class ClaudeClient(
       .map(_.map(_.content.insight))
   }
 
+  def chatInsightSections(request: ClaudeRequest)(implicit
+    ec: ExecutionContext
+  ): Future[ValidatedNec[ClaudeError, Seq[InsightSection]]] = {
+    chatCompletion[InsightSectionsResponse](request, ClaudeOutputFormats.InsightSectionsResponse)(using ec)
+      .map(_.map(_.content.sections))
+  }
+
   def chatCompletion[T](originalRequest: ClaudeRequest, outputFormat: ClaudeOutputFormat)(implicit
     ec: ExecutionContext,
     reads: Reads[T]
@@ -283,5 +290,39 @@ object ClaudeOutputFormats {
     Seq("steps", "insight")
   )
 
-  val all: List[ClaudeOutputFormat] = List(CommentsResponse, RecommendationsResponse, SingleInsight)
+  val InsightSectionsResponse: ClaudeOutputFormat = ClaudeOutputFormats.create(
+    "insight_sections_response",
+    Json.obj(
+      "steps" -> stepsProperty,
+      "sections" -> Json.obj(
+        "type" -> "array",
+        "items" -> Json.obj(
+          "type" -> "object",
+          "properties" -> Json.obj(
+            "title" -> Json.obj("type" -> "string"),
+            "icon" -> Json.obj("type" -> "string"),
+            "items" -> Json.obj("type" -> "array", "items" -> Json.obj("type" -> "string")),
+            "subsections" -> Json.obj(
+              "type" -> "array",
+              "items" -> Json.obj(
+                "type" -> "object",
+                "properties" -> Json.obj(
+                  "heading" -> Json.obj("type" -> "string"),
+                  "items" -> Json.obj("type" -> "array", "items" -> Json.obj("type" -> "string"))
+                ),
+                "required" -> Json.arr("heading", "items"),
+                "additionalProperties" -> false
+              )
+            )
+          ),
+          "required" -> Json.arr("title", "icon"),
+          "additionalProperties" -> false
+        )
+      )
+    ),
+    Seq("steps", "sections")
+  )
+
+  val all: List[ClaudeOutputFormat] =
+    List(CommentsResponse, RecommendationsResponse, SingleInsight, InsightSectionsResponse)
 }
