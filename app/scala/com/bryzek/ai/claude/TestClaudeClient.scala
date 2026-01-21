@@ -90,6 +90,7 @@ class TestClaudeClient extends Client {
       case ClaudeOutputFormats.CommentsResponse => TestResponseFormat.Comments.validNec
       case ClaudeOutputFormats.RecommendationsResponse => TestResponseFormat.Recommendations.validNec
       case ClaudeOutputFormats.SingleInsight => TestResponseFormat.SingleInsight.validNec
+      case ClaudeOutputFormats.InsightSectionsResponse => TestResponseFormat.InsightSections.validNec
       case other => s"Could not find test response format for class ${other.getClass.getName}".invalidNec
     }
   }
@@ -153,6 +154,25 @@ object TestResponseFormat {
       SingleInsightResponse(
         steps = steps,
         insight = insight
+      )
+    )
+  }
+
+  val InsightSections: TestResponseFormat = new TestResponseFormat(ClaudeOutputFormats.InsightSectionsResponse) {
+    override def generateResponse(claudeRequest: ClaudeRequest): JsValue = buildJs(
+      Seq(
+        InsightSection(
+          title = "Test Section",
+          icon = "chart",
+          items = Seq("Test insight item")
+        )
+      )
+    )
+
+    def buildJs(sections: Seq[InsightSection]): JsValue = Json.toJson(
+      InsightSectionsResponse(
+        steps = steps,
+        sections = sections
       )
     )
   }
