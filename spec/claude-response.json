@@ -44,6 +44,29 @@
                 { "name": "explanation", "type": "string" },
                 { "name": "output", "type": "string" }
             ]
+        },
+
+        "insight_subsection": {
+            "fields": [
+                { "name": "heading", "type": "string" },
+                { "name": "items", "type": "[string]" }
+            ]
+        },
+
+        "insight_section": {
+            "fields": [
+                { "name": "title", "type": "string" },
+                { "name": "icon", "type": "string" },
+                { "name": "items", "type": "[string]", "default": "[]" },
+                { "name": "subsections", "type": "[insight_subsection]", "default": "[]" }
+            ]
+        },
+
+        "insight_sections_response": {
+            "fields": [
+                { "name": "steps", "type": "[claude_step]" },
+                { "name": "sections", "type": "[insight_section]" }
+            ]
         }
     }
 }
