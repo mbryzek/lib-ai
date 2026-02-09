@@ -21,18 +21,17 @@ ThisBuild / sonatypeCredentialHost := "central.sonatype.com"
 ThisBuild / sonatypeRepository := "https://central.sonatype.com/api/v1/publisher"
 ThisBuild / publishMavenStyle := true
 
-ThisBuild / scalaVersion := "3.7.4"
+ThisBuild / scalaVersion := "3.8.1"
 
 lazy val allScalacOptions = Seq(
-  "-feature",
-  "-Xfatal-warnings",
+  "-Werror",
   "-Wunused:locals",
-  //"-Wunused:params",
+  "-Wunused:params",
   "-Wimplausible-patterns",
-  //"-Wunused:linted",
-  //"-Wunused:unsafe-warn-patvars", // Disabled due to warnings in generated code
-  //"-Wunused:imports",
+  "-Wunused:imports",
   "-Wunused:privates",
+  "-Wunused:linted",
+  "-Wconf:src=.*/generated/.*:s"
 )
 
 lazy val root = project

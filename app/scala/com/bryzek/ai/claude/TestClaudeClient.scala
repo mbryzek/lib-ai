@@ -7,7 +7,7 @@ import com.bryzek.claude.response.v0.models.*
 import com.bryzek.claude.response.v0.models.json.*
 import com.bryzek.claude.v0.interfaces.Client
 import com.bryzek.claude.v0.models.*
-import play.api.libs.json.{JsObject, JsValue, Json}
+import play.api.libs.json.{JsValue, Json}
 
 import javax.inject.Singleton
 import scala.concurrent.{ExecutionContext, Future}
@@ -40,7 +40,7 @@ class TestClaudeClient extends Client {
   def postClaudeRequest(
     claudeRequest: ClaudeRequest,
     format: TestResponseFormat,
-    requestHeaders: Seq[(String, String)] = Nil
+    @scala.annotation.nowarn("msg=unused") requestHeaders: Seq[(String, String)] = Nil
   ): JsValue = {
     format.generateResponse(claudeRequest)
   }
@@ -103,7 +103,7 @@ class TestClaudeClient extends Client {
   }
 }
 
-abstract class TestResponseFormat(schema: ClaudeOutputFormat) {
+abstract class TestResponseFormat(@scala.annotation.nowarn("msg=unused") schema: ClaudeOutputFormat) {
 
   def generateResponse(claudeRequest: ClaudeRequest): JsValue
 
