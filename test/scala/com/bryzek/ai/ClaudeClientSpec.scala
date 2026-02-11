@@ -1,6 +1,6 @@
 package com.bryzek.ai.claude
 
-import com.bryzek.claude.v0.models.{ClaudeModel, ClaudeRequest, ClaudeRole}
+import com.bryzek.claude.v0.models.{ClaudeModel, ClaudeRole}
 import helpers.FutureHelpers
 import org.apache.pekko.util.Timeout
 import org.scalatest.matchers.must.Matchers
@@ -20,8 +20,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
 
   "ClaudeClient" should {
     val models = Seq(ClaudeModel.ClaudeSonnet45)
-    val request = ClaudeRequest(
-      model = ClaudeModel.ClaudeSonnet45,
+    val request = AiRequest(
       messages = Seq(
         ClaudeClient.makeClaudeMessage(ClaudeRole.User, "Sending a test message")
       )

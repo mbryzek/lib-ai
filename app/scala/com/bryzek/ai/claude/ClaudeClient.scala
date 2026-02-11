@@ -35,6 +35,21 @@ object ClaudeEnvironment {
   case object Production extends ClaudeEnvironment
 }
 
+case class AiRequest(
+  messages: Seq[ClaudeMessage],
+  maxTokens: Long = 30000L,
+  temperature: Option[BigDecimal] = None,
+  system: Option[String] = None
+) {
+  def toClaudeRequest(model: ClaudeModel): ClaudeRequest = ClaudeRequest(
+    model = model,
+    messages = messages,
+    maxTokens = maxTokens,
+    temperature = temperature,
+    system = system
+  )
+}
+
 case class ClaudeRequestMetadata(client: Client, id: String, request: ClaudeRequest) {
   val start: Long = System.currentTimeMillis()
 
@@ -88,6 +103,10 @@ object ClaudeClient {
     )
   }
 
+  /** Checks if an error message indicates a 529 overloaded response from the Claude API */
+  def isOverloadedError(errorMessage: String): Boolean =
+    errorMessage.contains("response code[529]")
+
 }
 
 final case class ClaudeOutputFormat(
@@ -122,42 +141,41 @@ case class ClaudeClient(
 
   def makeClaudeMessage(role: ClaudeRole, msg: String*): ClaudeMessage = ClaudeClient.makeClaudeMessage(role, msg*)
 
-  def chatComments(request: ClaudeRequest, models: Seq[ClaudeModel])(implicit
+  def chatComments(request: AiRequest, models: Seq[ClaudeModel])(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[String]]] = {
     chatCompletion[CommentsResponse](request, ClaudeOutputFormats.CommentsResponse, models)(using ec)
       .map(_.map(_.content.comments))
   }
 
-  def chatRecommendations(request: ClaudeRequest, models: Seq[ClaudeModel])(implicit
+  def chatRecommendations(request: AiRequest, models: Seq[ClaudeModel])(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[Recommendation]]] = {
     chatCompletion[RecommendationResponse](request, ClaudeOutputFormats.RecommendationsResponse, models)(using ec)
       .map(_.map(_.content.recommendations))
   }
 
-  def chatInsight(request: ClaudeRequest, models: Seq[ClaudeModel])(implicit
+  def chatInsight(request: AiRequest, models: Seq[ClaudeModel])(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[String]]] = {
     chatComments(request, models)(using ec)
   }
 
-  def chatSingleInsight(request: ClaudeRequest, models: Seq[ClaudeModel])(implicit
+  def chatSingleInsight(request: AiRequest, models: Seq[ClaudeModel])(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, String]] = {
     chatCompletion[SingleInsightResponse](request, ClaudeOutputFormats.SingleInsight, models)(using ec)
       .map(_.map(_.content.insight))
   }
 
-  def chatInsightSections(request: ClaudeRequest, models: Seq[ClaudeModel])(implicit
+  def chatInsightSections(request: AiRequest, models: Seq[ClaudeModel])(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[InsightSection]]] = {
     chatCompletion[InsightSectionsResponse](request, ClaudeOutputFormats.InsightSectionsResponse, models)(using ec)
       .map(_.map(_.content.sections))
   }
 
-  def chatCompletion[T](originalRequest: ClaudeRequest, outputFormat: ClaudeOutputFormat, models: Seq[ClaudeModel])(
-    implicit
+  def chatCompletion[T](request: AiRequest, outputFormat: ClaudeOutputFormat, models: Seq[ClaudeModel])(implicit
     ec: ExecutionContext,
     reads: Reads[T]
   ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]] = {
@@ -165,10 +183,11 @@ case class ClaudeClient(
       remainingModels match {
         case Nil => Future.successful(ClaudeError(message = "No models provided").invalidNec)
         case model :: rest =>
-          val request = originalRequest.copy(model = model)
-          chatCompletionSingle(request, outputFormat).flatMap {
+          chatCompletionSingle(request.toClaudeRequest(model), outputFormat).flatMap {
             case result @ Valid(_) => Future.successful(result)
-            case result @ Invalid(errors) if rest.nonEmpty && isOverloaded(errors) => tryModel(rest)
+            case result @ Invalid(errors) if rest.nonEmpty && isOverloaded(errors) =>
+              println(s"Claude model ${model} returned 529 overloaded, falling back to ${rest.head}")
+              tryModel(rest)
             case result => Future.successful(result)
           }
       }
@@ -177,7 +196,7 @@ case class ClaudeClient(
   }
 
   private def isOverloaded(errors: NonEmptyChain[ClaudeError]): Boolean =
-    errors.exists(e => e.message.contains("response code[529]"))
+    errors.exists(e => ClaudeClient.isOverloadedError(e.message))
 
   private def chatCompletionSingle[T](originalRequest: ClaudeRequest, outputFormat: ClaudeOutputFormat)(implicit
     ec: ExecutionContext,
