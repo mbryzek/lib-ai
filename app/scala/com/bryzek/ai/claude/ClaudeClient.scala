@@ -1,7 +1,7 @@
 package com.bryzek.ai.claude
 
+import cats.data.{NonEmptyChain, ValidatedNec}
 import cats.data.Validated.{Invalid, Valid}
-import cats.data.ValidatedNec
 import cats.implicits.*
 import com.bryzek.claude.response.v0.models.*
 import com.bryzek.claude.response.v0.models.json.*
@@ -122,41 +122,64 @@ case class ClaudeClient(
 
   def makeClaudeMessage(role: ClaudeRole, msg: String*): ClaudeMessage = ClaudeClient.makeClaudeMessage(role, msg*)
 
-  def chatComments(request: ClaudeRequest)(implicit
+  def chatComments(request: ClaudeRequest, models: Seq[ClaudeModel])(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[String]]] = {
-    chatCompletion[CommentsResponse](request, ClaudeOutputFormats.CommentsResponse)(using ec)
+    chatCompletion[CommentsResponse](request, ClaudeOutputFormats.CommentsResponse, models)(using ec)
       .map(_.map(_.content.comments))
   }
 
-  def chatRecommendations(request: ClaudeRequest)(implicit
+  def chatRecommendations(request: ClaudeRequest, models: Seq[ClaudeModel])(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[Recommendation]]] = {
-    chatCompletion[RecommendationResponse](request, ClaudeOutputFormats.RecommendationsResponse)(using ec)
+    chatCompletion[RecommendationResponse](request, ClaudeOutputFormats.RecommendationsResponse, models)(using ec)
       .map(_.map(_.content.recommendations))
   }
 
-  def chatInsight(request: ClaudeRequest)(implicit
+  def chatInsight(request: ClaudeRequest, models: Seq[ClaudeModel])(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[String]]] = {
-    chatComments(request)(using ec)
+    chatComments(request, models)(using ec)
   }
 
-  def chatSingleInsight(request: ClaudeRequest)(implicit
+  def chatSingleInsight(request: ClaudeRequest, models: Seq[ClaudeModel])(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, String]] = {
-    chatCompletion[SingleInsightResponse](request, ClaudeOutputFormats.SingleInsight)(using ec)
+    chatCompletion[SingleInsightResponse](request, ClaudeOutputFormats.SingleInsight, models)(using ec)
       .map(_.map(_.content.insight))
   }
 
-  def chatInsightSections(request: ClaudeRequest)(implicit
+  def chatInsightSections(request: ClaudeRequest, models: Seq[ClaudeModel])(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[InsightSection]]] = {
-    chatCompletion[InsightSectionsResponse](request, ClaudeOutputFormats.InsightSectionsResponse)(using ec)
+    chatCompletion[InsightSectionsResponse](request, ClaudeOutputFormats.InsightSectionsResponse, models)(using ec)
       .map(_.map(_.content.sections))
   }
 
-  def chatCompletion[T](originalRequest: ClaudeRequest, outputFormat: ClaudeOutputFormat)(implicit
+  def chatCompletion[T](originalRequest: ClaudeRequest, outputFormat: ClaudeOutputFormat, models: Seq[ClaudeModel])(
+    implicit
+    ec: ExecutionContext,
+    reads: Reads[T]
+  ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]] = {
+    def tryModel(remainingModels: List[ClaudeModel]): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]] = {
+      remainingModels match {
+        case Nil => Future.successful(ClaudeError(message = "No models provided").invalidNec)
+        case model :: rest =>
+          val request = originalRequest.copy(model = model)
+          chatCompletionSingle(request, outputFormat).flatMap {
+            case result @ Valid(_) => Future.successful(result)
+            case result @ Invalid(errors) if rest.nonEmpty && isOverloaded(errors) => tryModel(rest)
+            case result => Future.successful(result)
+          }
+      }
+    }
+    tryModel(models.toList)
+  }
+
+  private def isOverloaded(errors: NonEmptyChain[ClaudeError]): Boolean =
+    errors.exists(e => e.message.contains("response code[529]"))
+
+  private def chatCompletionSingle[T](originalRequest: ClaudeRequest, outputFormat: ClaudeOutputFormat)(implicit
     ec: ExecutionContext,
     reads: Reads[T]
   ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]] = {

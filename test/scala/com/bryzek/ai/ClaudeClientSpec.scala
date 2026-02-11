@@ -19,6 +19,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
   private implicit val timeout: Timeout = FiniteDuration(30, SECONDS)
 
   "ClaudeClient" should {
+    val models = Seq(ClaudeModel.ClaudeSonnet45)
     val request = ClaudeRequest(
       model = ClaudeModel.ClaudeSonnet45,
       messages = Seq(
@@ -28,25 +29,25 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
 
     "chatComments" in {
       await(
-        testClient.chatComments(request)
+        testClient.chatComments(request, models)
       )(using timeout)
     }
 
     "chatRecommendations" in {
       await(
-        testClient.chatRecommendations(request)
+        testClient.chatRecommendations(request, models)
       )(using timeout)
     }
 
     "chatInsight" in {
       await(
-        testClient.chatInsight(request)
+        testClient.chatInsight(request, models)
       )(using timeout)
     }
 
     "chatSingleInsight" in {
       await(
-        testClient.chatSingleInsight(request)
+        testClient.chatSingleInsight(request, models)
       )(using timeout)
     }
   }
