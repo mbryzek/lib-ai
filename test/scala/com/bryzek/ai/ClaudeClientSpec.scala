@@ -19,7 +19,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
   private implicit val timeout: Timeout = FiniteDuration(30, SECONDS)
 
   "ClaudeClient" should {
-    val models = Seq(ClaudeModel.ClaudeSonnet45)
+    val models = Seq(ClaudeModel.ClaudeSonnet46)
     val request = AiRequest(
       messages = Seq(
         ClaudeClient.makeClaudeMessage(ClaudeRole.User, "Sending a test message")
