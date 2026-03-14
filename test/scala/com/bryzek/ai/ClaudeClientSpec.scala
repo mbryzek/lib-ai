@@ -49,6 +49,14 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
         testClient.chatSingleInsight(request, models)
       )(using timeout)
     }
+
+    "chatText" in {
+      val result = await(
+        testClient.chatText(request, models)
+      )(using timeout)
+      result.isValid mustBe true
+      result.toOption.get must not be empty
+    }
   }
 
 }

@@ -175,24 +175,43 @@ case class ClaudeClient(
       .map(_.map(_.content.sections))
   }
 
+  def chatText(request: AiRequest, models: Seq[ClaudeModel])(implicit
+    ec: ExecutionContext
+  ): Future[ValidatedNec[ClaudeError, String]] = {
+    tryModels(models) { model =>
+      chatTextSingle(request.toClaudeRequest(model))
+    }
+  }
+
   def chatCompletion[T](request: AiRequest, outputFormat: ClaudeOutputFormat, models: Seq[ClaudeModel])(implicit
     ec: ExecutionContext,
     reads: Reads[T]
   ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]] = {
-    def tryModel(remainingModels: List[ClaudeModel]): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]] = {
-      remainingModels match {
+    tryModels(models) { model =>
+      chatCompletionSingle(request.toClaudeRequest(model), outputFormat)
+    }
+  }
+
+  private def tryModels[T](models: Seq[ClaudeModel])(
+    attempt: ClaudeModel => Future[ValidatedNec[ClaudeError, T]]
+  )(implicit ec: ExecutionContext): Future[ValidatedNec[ClaudeError, T]] = {
+    def loop(remaining: List[ClaudeModel]): Future[ValidatedNec[ClaudeError, T]] = {
+      remaining match {
         case Nil => Future.successful(ClaudeError(message = "No models provided").invalidNec)
         case model :: rest =>
-          chatCompletionSingle(request.toClaudeRequest(model), outputFormat).flatMap {
+          attempt(model).flatMap {
             case result @ Valid(_) => Future.successful(result)
-            case result @ Invalid(errors) if rest.nonEmpty && isOverloaded(errors) =>
-              println(s"Claude model ${model} returned 529 overloaded, falling back to ${rest.head}")
-              tryModel(rest)
-            case result => Future.successful(result)
+            case result @ Invalid(errors) =>
+              if (rest.nonEmpty && isOverloaded(errors)) {
+                println(s"Claude model ${model} returned 529 overloaded, falling back to ${rest.head}")
+                loop(rest)
+              } else {
+                Future.successful(result)
+              }
           }
       }
     }
-    tryModel(models.toList)
+    loop(models.toList)
   }
 
   private def isOverloaded(errors: NonEmptyChain[ClaudeError]): Boolean =
@@ -219,6 +238,34 @@ case class ClaudeClient(
       }
       .map { res =>
         storeResponse(rm, res); res
+      }
+  }
+
+  private def chatTextSingle(originalRequest: ClaudeRequest)(implicit
+    ec: ExecutionContext
+  ): Future[ValidatedNec[ClaudeError, String]] = {
+    val rm = ClaudeRequestMetadata(client, randomId("req"), originalRequest)
+    store.storeRequest(rm)
+    client.messages
+      .post(
+        originalRequest,
+        requestHeaders = defaultHeaders
+      )
+      .map { response =>
+        val text = response.content.map(_.text).mkString("\n")
+        if (text.nonEmpty) {
+          ClaudeResponseMetadata(rm, response, text).validNec
+        } else {
+          rm.error("No content found in message").invalidNec
+        }
+      }
+      .recover {
+        case r: ClaudeErrorResponseResponse => r.claudeErrorResponse.error.invalidNec
+        case NonFatal(e) => rm.error(e.getMessage).invalidNec
+      }
+      .map { res =>
+        storeResponse(rm, res)
+        res.map(_.content)
       }
   }
 
