@@ -50,17 +50,12 @@ class TestClaudeClient extends Client {
       claudeRequest: ClaudeRequest,
       requestHeaders: Seq[(String, String)] = Nil
     )(implicit ec: ExecutionContext): Future[ClaudeResponse] = Future {
-      val name = getHeader(requestHeaders, TestClaudeClient.OutputFormatNameHeader).getOrElse {
-        sys.error(
-          s"Missing header ${TestClaudeClient.OutputFormatNameHeader}. Available headers: " + requestHeaders
-            .map(_._1)
-            .mkString(
-              ", "
-            )
-        )
-      }
-      val format = expectValid {
-        validateOutputFormatByName(name)
+      val responseText = getHeader(requestHeaders, TestClaudeClient.OutputFormatNameHeader) match {
+        case None =>
+          "This is a test plain text response."
+        case Some(name) =>
+          val format = expectValid { validateOutputFormatByName(name) }
+          Json.prettyPrint(postClaudeRequest(claudeRequest, format, requestHeaders))
       }
       ClaudeResponse(
         id = "test-response-id",
@@ -69,9 +64,7 @@ class TestClaudeClient extends Client {
         content = Seq(
           ClaudeResponseContent(
             `type` = ClaudeContentType.Text,
-            text = Json.prettyPrint(
-              postClaudeRequest(claudeRequest, format, requestHeaders)
-            )
+            text = responseText
           )
         ),
         model = ClaudeModel.ClaudeSonnet46,
