@@ -3,10 +3,10 @@ package com.bryzek.ai.claude
 import cats.data.Validated.{Invalid, Valid}
 import cats.data.ValidatedNec
 import cats.implicits.*
-import com.bryzek.claude.response.v0.models.*
-import com.bryzek.claude.response.v0.models.json.*
-import com.bryzek.claude.v0.interfaces.Client
-import com.bryzek.claude.v0.models.*
+import com.bryzek.claude.response.models.*
+import com.bryzek.claude.response.models.json.*
+import com.bryzek.claude.interfaces.Client
+import com.bryzek.claude.models.*
 import play.api.libs.json.{JsValue, Json}
 
 import javax.inject.Singleton
@@ -45,7 +45,7 @@ class TestClaudeClient extends Client {
     format.generateResponse(claudeRequest)
   }
 
-  class TestMessages extends com.bryzek.claude.v0.Messages {
+  class TestMessages extends com.bryzek.claude.Messages {
     def post(
       claudeRequest: ClaudeRequest,
       requestHeaders: Seq[(String, String)] = Nil

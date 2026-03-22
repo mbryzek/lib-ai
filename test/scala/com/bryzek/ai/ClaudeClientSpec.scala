@@ -1,6 +1,6 @@
 package com.bryzek.ai.claude
 
-import com.bryzek.claude.v0.models.{ClaudeModel, ClaudeRole}
+import com.bryzek.claude.models.{ClaudeModel, ClaudeRole}
 import helpers.FutureHelpers
 import org.apache.pekko.util.Timeout
 import org.scalatest.matchers.must.Matchers

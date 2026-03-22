@@ -3,11 +3,11 @@ package com.bryzek.ai.claude
 import cats.data.{NonEmptyChain, ValidatedNec}
 import cats.data.Validated.{Invalid, Valid}
 import cats.implicits.*
-import com.bryzek.claude.response.v0.models.*
-import com.bryzek.claude.response.v0.models.json.*
-import com.bryzek.claude.v0.errors.ClaudeErrorResponseResponse
-import com.bryzek.claude.v0.interfaces.Client
-import com.bryzek.claude.v0.models.*
+import com.bryzek.claude.response.models.*
+import com.bryzek.claude.response.models.json.*
+import com.bryzek.claude.errors.ClaudeErrorResponseResponse
+import com.bryzek.claude.interfaces.Client
+import com.bryzek.claude.models.*
 import com.google.inject.ImplementedBy
 import play.api.libs.json.*
 
@@ -114,7 +114,7 @@ final case class ClaudeOutputFormat(
   schema: _root_.play.api.libs.json.JsObject
 ) {
   def toApi: ClaudeApiOutputFormat = ClaudeApiOutputFormat(
-    `type` = com.bryzek.claude.v0.models.ClaudeOutputFormatType.JsonSchema,
+    `type` = com.bryzek.claude.models.ClaudeOutputFormatType.JsonSchema,
     schema = schema
   )
 }

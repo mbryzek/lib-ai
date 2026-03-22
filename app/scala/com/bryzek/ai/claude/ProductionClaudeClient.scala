@@ -1,6 +1,6 @@
 package com.bryzek.ai.claude
 
-import com.bryzek.claude.v0.Client
+import com.bryzek.claude.Client
 import play.api.libs.ws.WSClient
 
 import javax.inject.{Inject, Singleton}
