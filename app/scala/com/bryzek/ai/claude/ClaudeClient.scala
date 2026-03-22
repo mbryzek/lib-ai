@@ -3,11 +3,11 @@ package com.bryzek.ai.claude
 import cats.data.{NonEmptyChain, ValidatedNec}
 import cats.data.Validated.{Invalid, Valid}
 import cats.implicits.*
-import com.bryzek.claude.response.v0.models.*
-import com.bryzek.claude.response.v0.models.json.*
-import com.bryzek.claude.v0.errors.ClaudeErrorResponseResponse
-import com.bryzek.claude.v0.interfaces.Client
-import com.bryzek.claude.v0.models.*
+import com.bryzek.claude.response.models.*
+import com.bryzek.claude.response.models.json.*
+import com.bryzek.claude.client.IClient
+import generated.errors.ClaudeErrorResponseResponse
+import com.bryzek.claude.models.*
 import com.google.inject.ImplementedBy
 import play.api.libs.json.*
 
@@ -46,11 +46,12 @@ case class AiRequest(
     messages = messages,
     maxTokens = maxTokens,
     temperature = temperature,
-    system = system
+    system = system,
+    outputFormat = None
   )
 }
 
-case class ClaudeRequestMetadata(client: Client, id: String, request: ClaudeRequest) {
+case class ClaudeRequestMetadata(client: IClient, id: String, request: ClaudeRequest) {
   val start: Long = System.currentTimeMillis()
 
   def error(msg: String, raw: Option[String] = None): ClaudeError =
@@ -79,14 +80,14 @@ trait ClaudeClientFactory {
     ClaudeClient(getClient(env), ClaudeConfig(apiKey), store)
   }
 
-  def getClient(env: ClaudeEnvironment): Client
+  def getClient(env: ClaudeEnvironment): IClient
 }
 
 class ClaudeClientFactoryImpl @Inject() (
   productionClaudeClient: ProductionClaudeClient,
   testClaudeClient: TestClaudeClient
 ) extends ClaudeClientFactory {
-  override def getClient(env: ClaudeEnvironment): Client = {
+  override def getClient(env: ClaudeEnvironment): IClient = {
     env match {
       case ClaudeEnvironment.Production => productionClaudeClient
       case ClaudeEnvironment.Sandbox => testClaudeClient
@@ -114,13 +115,13 @@ final case class ClaudeOutputFormat(
   schema: _root_.play.api.libs.json.JsObject
 ) {
   def toApi: ClaudeApiOutputFormat = ClaudeApiOutputFormat(
-    `type` = com.bryzek.claude.v0.models.ClaudeOutputFormatType.JsonSchema,
+    `type` = com.bryzek.claude.models.ClaudeOutputFormatType.JsonSchema,
     schema = schema
   )
 }
 
 case class ClaudeClient(
-  client: Client,
+  client: IClient,
   config: ClaudeConfig,
   store: ClaudeStore
 ) {
@@ -226,8 +227,8 @@ case class ClaudeClient(
     )
     val rm = ClaudeRequestMetadata(client, randomId("req"), request)
     store.storeRequest(rm)
-    client.messages
-      .post(
+    client
+      .createMessage(
         request,
         requestHeaders = defaultHeaders ++ Seq((TestClaudeClient.OutputFormatNameHeader, outputFormat.name))
       )
@@ -246,8 +247,8 @@ case class ClaudeClient(
   ): Future[ValidatedNec[ClaudeError, String]] = {
     val rm = ClaudeRequestMetadata(client, randomId("req"), originalRequest)
     store.storeRequest(rm)
-    client.messages
-      .post(
+    client
+      .createMessage(
         originalRequest,
         requestHeaders = defaultHeaders
       )

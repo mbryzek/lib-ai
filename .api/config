@@ -1,0 +1,7 @@
+bryzek:
+  - generators:
+      bryzek_play_client: app/scala/com/bryzek/ai/generated
+      bryzek_play_mock_client: test/scala/com/bryzek/ai/generated
+    applications:
+      claude:
+      claude-response:

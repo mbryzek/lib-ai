@@ -3,23 +3,22 @@ package com.bryzek.ai.claude
 import cats.data.Validated.{Invalid, Valid}
 import cats.data.ValidatedNec
 import cats.implicits.*
-import com.bryzek.claude.response.v0.models.*
-import com.bryzek.claude.response.v0.models.json.*
-import com.bryzek.claude.v0.interfaces.Client
-import com.bryzek.claude.v0.models.*
+import com.bryzek.claude.response.models.*
+import com.bryzek.claude.response.models.json.*
+import com.bryzek.claude.client.IClient
+import com.bryzek.claude.models.*
 import play.api.libs.json.{JsValue, Json}
 
 import javax.inject.Singleton
 import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.ExecutionContext.Implicits.global
 
 object TestClaudeClient {
   val OutputFormatNameHeader: String = "X-Output-Format"
 }
 
 @Singleton
-class TestClaudeClient extends Client {
-  override def baseUrl: String = "http://mock.localhost"
-  override def messages = new TestMessages
+class TestClaudeClient extends IClient {
 
   private def getHeader(requestHeaders: Seq[(String, String)], name: String): Option[String] = {
     requestHeaders.find(_._1.toLowerCase.trim == name.toLowerCase.trim).map(_._2).toList.distinct match {
@@ -45,37 +44,35 @@ class TestClaudeClient extends Client {
     format.generateResponse(claudeRequest)
   }
 
-  class TestMessages extends com.bryzek.claude.v0.Messages {
-    def post(
-      claudeRequest: ClaudeRequest,
-      requestHeaders: Seq[(String, String)] = Nil
-    )(implicit ec: ExecutionContext): Future[ClaudeResponse] = Future {
-      val responseText = getHeader(requestHeaders, TestClaudeClient.OutputFormatNameHeader) match {
-        case None =>
-          "This is a test plain text response."
-        case Some(name) =>
-          val format = expectValid { validateOutputFormatByName(name) }
-          Json.prettyPrint(postClaudeRequest(claudeRequest, format, requestHeaders))
-      }
-      ClaudeResponse(
-        id = "test-response-id",
-        `type` = "message",
-        role = ClaudeRole.Assistant,
-        content = Seq(
-          ClaudeResponseContent(
-            `type` = ClaudeContentType.Text,
-            text = responseText
-          )
-        ),
-        model = ClaudeModel.ClaudeSonnet46,
-        stopReason = ClaudeStopReason.EndTurn,
-        stopSequence = None,
-        usage = ClaudeUsage(
-          inputTokens = 10,
-          outputTokens = 20
-        )
-      )
+  override def createMessage(
+    body: ClaudeRequest,
+    requestHeaders: Seq[(String, String)] = Nil
+  ): Future[ClaudeResponse] = Future {
+    val responseText = getHeader(requestHeaders, TestClaudeClient.OutputFormatNameHeader) match {
+      case None =>
+        "This is a test plain text response."
+      case Some(name) =>
+        val format = expectValid { validateOutputFormatByName(name) }
+        Json.prettyPrint(postClaudeRequest(body, format, requestHeaders))
     }
+    ClaudeResponse(
+      id = "test-response-id",
+      `type` = "message",
+      role = ClaudeRole.Assistant,
+      content = Seq(
+        ClaudeResponseContent(
+          `type` = ClaudeContentType.Text,
+          text = responseText
+        )
+      ),
+      model = ClaudeModel.ClaudeSonnet46,
+      stopReason = ClaudeStopReason.EndTurn,
+      stopSequence = None,
+      usage = ClaudeUsage(
+        inputTokens = 10,
+        outputTokens = 20
+      )
+    )
   }
 
   private def toTestResponseType(f: ClaudeOutputFormat): ValidatedNec[String, TestResponseFormat] = {
@@ -157,7 +154,7 @@ object TestResponseFormat {
         InsightSection(
           title = "Test Section",
           icon = "chart",
-          items = Seq("Test insight item")
+          items = Some(Seq("Test insight item"))
         )
       )
     )
