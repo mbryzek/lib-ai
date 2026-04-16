@@ -6,7 +6,7 @@
             "values": [
                 { "name": "claude-sonnet-4-6" },
                 { "name": "claude-haiku-4-5" },
-                { "name": "claude-opus-4-6" }
+                { "name": "claude-opus-4-7" }
             ]
         },
         "claude_role": {
@@ -112,7 +112,7 @@
             "operations": [
                 {
                     "method": "post",
-                    "body": { "type": "claude_request"},
+                    "body": "claude_request",
                     "responses": {
                         "200": { "type": "claude_response" },
                         "400": { "type": "claude_error_response" },
