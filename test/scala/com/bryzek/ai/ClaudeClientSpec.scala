@@ -57,6 +57,10 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       result.isValid mustBe true
       result.toOption.get must not be empty
     }
+
+    "toClaudeRequest always omits temperature" in {
+      request.toClaudeRequest(ClaudeModel.ClaudeSonnet46).temperature mustBe None
+    }
   }
 
 }
