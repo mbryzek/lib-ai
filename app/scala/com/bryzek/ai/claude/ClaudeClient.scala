@@ -38,14 +38,13 @@ object ClaudeEnvironment {
 case class AiRequest(
   messages: Seq[ClaudeMessage],
   maxTokens: Long = 30000L,
-  temperature: Option[BigDecimal] = None,
   system: Option[String] = None
 ) {
   def toClaudeRequest(model: ClaudeModel): ClaudeRequest = ClaudeRequest(
     model = model,
     messages = messages,
     maxTokens = maxTokens,
-    temperature = temperature,
+    temperature = None,
     system = system,
     outputFormat = None
   )
