@@ -44,7 +44,6 @@ case class AiRequest(
     model = model,
     messages = messages,
     maxTokens = maxTokens,
-    temperature = None,
     system = system,
     outputFormat = None
   )

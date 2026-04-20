@@ -107,7 +107,6 @@ case class ClaudeRequest(
   model: ClaudeModel,
   messages: Seq[ClaudeMessage],
   maxTokens: Long = 30000L,
-  temperature: Option[BigDecimal],
   system: Option[String],
   outputFormat: Option[ClaudeApiOutputFormat]
 )
@@ -120,7 +119,6 @@ object ClaudeRequest {
     com.bryzek.claude.models.ClaudeRequest(
       model = model,
       messages = messages,
-      temperature = None,
       system = None,
       outputFormat = None
     )
@@ -344,10 +342,9 @@ package object json {
       model <- (JsPath \ "model").read[com.bryzek.claude.models.ClaudeModel]
       messages <- (JsPath \ "messages").read[Seq[com.bryzek.claude.models.ClaudeMessage]]
       maxTokens <- (JsPath \ "max_tokens").readWithDefault[Long](30000L)
-      temperature <- (JsPath \ "temperature").readNullable[BigDecimal]
       system <- (JsPath \ "system").readNullable[String]
       outputFormat <- (JsPath \ "output_format").readNullable[com.bryzek.claude.models.ClaudeApiOutputFormat]
-    } yield com.bryzek.claude.models.ClaudeRequest(model, messages, maxTokens, temperature, system, outputFormat)
+    } yield com.bryzek.claude.models.ClaudeRequest(model, messages, maxTokens, system, outputFormat)
   }
 
   implicit def jsonWritesComBryzekClaudeModelsClaudeRequest: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeRequest] = {
@@ -360,7 +357,6 @@ package object json {
       "messages" -> play.api.libs.json.Json.toJson(obj.messages),
       "max_tokens" -> play.api.libs.json.JsNumber(obj.maxTokens)
     ) ++
-      obj.temperature.map { x => play.api.libs.json.Json.obj("temperature" -> play.api.libs.json.JsNumber(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
       obj.system.map { x => play.api.libs.json.Json.obj("system" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
       obj.outputFormat.map { x => play.api.libs.json.Json.obj("output_format" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeApiOutputFormat(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
   }

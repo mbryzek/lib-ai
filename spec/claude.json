@@ -41,7 +41,6 @@
                 { "name": "model", "type": "claude_model" },
                 { "name": "messages", "type": "[claude_message]" },
                 { "name": "max_tokens", "type": "long", "default": 30000 },
-                { "name": "temperature", "type": "decimal", "required": false, "minimum": 0.0, "maximum": 1.0 },
                 { "name": "system", "type": "string", "required": false },
                 { "name": "output_format", "type": "claude_api_output_format", "required": false }
             ]
