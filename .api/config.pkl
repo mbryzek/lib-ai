@@ -1,0 +1,11 @@
+amends "modulepath:/api_config.pkl"
+
+org = "bryzek"
+
+blocks {
+  new PlayClient {
+    client_target = "app/scala/com/bryzek/ai/generated"
+    mock_target = "test/scala/com/bryzek/ai/generated"
+    applications { "claude"; "claude-response" }
+  }
+}
