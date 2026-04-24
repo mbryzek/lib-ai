@@ -21,7 +21,7 @@ ThisBuild / sonatypeCredentialHost := "central.sonatype.com"
 ThisBuild / sonatypeRepository := "https://central.sonatype.com/api/v1/publisher"
 ThisBuild / publishMavenStyle := true
 
-ThisBuild / scalaVersion := "3.8.1"
+ThisBuild / scalaVersion := "3.8.3"
 
 lazy val allScalacOptions = Seq(
   "-Werror",
@@ -46,7 +46,7 @@ lazy val root = project
     scalacOptions ++= allScalacOptions,
     libraryDependencies ++= Seq(
       ws,
-      "joda-time" % "joda-time" % "2.14.0",
+      "joda-time" % "joda-time" % "2.14.1",
       "com.google.inject" % "guice" % "5.1.0",
       "org.playframework" %% "play-json" % "3.0.5",
       "org.typelevel" %% "cats-core" % "2.12.0",
