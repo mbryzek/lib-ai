@@ -1,0 +1,13 @@
+amends "../../devops/api/ApiConfig.pkl"
+
+org = "bryzek"
+
+defaultTargets = new Targets {
+  sourceCode = "app/scala/com/bryzek/ai/generated"
+  testCode = "test/scala/com/bryzek/ai/generated"
+}
+
+applications = new Listing<AppGroup> {
+  new { names { "claude"; "claude-response" }
+        generators = module.clientOnly() }
+}
