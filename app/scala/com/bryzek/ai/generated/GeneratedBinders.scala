@@ -50,3 +50,10 @@ private val dateTimeBinder = new Bindable[_root_.org.joda.time.DateTime] {
 }
 implicit def pathBinderDateTimeIso8601(implicit stringBinder: play.api.mvc.QueryStringBindable[String]): play.api.mvc.PathBindable[_root_.org.joda.time.DateTime] = BasePathBindable(dateTimeBinder)
 implicit def queryStringBinderDateTimeIso8601(implicit stringBinder: play.api.mvc.QueryStringBindable[String]): play.api.mvc.QueryStringBindable[_root_.org.joda.time.DateTime] = BaseQueryStringBindable(dateTimeBinder)
+private val localTimeBinder = new Bindable[_root_.org.joda.time.LocalTime] {
+  override def fromString(value: String): _root_.org.joda.time.LocalTime = _root_.org.joda.time.format.ISODateTimeFormat.timeParser.parseLocalTime(value)
+  override def toString(value: _root_.org.joda.time.LocalTime): String = _root_.org.joda.time.format.ISODateTimeFormat.timeNoMillis.print(value)
+  override def example: _root_.org.joda.time.LocalTime = _root_.org.joda.time.LocalTime.now
+}
+implicit def pathBinderTimeIso8601(implicit stringBinder: play.api.mvc.QueryStringBindable[String]): play.api.mvc.PathBindable[_root_.org.joda.time.LocalTime] = BasePathBindable(localTimeBinder)
+implicit def queryStringBinderTimeIso8601(implicit stringBinder: play.api.mvc.QueryStringBindable[String]): play.api.mvc.QueryStringBindable[_root_.org.joda.time.LocalTime] = BaseQueryStringBindable(localTimeBinder)

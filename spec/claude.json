@@ -32,6 +32,11 @@
           "values": [
             { "name": "json_schema" }
           ]
+        },
+        "claude_cache_type": {
+            "values": [
+                { "name": "ephemeral" }
+            ]
         }
     },
 
@@ -41,8 +46,20 @@
                 { "name": "model", "type": "claude_model" },
                 { "name": "messages", "type": "[claude_message]" },
                 { "name": "max_tokens", "type": "long", "default": 30000 },
-                { "name": "system", "type": "string", "required": false },
+                { "name": "system", "type": "[claude_system_block]", "required": false },
                 { "name": "output_format", "type": "claude_api_output_format", "required": false }
+            ]
+        },
+        "claude_cache_control": {
+            "fields": [
+                { "name": "type", "type": "claude_cache_type", "default": "ephemeral" }
+            ]
+        },
+        "claude_system_block": {
+            "fields": [
+                { "name": "type", "type": "claude_content_type", "default": "text" },
+                { "name": "text", "type": "string" },
+                { "name": "cache_control", "type": "claude_cache_control", "required": false }
             ]
         },
         "claude_api_output_format": {
@@ -61,7 +78,8 @@
         "claude_content": {
             "fields": [
                 { "name": "type", "type": "claude_content_type" },
-                { "name": "text", "type": "string" }
+                { "name": "text", "type": "string" },
+                { "name": "cache_control", "type": "claude_cache_control", "required": false }
             ]
         },
         "claude_response": {

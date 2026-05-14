@@ -38,15 +38,39 @@ object ClaudeEnvironment {
 case class AiRequest(
   messages: Seq[ClaudeMessage],
   maxTokens: Long = 30000L,
-  system: Option[String] = None
+  system: Option[String] = None,
+  cacheSystem: Boolean = false,
+  cacheLastMessage: Boolean = false
 ) {
-  def toClaudeRequest(model: ClaudeModel): ClaudeRequest = ClaudeRequest(
-    model = model,
-    messages = messages,
-    maxTokens = maxTokens,
-    system = system,
-    outputFormat = None
-  )
+  def toClaudeRequest(model: ClaudeModel): ClaudeRequest = {
+    val cache = Some(com.bryzek.claude.models.ClaudeCacheControl())
+    val systemBlocks = system.map { text =>
+      Seq(
+        com.bryzek.claude.models.ClaudeSystemBlock(
+          text = text,
+          cacheControl = if (cacheSystem) cache else None
+        )
+      )
+    }
+    val msgs = if (cacheLastMessage && messages.nonEmpty) {
+      val init = messages.init
+      val last = messages.last
+      val lastContent = last.content
+      val taggedContent =
+        if (lastContent.isEmpty) lastContent
+        else lastContent.init :+ lastContent.last.copy(cacheControl = cache)
+      init :+ last.copy(content = taggedContent)
+    } else {
+      messages
+    }
+    ClaudeRequest(
+      model = model,
+      messages = msgs,
+      maxTokens = maxTokens,
+      system = systemBlocks,
+      outputFormat = None
+    )
+  }
 }
 
 case class ClaudeRequestMetadata(client: IClient, id: String, request: ClaudeRequest) {
