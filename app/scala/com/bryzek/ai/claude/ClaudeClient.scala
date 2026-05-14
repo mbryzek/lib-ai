@@ -42,13 +42,16 @@ case class AiRequest(
   cacheSystem: Boolean = false,
   cacheLastMessage: Boolean = false
 ) {
+  require(!cacheSystem || system.isDefined, "cacheSystem=true requires system to be set")
+
   def toClaudeRequest(model: ClaudeModel): ClaudeRequest = {
-    val cache = Some(com.bryzek.claude.models.ClaudeCacheControl())
+    def ephemeral: Option[com.bryzek.claude.models.ClaudeCacheControl] =
+      Some(com.bryzek.claude.models.ClaudeCacheControl())
     val systemBlocks = system.map { text =>
       Seq(
         com.bryzek.claude.models.ClaudeSystemBlock(
           text = text,
-          cacheControl = if (cacheSystem) cache else None
+          cacheControl = if (cacheSystem) ephemeral else None
         )
       )
     }
@@ -58,7 +61,7 @@ case class AiRequest(
       val lastContent = last.content
       val taggedContent =
         if (lastContent.isEmpty) lastContent
-        else lastContent.init :+ lastContent.last.copy(cacheControl = cache)
+        else lastContent.init :+ lastContent.last.copy(cacheControl = ephemeral)
       init :+ last.copy(content = taggedContent)
     } else {
       messages
