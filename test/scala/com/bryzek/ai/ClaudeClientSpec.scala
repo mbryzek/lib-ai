@@ -58,6 +58,33 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       result.toOption.get must not be empty
     }
 
+    "toClaudeRequest wraps system in a single block" in {
+      val r = AiRequest(messages = Nil, system = Some("hello"))
+      val out = r.toClaudeRequest(ClaudeModel.ClaudeSonnet46)
+      out.system.map(_.size) mustBe Some(1)
+      out.system.get.head.text mustBe "hello"
+      out.system.get.head.cacheControl mustBe None
+    }
+
+    "toClaudeRequest tags system with cache_control when cacheSystem=true" in {
+      val r = AiRequest(messages = Nil, system = Some("ctx"), cacheSystem = true)
+      val out = r.toClaudeRequest(ClaudeModel.ClaudeSonnet46)
+      out.system.get.head.cacheControl.map(_.`type`) mustBe Some(com.bryzek.claude.models.ClaudeCacheType.Ephemeral)
+    }
+
+    "toClaudeRequest tags last message content with cache_control when cacheLastMessage=true" in {
+      val msgs = Seq(
+        ClaudeClient.makeClaudeMessage(ClaudeRole.User, "first"),
+        ClaudeClient.makeClaudeMessage(ClaudeRole.Assistant, "reply"),
+        ClaudeClient.makeClaudeMessage(ClaudeRole.User, "second")
+      )
+      val out = AiRequest(messages = msgs, cacheLastMessage = true).toClaudeRequest(ClaudeModel.ClaudeSonnet46)
+      out.messages.init.flatMap(_.content).flatMap(_.cacheControl) mustBe Nil
+      out.messages.last.content.last.cacheControl.map(_.`type`) mustBe Some(
+        com.bryzek.claude.models.ClaudeCacheType.Ephemeral
+      )
+    }
+
   }
 
 }
