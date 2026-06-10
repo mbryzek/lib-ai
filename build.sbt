@@ -21,7 +21,7 @@ ThisBuild / sonatypeCredentialHost := "central.sonatype.com"
 ThisBuild / sonatypeRepository := "https://central.sonatype.com/api/v1/publisher"
 ThisBuild / publishMavenStyle := true
 
-ThisBuild / scalaVersion := "3.8.3"
+ThisBuild / scalaVersion := "3.8.4"
 
 lazy val allScalacOptions = Seq(
   "-Werror",
