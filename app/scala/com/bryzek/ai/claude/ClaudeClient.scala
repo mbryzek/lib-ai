@@ -203,7 +203,7 @@ case class ClaudeClient(
 
   def chatText(request: AiRequest, models: Seq[ClaudeModel])(implicit
     ec: ExecutionContext
-  ): Future[ValidatedNec[ClaudeError, String]] = {
+  ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[String]]] = {
     tryModels(models) { model =>
       chatTextSingle(request.toClaudeRequest(model))
     }
@@ -269,7 +269,7 @@ case class ClaudeClient(
 
   private def chatTextSingle(originalRequest: ClaudeRequest)(implicit
     ec: ExecutionContext
-  ): Future[ValidatedNec[ClaudeError, String]] = {
+  ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[String]]] = {
     val rm = ClaudeRequestMetadata(client, randomId("req"), originalRequest)
     store.storeRequest(rm)
     client
@@ -291,7 +291,7 @@ case class ClaudeClient(
       }
       .map { res =>
         storeResponse(rm, res)
-        res.map(_.content)
+        res
       }
   }
 
