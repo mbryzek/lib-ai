@@ -55,7 +55,8 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
         testClient.chatText(request, models)
       )(using timeout)
       result.isValid mustBe true
-      result.toOption.get must not be empty
+      result.toOption.get.content must not be empty
+      result.toOption.get.response.usage.outputTokens must be > 0L
     }
 
     "toClaudeRequest wraps system in a single block" in {
