@@ -50,13 +50,15 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       )(using timeout)
     }
 
-    "chatText" in {
+    "chatText returns content and usage metadata" in {
       val result = await(
         testClient.chatText(request, models)
       )(using timeout)
       result.isValid mustBe true
-      result.toOption.get.content must not be empty
-      result.toOption.get.response.usage.outputTokens must be > 0L
+      val meta = result.toOption.get
+      meta.content must not be empty
+      meta.response.usage.inputTokens mustBe 10L
+      meta.response.usage.outputTokens mustBe 20L
     }
 
     "toClaudeRequest wraps system in a single block" in {
