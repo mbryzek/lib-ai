@@ -19,7 +19,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
   private implicit val timeout: Timeout = FiniteDuration(30, SECONDS)
 
   "ClaudeClient" should {
-    val models = Seq(ClaudeModel.ClaudeSonnet46)
+    val models = Seq(ClaudeModel.ClaudeSonnet5)
     val request = AiRequest(
       messages = Seq(
         ClaudeClient.makeClaudeMessage(ClaudeRole.User, "Sending a test message")
@@ -61,7 +61,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
 
     "toClaudeRequest wraps system in a single block" in {
       val r = AiRequest(messages = Nil, system = Some("hello"))
-      val out = r.toClaudeRequest(ClaudeModel.ClaudeSonnet46)
+      val out = r.toClaudeRequest(ClaudeModel.ClaudeSonnet5)
       out.system.map(_.size) mustBe Some(1)
       out.system.get.head.text mustBe "hello"
       out.system.get.head.cacheControl mustBe None
@@ -69,7 +69,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
 
     "toClaudeRequest tags system with cache_control when cacheSystem=true" in {
       val r = AiRequest(messages = Nil, system = Some("ctx"), cacheSystem = true)
-      val out = r.toClaudeRequest(ClaudeModel.ClaudeSonnet46)
+      val out = r.toClaudeRequest(ClaudeModel.ClaudeSonnet5)
       out.system.get.head.cacheControl.map(_.`type`) mustBe Some(com.bryzek.claude.models.ClaudeCacheType.Ephemeral)
     }
 
@@ -79,7 +79,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
         ClaudeClient.makeClaudeMessage(ClaudeRole.Assistant, "reply"),
         ClaudeClient.makeClaudeMessage(ClaudeRole.User, "second")
       )
-      val out = AiRequest(messages = msgs, cacheLastMessage = true).toClaudeRequest(ClaudeModel.ClaudeSonnet46)
+      val out = AiRequest(messages = msgs, cacheLastMessage = true).toClaudeRequest(ClaudeModel.ClaudeSonnet5)
       out.messages.init.flatMap(_.content).flatMap(_.cacheControl) mustBe Nil
       out.messages.last.content.last.cacheControl.map(_.`type`) mustBe Some(
         com.bryzek.claude.models.ClaudeCacheType.Ephemeral

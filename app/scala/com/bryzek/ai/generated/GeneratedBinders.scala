@@ -14,7 +14,7 @@ trait Bindable[T] {
     }
   }
 
-  final def bind(key: String, value: String): Either[String, T] = {
+  def bind(key: String, value: String): Either[String, T] = {
     try {
       Right(fromString(value))
     } catch {
