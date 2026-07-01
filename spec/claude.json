@@ -37,6 +37,12 @@
             "values": [
                 { "name": "ephemeral" }
             ]
+        },
+        "claude_thinking_type": {
+            "values": [
+                { "name": "disabled" },
+                { "name": "adaptive" }
+            ]
         }
     },
 
@@ -47,7 +53,13 @@
                 { "name": "messages", "type": "[claude_message]" },
                 { "name": "max_tokens", "type": "long", "default": 30000 },
                 { "name": "system", "type": "[claude_system_block]", "required": false },
-                { "name": "output_format", "type": "claude_api_output_format", "required": false }
+                { "name": "output_format", "type": "claude_api_output_format", "required": false },
+                { "name": "thinking", "type": "claude_thinking", "required": false }
+            ]
+        },
+        "claude_thinking": {
+            "fields": [
+                { "name": "type", "type": "claude_thinking_type" }
             ]
         },
         "claude_cache_control": {
@@ -97,7 +109,7 @@
         "claude_response_content": {
             "fields": [
                 { "name": "type", "type": "claude_content_type" },
-                { "name": "text", "type": "string" }
+                { "name": "text", "type": "string", "required": false }
             ]
         },
         "claude_usage": {

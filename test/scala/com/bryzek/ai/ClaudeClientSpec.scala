@@ -1,7 +1,9 @@
 package com.bryzek.ai.claude
 
-import com.bryzek.claude.models.{ClaudeModel, ClaudeRole}
+import com.bryzek.claude.models.{ClaudeModel, ClaudeResponse, ClaudeRole, ClaudeThinkingType}
+import com.bryzek.claude.models.json.*
 import helpers.FutureHelpers
+import play.api.libs.json.Json
 import org.apache.pekko.util.Timeout
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
@@ -84,6 +86,36 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       out.messages.last.content.last.cacheControl.map(_.`type`) mustBe Some(
         com.bryzek.claude.models.ClaudeCacheType.Ephemeral
       )
+    }
+
+    "toClaudeRequest disables extended thinking" in {
+      val out = AiRequest(messages = Nil).toClaudeRequest(ClaudeModel.ClaudeSonnet5)
+      out.thinking.map(_.`type`) mustBe Some(ClaudeThinkingType.Disabled)
+    }
+
+    "parses a response whose first content block is a non-text (thinking) block" in {
+      // Regression: Sonnet 5 leads its content array with a thinking block, which carries
+      // no `text` field. This previously threw JsResultException(/content(0)/text).
+      val js = Json.parse(
+        """
+        {
+          "id": "msg_x",
+          "type": "message",
+          "role": "assistant",
+          "content": [
+            { "type": "thinking", "thinking": "", "signature": "sig" },
+            { "type": "text", "text": "the answer" }
+          ],
+          "model": "claude-sonnet-5",
+          "stop_reason": "end_turn",
+          "usage": { "input_tokens": 10, "output_tokens": 20 }
+        }
+        """
+      )
+      val response = js.as[ClaudeResponse]
+      response.content.size mustBe 2
+      response.content.head.text mustBe None
+      response.content.flatMap(_.text) mustBe Seq("the answer")
     }
 
   }

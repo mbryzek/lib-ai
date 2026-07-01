@@ -71,7 +71,8 @@ case class AiRequest(
       messages = msgs,
       maxTokens = maxTokens,
       system = systemBlocks,
-      outputFormat = None
+      outputFormat = None,
+      thinking = Some(com.bryzek.claude.models.ClaudeThinking(com.bryzek.claude.models.ClaudeThinkingType.Disabled))
     )
   }
 }
@@ -278,7 +279,7 @@ case class ClaudeClient(
         requestHeaders = defaultHeaders
       )
       .map { response =>
-        val text = response.content.map(_.text).mkString("\n")
+        val text = textContent(response)
         if (text.nonEmpty) {
           ClaudeResponseMetadata(rm, response, text).validNec
         } else {
@@ -305,10 +306,16 @@ case class ClaudeClient(
     }
   }
 
+  /** Concatenates the text of all content blocks, skipping thinking (and any other non-text) blocks the model may
+    * return without a text field.
+    */
+  private def textContent(response: ClaudeResponse): String =
+    response.content.flatMap(_.text).mkString("\n")
+
   private def parseContent[T](rm: ClaudeRequestMetadata, response: ClaudeResponse)(implicit
     reads: Reads[T]
   ): ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]] = {
-    response.content.map(_.text).mkString("\n") match {
+    textContent(response) match {
       case content if content.nonEmpty => parseContent[T](rm, response, content)
       case _ => rm.error("No content found in message").invalidNec
     }
@@ -318,7 +325,7 @@ case class ClaudeClient(
     reads: Reads[T]
   ): ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]] = {
     def parseError(msg: String) = {
-      rm.error(msg, raw = Some(response.content.map(_.text).mkString("\n"))).invalidNec
+      rm.error(msg, raw = Some(textContent(response))).invalidNec
     }
 
     // With structured outputs, Claude returns clean JSON without markdown delimiters
