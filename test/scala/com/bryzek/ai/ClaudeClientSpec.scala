@@ -94,8 +94,8 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
     }
 
     "parses a response whose first content block is a non-text (thinking) block" in {
-      // Regression: Sonnet 5 leads its content array with a thinking block, which carries
-      // no `text` field. This previously threw JsResultException(/content(0)/text).
+      // Sonnet 5 leads its content array with a thinking block, which carries no `text`
+      // field; the parser must skip it and still extract the trailing text block.
       val js = Json.parse(
         """
         {
