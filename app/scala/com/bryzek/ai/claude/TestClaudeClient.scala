@@ -62,7 +62,7 @@ class TestClaudeClient extends IClient {
       content = Seq(
         ClaudeResponseContent(
           `type` = ClaudeContentType.Text,
-          text = responseText
+          text = Some(responseText)
         )
       ),
       model = ClaudeModel.ClaudeSonnet5,
