@@ -1,7 +1,17 @@
 package com.bryzek.ai.claude
 
-import com.bryzek.claude.models.{ClaudeModel, ClaudeResponse, ClaudeRole, ClaudeThinkingType}
+import com.bryzek.claude.models.{
+  ClaudeEffort,
+  ClaudeModel,
+  ClaudeResponse,
+  ClaudeRole,
+  ClaudeThinkingType,
+  ClaudeTool,
+  ClaudeToolChoiceType
+}
 import com.bryzek.claude.models.json.*
+import com.bryzek.claude.response.models.SingleInsightResponse
+import com.bryzek.claude.response.models.json.*
 import helpers.FutureHelpers
 import play.api.libs.json.Json
 import org.apache.pekko.util.Timeout
@@ -88,14 +98,31 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       )
     }
 
-    "toClaudeRequest disables extended thinking" in {
+    "toClaudeRequest defaults to adaptive thinking" in {
       val out = AiRequest(messages = Nil).toClaudeRequest(ClaudeModel.ClaudeSonnet5)
+      out.thinking.map(_.`type`) mustBe Some(ClaudeThinkingType.Adaptive)
+    }
+
+    "toClaudeRequest can disable thinking" in {
+      val out =
+        AiRequest(messages = Nil, thinking = ClaudeThinkingType.Disabled).toClaudeRequest(ClaudeModel.ClaudeSonnet5)
       out.thinking.map(_.`type`) mustBe Some(ClaudeThinkingType.Disabled)
+    }
+
+    "toClaudeRequest sets effort in output_config when provided" in {
+      val out = AiRequest(messages = Nil, effort = Some(ClaudeEffort.High)).toClaudeRequest(ClaudeModel.ClaudeSonnet5)
+      out.outputConfig.flatMap(_.effort) mustBe Some(ClaudeEffort.High)
+      out.outputConfig.flatMap(_.format) mustBe None
+    }
+
+    "toClaudeRequest omits output_config when no effort provided" in {
+      AiRequest(messages = Nil).toClaudeRequest(ClaudeModel.ClaudeSonnet5).outputConfig mustBe None
     }
 
     "parses a response whose first content block is a non-text (thinking) block" in {
       // Sonnet 5 leads its content array with a thinking block, which carries no `text`
-      // field; the parser must skip it and still extract the trailing text block.
+      // field; the flat content-block model reads it and the client skips it, still
+      // extracting the trailing text block.
       val js = Json.parse(
         """
         {
@@ -118,6 +145,78 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       response.content.flatMap(_.text) mustBe Seq("the answer")
     }
 
+    "parses usage with cache token fields" in {
+      val js = Json.parse(
+        """
+        { "input_tokens": 10, "output_tokens": 20,
+          "cache_creation_input_tokens": 100, "cache_read_input_tokens": 200 }
+        """
+      )
+      val usage = js.as[com.bryzek.claude.models.ClaudeUsage]
+      usage.cacheCreationInputTokens mustBe Some(100L)
+      usage.cacheReadInputTokens mustBe Some(200L)
+    }
+
+    "ClaudeToolChoiceType.None renders as none on the wire" in {
+      ClaudeToolChoiceType.None.toString mustBe "none"
+    }
   }
 
+  "runToolLoop" should {
+    val models = Seq(ClaudeModel.ClaudeSonnet5)
+    val tool = ClaudeTool(
+      name = "get_metric",
+      description = "Return a metric",
+      inputSchema = Json.obj("type" -> "object", "properties" -> Json.obj(), "additionalProperties" -> false)
+    )
+    val request = AiRequest(
+      messages = Seq(ClaudeClient.makeClaudeMessage(ClaudeRole.User, "Investigate the week"))
+    )
+
+    "executes the tool then returns a structured final answer" in {
+      var executed = 0
+      val result = await(
+        testClient.runToolLoop[SingleInsightResponse](
+          request,
+          tools = Seq(tool),
+          models = models,
+          maxCalls = 25,
+          finalFormat = ClaudeOutputFormats.SingleInsight
+        ) { use =>
+          executed += 1
+          use.name mustBe "get_metric"
+          scala.concurrent.Future.successful(ClaudeToolOutput(content = """{"total": 42}"""))
+        }
+      )(using timeout)
+
+      result.isValid mustBe true
+      val loop = result.toOption.get
+      executed mustBe 1
+      loop.turns mustBe 1
+      loop.invocations.map(_.use.name) mustBe Seq("get_metric")
+      loop.invocations.head.output.content mustBe """{"total": 42}"""
+      loop.value.insight mustBe "You are doing amazing"
+    }
+
+    "finalizes directly when the tool-call budget is zero" in {
+      var executed = 0
+      val result = await(
+        testClient.runToolLoop[SingleInsightResponse](
+          request,
+          tools = Seq(tool),
+          models = models,
+          maxCalls = 0,
+          finalFormat = ClaudeOutputFormats.SingleInsight
+        ) { _ =>
+          executed += 1
+          scala.concurrent.Future.successful(ClaudeToolOutput(content = "unused"))
+        }
+      )(using timeout)
+
+      result.isValid mustBe true
+      executed mustBe 0
+      result.toOption.get.turns mustBe 0
+      result.toOption.get.invocations mustBe empty
+    }
+  }
 }

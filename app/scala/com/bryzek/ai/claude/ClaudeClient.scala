@@ -6,16 +6,18 @@ import cats.implicits.*
 import com.bryzek.claude.response.models.*
 import com.bryzek.claude.response.models.json.*
 import com.bryzek.claude.client.IClient
-import generated.errors.ClaudeErrorResponseResponse
+import generated.errors.{ApiException, ClaudeErrorResponseResponse}
 import com.bryzek.claude.models.*
 import com.google.inject.ImplementedBy
 import play.api.libs.json.*
 
 import java.util.UUID
+import java.util.concurrent.{Executors, ThreadFactory, TimeUnit}
 import javax.inject.Inject
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.duration.{FiniteDuration, MILLISECONDS}
+import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.util.control.NonFatal
-import scala.util.{Failure, Success, Try}
+import scala.util.{Failure, Random, Success, Try}
 
 case class ClaudeConfig(key: String, anthropicVersion: String, betaHeaders: Seq[String] = Seq.empty)
 object ClaudeConfig {
@@ -35,21 +37,34 @@ object ClaudeEnvironment {
   case object Production extends ClaudeEnvironment
 }
 
+/** A single tool call the model requested (a `tool_use` content block). */
+case class ClaudeToolUse(id: String, name: String, input: JsObject)
+
+/** The result of executing a tool, returned to the model as a `tool_result` block. */
+case class ClaudeToolOutput(content: String, isError: Boolean = false)
+
+/** One executed tool call: what the model asked for and what we returned. */
+case class ClaudeToolInvocation(use: ClaudeToolUse, output: ClaudeToolOutput)
+
+/** Outcome of [[ClaudeClient.runToolLoop]]: the parsed final answer plus the full tool transcript. */
+case class ClaudeToolLoopResult[T](value: T, invocations: Seq[ClaudeToolInvocation], turns: Int)
+
 case class AiRequest(
   messages: Seq[ClaudeMessage],
   maxTokens: Long = 30000L,
   system: Option[String] = None,
   cacheSystem: Boolean = false,
-  cacheLastMessage: Boolean = false
+  cacheLastMessage: Boolean = false,
+  thinking: ClaudeThinkingType = ClaudeThinkingType.Adaptive,
+  effort: Option[ClaudeEffort] = None
 ) {
   require(!cacheSystem || system.isDefined, "cacheSystem=true requires system to be set")
 
   def toClaudeRequest(model: ClaudeModel): ClaudeRequest = {
-    def ephemeral: Option[com.bryzek.claude.models.ClaudeCacheControl] =
-      Some(com.bryzek.claude.models.ClaudeCacheControl())
+    def ephemeral: Option[ClaudeCacheControl] = Some(ClaudeCacheControl())
     val systemBlocks = system.map { text =>
       Seq(
-        com.bryzek.claude.models.ClaudeSystemBlock(
+        ClaudeSystemBlock(
           text = text,
           cacheControl = if (cacheSystem) ephemeral else None
         )
@@ -71,13 +86,20 @@ case class AiRequest(
       messages = msgs,
       maxTokens = maxTokens,
       system = systemBlocks,
-      outputFormat = None,
-      thinking = Some(com.bryzek.claude.models.ClaudeThinking(com.bryzek.claude.models.ClaudeThinkingType.Disabled))
+      tools = None,
+      toolChoice = None,
+      outputConfig = effort.map(e => ClaudeOutputConfig(effort = Some(e), format = None)),
+      thinking = Some(ClaudeThinking(thinking))
     )
   }
 }
 
-case class ClaudeRequestMetadata(client: IClient, id: String, request: ClaudeRequest) {
+case class ClaudeRequestMetadata(
+  client: IClient,
+  id: String,
+  request: ClaudeRequest,
+  context: Option[String] = None
+) {
   val start: Long = System.currentTimeMillis()
 
   def error(msg: String, raw: Option[String] = None): ClaudeError =
@@ -88,6 +110,9 @@ case class ClaudeResponseMetadata[T](request: ClaudeRequestMetadata, response: C
   val duration: Long = System.currentTimeMillis() - request.start
 }
 
+/** Persists the full request/response audit. `context` on the request metadata carries the run-stage id so transcripts
+  * correlate to the pipeline stage that produced them (rallyd's proven pattern).
+  */
 trait ClaudeStore {
   def storeRequest(request: ClaudeRequestMetadata): Unit
   def storeResponseError(request: ClaudeRequestMetadata, errors: Seq[ClaudeError]): Unit
@@ -123,16 +148,57 @@ class ClaudeClientFactoryImpl @Inject() (
 
 object ClaudeClient {
 
+  /** Total HTTP attempts per model before falling back / failing (initial call + retries). */
+  private val MaxHttpAttempts = 3
+
+  /** A tool-execution error streak this long aborts the loop rather than looping into more failures. */
+  private val MaxConsecutiveToolErrors = 3
+
+  private val scheduler = Executors.newSingleThreadScheduledExecutor(new ThreadFactory {
+    override def newThread(r: Runnable): Thread = {
+      val t = new Thread(r, "claude-retry-scheduler")
+      t.setDaemon(true)
+      t
+    }
+  })
+
+  /** Non-blocking delay (no Thread.sleep) used to space out retries. */
+  private def delay(d: FiniteDuration): Future[Unit] = {
+    val p = Promise[Unit]()
+    scheduler.schedule(
+      new Runnable { override def run(): Unit = p.success(()) },
+      d.toMillis,
+      TimeUnit.MILLISECONDS
+    )
+    p.future
+  }
+
+  def textBlock(text: String): ClaudeContentBlock =
+    ClaudeContentBlock(ClaudeContentType.Text).copy(text = Some(text))
+
+  def toolResultBlock(toolUseId: String, output: ClaudeToolOutput): ClaudeContentBlock =
+    ClaudeContentBlock(ClaudeContentType.ToolResult).copy(
+      toolUseId = Some(toolUseId),
+      content = Some(output.content),
+      isError = if (output.isError) Some(true) else None
+    )
+
   def makeClaudeMessage(role: ClaudeRole, msg: String*): ClaudeMessage = {
     ClaudeMessage(
       role = role,
-      content = msg.map { m => ClaudeContent(ClaudeContentType.Text, m) }
+      content = msg.map(textBlock)
     )
   }
 
+  def toolUses(response: ClaudeResponse): Seq[ClaudeToolUse] =
+    response.content.collect {
+      case b if b.`type` == ClaudeContentType.ToolUse =>
+        (b.id, b.name).mapN((id, name) => ClaudeToolUse(id, name, b.input.getOrElse(Json.obj())))
+    }.flatten
+
   /** Checks if an error message indicates a 529 overloaded response from the Claude API */
   def isOverloadedError(errorMessage: String): Boolean =
-    errorMessage.contains("response code[529]")
+    errorMessage.contains("529")
 
 }
 
@@ -141,7 +207,7 @@ final case class ClaudeOutputFormat(
   schema: _root_.play.api.libs.json.JsObject
 ) {
   def toApi: ClaudeApiOutputFormat = ClaudeApiOutputFormat(
-    `type` = com.bryzek.claude.models.ClaudeOutputFormatType.JsonSchema,
+    `type` = ClaudeOutputFormatType.JsonSchema,
     schema = schema
   )
 }
@@ -151,6 +217,8 @@ case class ClaudeClient(
   config: ClaudeConfig,
   store: ClaudeStore
 ) {
+  import ClaudeClient.*
+
   private val defaultHeaders: Seq[(String, String)] = {
     Seq(
       "x-api-key" -> config.key,
@@ -168,56 +236,164 @@ case class ClaudeClient(
 
   def makeClaudeMessage(role: ClaudeRole, msg: String*): ClaudeMessage = ClaudeClient.makeClaudeMessage(role, msg*)
 
-  def chatComments(request: AiRequest, models: Seq[ClaudeModel])(implicit
+  def chatComments(request: AiRequest, models: Seq[ClaudeModel], context: Option[String] = None)(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[String]]] = {
-    chatCompletion[CommentsResponse](request, ClaudeOutputFormats.CommentsResponse, models)(using ec)
+    chatCompletion[CommentsResponse](request, ClaudeOutputFormats.CommentsResponse, models, context)(using ec)
       .map(_.map(_.content.comments))
   }
 
-  def chatRecommendations(request: AiRequest, models: Seq[ClaudeModel])(implicit
+  def chatRecommendations(request: AiRequest, models: Seq[ClaudeModel], context: Option[String] = None)(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[Recommendation]]] = {
-    chatCompletion[RecommendationResponse](request, ClaudeOutputFormats.RecommendationsResponse, models)(using ec)
+    chatCompletion[RecommendationResponse](request, ClaudeOutputFormats.RecommendationsResponse, models, context)(using
+      ec
+    )
       .map(_.map(_.content.recommendations))
   }
 
-  def chatInsight(request: AiRequest, models: Seq[ClaudeModel])(implicit
+  def chatInsight(request: AiRequest, models: Seq[ClaudeModel], context: Option[String] = None)(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[String]]] = {
-    chatComments(request, models)(using ec)
+    chatComments(request, models, context)(using ec)
   }
 
-  def chatSingleInsight(request: AiRequest, models: Seq[ClaudeModel])(implicit
+  def chatSingleInsight(request: AiRequest, models: Seq[ClaudeModel], context: Option[String] = None)(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, String]] = {
-    chatCompletion[SingleInsightResponse](request, ClaudeOutputFormats.SingleInsight, models)(using ec)
+    chatCompletion[SingleInsightResponse](request, ClaudeOutputFormats.SingleInsight, models, context)(using ec)
       .map(_.map(_.content.insight))
   }
 
-  def chatInsightSections(request: AiRequest, models: Seq[ClaudeModel])(implicit
+  def chatInsightSections(request: AiRequest, models: Seq[ClaudeModel], context: Option[String] = None)(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[InsightSection]]] = {
-    chatCompletion[InsightSectionsResponse](request, ClaudeOutputFormats.InsightSectionsResponse, models)(using ec)
+    chatCompletion[InsightSectionsResponse](request, ClaudeOutputFormats.InsightSectionsResponse, models, context)(using
+      ec
+    )
       .map(_.map(_.content.sections))
   }
 
-  def chatText(request: AiRequest, models: Seq[ClaudeModel])(implicit
+  def chatText(request: AiRequest, models: Seq[ClaudeModel], context: Option[String] = None)(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[String]]] = {
     tryModels(models) { model =>
-      chatTextSingle(request.toClaudeRequest(model))
+      chatTextSingle(request.toClaudeRequest(model), context)
     }
   }
 
-  def chatCompletion[T](request: AiRequest, outputFormat: ClaudeOutputFormat, models: Seq[ClaudeModel])(implicit
+  def chatCompletion[T](
+    request: AiRequest,
+    outputFormat: ClaudeOutputFormat,
+    models: Seq[ClaudeModel],
+    context: Option[String] = None
+  )(implicit
     ec: ExecutionContext,
     reads: Reads[T]
   ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]] = {
     tryModels(models) { model =>
-      chatCompletionSingle(request.toClaudeRequest(model), outputFormat)
+      chatCompletionSingle(request.toClaudeRequest(model), outputFormat, context)
     }
   }
+
+  /** Agentic tool loop. Sends `request` with `tools` and lets the model call them; every `tool_use` block is executed
+    * via `execute`, and all results for a turn are returned in ONE user message (splitting degrades parallel tool
+    * calling). Budget-capped at `maxCalls` tool executions; a run of [[ClaudeClient.MaxConsecutiveToolErrors]]
+    * consecutive tool errors aborts. The final turn forces `tool_choice: none` + structured output so the answer parses
+    * into `T` without regex-and-nudge. Every request/response is journaled via the store with `context`.
+    */
+  def runToolLoop[T](
+    request: AiRequest,
+    tools: Seq[ClaudeTool],
+    models: Seq[ClaudeModel],
+    maxCalls: Int,
+    finalFormat: ClaudeOutputFormat,
+    context: Option[String] = None
+  )(execute: ClaudeToolUse => Future[ClaudeToolOutput])(implicit
+    ec: ExecutionContext,
+    reads: Reads[T]
+  ): Future[ValidatedNec[ClaudeError, ClaudeToolLoopResult[T]]] = {
+    tryModels(models) { model =>
+      val base = request.toClaudeRequest(model)
+
+      def finalize(
+        messages: Seq[ClaudeMessage],
+        invocations: Seq[ClaudeToolInvocation],
+        turns: Int
+      ): Future[ValidatedNec[ClaudeError, ClaudeToolLoopResult[T]]] = {
+        val req = base.copy(
+          messages = messages,
+          tools = None,
+          toolChoice = Some(ClaudeToolChoice(ClaudeToolChoiceType.None)),
+          outputConfig = Some(mergeFormat(base.outputConfig, finalFormat))
+        )
+        send(req, structuredHeaders(finalFormat), context).map(_.andThen { rm =>
+          parseText[T](rm.request, rm.response).map { parsed =>
+            ClaudeToolLoopResult(parsed.content, invocations, turns)
+          }
+        })
+      }
+
+      def loop(
+        messages: Seq[ClaudeMessage],
+        callsUsed: Int,
+        consecutiveErrors: Int,
+        invocations: Seq[ClaudeToolInvocation],
+        turns: Int
+      ): Future[ValidatedNec[ClaudeError, ClaudeToolLoopResult[T]]] = {
+        if (callsUsed >= maxCalls) {
+          finalize(messages, invocations, turns)
+        } else {
+          val req = base.copy(
+            messages = messages,
+            tools = Some(tools),
+            toolChoice = Some(ClaudeToolChoice(ClaudeToolChoiceType.Auto)),
+            outputConfig = base.outputConfig
+          )
+          send(req, defaultHeaders, context).flatMap {
+            case Invalid(errors) => Future.successful(Invalid(errors))
+            case Valid(rm) =>
+              val uses = ClaudeClient.toolUses(rm.response)
+              if (rm.response.stopReason == ClaudeStopReason.ToolUse && uses.nonEmpty) {
+                Future.traverse(uses)(u => execute(u).map(ClaudeToolInvocation(u, _))).flatMap { newInvocations =>
+                  val allErrored = newInvocations.forall(_.output.isError)
+                  val streak = if (allErrored) consecutiveErrors + newInvocations.size else 0
+                  if (streak >= MaxConsecutiveToolErrors) {
+                    Future.successful(
+                      rm.request.error(s"Aborting tool loop after $streak consecutive tool errors").invalidNec
+                    )
+                  } else {
+                    val assistantMsg = ClaudeMessage(ClaudeRole.Assistant, rm.response.content)
+                    val resultMsg = ClaudeMessage(
+                      ClaudeRole.User,
+                      newInvocations.map(i => toolResultBlock(i.use.id, i.output))
+                    )
+                    loop(
+                      messages :+ assistantMsg :+ resultMsg,
+                      callsUsed + uses.size,
+                      streak,
+                      invocations ++ newInvocations,
+                      turns + 1
+                    )
+                  }
+                }
+              } else {
+                // Model stopped asking for tools; force a structured final answer.
+                finalize(messages :+ ClaudeMessage(ClaudeRole.Assistant, rm.response.content), invocations, turns)
+              }
+          }
+        }
+      }
+
+      loop(base.messages, 0, 0, Nil, 0)
+    }
+  }
+
+  private def mergeFormat(existing: Option[ClaudeOutputConfig], format: ClaudeOutputFormat): ClaudeOutputConfig =
+    existing.getOrElse(ClaudeOutputConfig(effort = None, format = None)).copy(format = Some(format.toApi))
+
+  private def structuredHeaders(format: ClaudeOutputFormat): Seq[(String, String)] =
+    defaultHeaders ++ Seq((TestClaudeClient.OutputFormatNameHeader, format.name))
 
   private def tryModels[T](models: Seq[ClaudeModel])(
     attempt: ClaudeModel => Future[ValidatedNec[ClaudeError, T]]
@@ -244,21 +420,44 @@ case class ClaudeClient(
   private def isOverloaded(errors: NonEmptyChain[ClaudeError]): Boolean =
     errors.exists(e => ClaudeClient.isOverloadedError(e.message))
 
-  private def chatCompletionSingle[T](originalRequest: ClaudeRequest, outputFormat: ClaudeOutputFormat)(implicit
-    ec: ExecutionContext,
-    reads: Reads[T]
-  ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]] = {
-    val request = originalRequest.copy(
-      outputFormat = Some(outputFormat.toApi)
-    )
-    val rm = ClaudeRequestMetadata(client, randomId("req"), request)
+  /** Retry the given HTTP attempt, honoring `Retry-After` on 429 and using jittered backoff on 5xx. Non-retryable
+    * failures (or exhausted attempts) propagate the original exception.
+    */
+  private def withRetries(attempt: => Future[ClaudeResponse])(implicit ec: ExecutionContext): Future[ClaudeResponse] = {
+    def loop(n: Int): Future[ClaudeResponse] =
+      attempt.recoverWith {
+        case NonFatal(e) if n < MaxHttpAttempts && retryDelay(e).isDefined =>
+          delay(retryDelay(e).get).flatMap(_ => loop(n + 1))
+      }
+    loop(1)
+  }
+
+  private def retryDelay(e: Throwable): Option[FiniteDuration] = e match {
+    case r: ClaudeErrorResponseResponse =>
+      r.response.status match {
+        case 429 => Some(retryAfter(r.response.header("Retry-After")))
+        case s if s >= 500 => Some(jitter())
+        case _ => None
+      }
+    case a: ApiException if a.response.status >= 500 => Some(jitter())
+    case _ => None
+  }
+
+  private def retryAfter(header: Option[String]): FiniteDuration =
+    header
+      .flatMap(h => Try(h.trim.toLong).toOption)
+      .map(s => FiniteDuration(s, TimeUnit.SECONDS))
+      .getOrElse(jitter())
+
+  private def jitter(): FiniteDuration = FiniteDuration(500L + Random.nextInt(500), MILLISECONDS)
+
+  private def send(request: ClaudeRequest, headers: Seq[(String, String)], context: Option[String])(implicit
+    ec: ExecutionContext
+  ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[ClaudeResponse]]] = {
+    val rm = ClaudeRequestMetadata(client, randomId("req"), request, context)
     store.storeRequest(rm)
-    client
-      .createMessage(
-        request,
-        requestHeaders = defaultHeaders ++ Seq((TestClaudeClient.OutputFormatNameHeader, outputFormat.name))
-      )
-      .map(parseContent[T](rm, _))
+    withRetries(client.createMessage(request, headers))
+      .map(response => ClaudeResponseMetadata(rm, response, response).validNec)
       .recover {
         case r: ClaudeErrorResponseResponse => r.claudeErrorResponse.error.invalidNec
         case NonFatal(e) => rm.error(e.getMessage).invalidNec
@@ -268,32 +467,33 @@ case class ClaudeClient(
       }
   }
 
-  private def chatTextSingle(originalRequest: ClaudeRequest)(implicit
+  private def chatCompletionSingle[T](
+    originalRequest: ClaudeRequest,
+    outputFormat: ClaudeOutputFormat,
+    context: Option[String]
+  )(implicit
+    ec: ExecutionContext,
+    reads: Reads[T]
+  ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]] = {
+    val request = originalRequest.copy(
+      outputConfig = Some(mergeFormat(originalRequest.outputConfig, outputFormat))
+    )
+    send(request, structuredHeaders(outputFormat), context).map(_.andThen { rm =>
+      parseText[T](rm.request, rm.response)
+    })
+  }
+
+  private def chatTextSingle(originalRequest: ClaudeRequest, context: Option[String])(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[String]]] = {
-    val rm = ClaudeRequestMetadata(client, randomId("req"), originalRequest)
-    store.storeRequest(rm)
-    client
-      .createMessage(
-        originalRequest,
-        requestHeaders = defaultHeaders
-      )
-      .map { response =>
-        val text = textContent(response)
-        if (text.nonEmpty) {
-          ClaudeResponseMetadata(rm, response, text).validNec
-        } else {
-          rm.error("No content found in message").invalidNec
-        }
+    send(originalRequest, defaultHeaders, context).map(_.andThen { rm =>
+      val text = textContent(rm.response)
+      if (text.nonEmpty) {
+        ClaudeResponseMetadata(rm.request, rm.response, text).validNec
+      } else {
+        rm.request.error("No content found in message").invalidNec
       }
-      .recover {
-        case r: ClaudeErrorResponseResponse => r.claudeErrorResponse.error.invalidNec
-        case NonFatal(e) => rm.error(e.getMessage).invalidNec
-      }
-      .map { res =>
-        storeResponse(rm, res)
-        res
-      }
+    })
   }
 
   private def storeResponse[T](
@@ -306,13 +506,11 @@ case class ClaudeClient(
     }
   }
 
-  /** Concatenates the text of all content blocks, skipping thinking (and any other non-text) blocks the model may
-    * return without a text field.
-    */
+  /** Concatenates the text of all `text` content blocks, skipping thinking / tool_use / tool_result blocks. */
   private def textContent(response: ClaudeResponse): String =
-    response.content.flatMap(_.text).mkString("\n")
+    response.content.flatMap(b => if (b.`type` == ClaudeContentType.Text) b.text else None).mkString("\n")
 
-  private def parseContent[T](rm: ClaudeRequestMetadata, response: ClaudeResponse)(implicit
+  private def parseText[T](rm: ClaudeRequestMetadata, response: ClaudeResponse)(implicit
     reads: Reads[T]
   ): ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]] = {
     textContent(response) match {
