@@ -87,6 +87,13 @@ class TestClaudeClient extends IClient {
     body: ClaudeRequest,
     requestHeaders: Seq[(String, String)] = Nil
   ): Future[ClaudeResponse] = Future {
+    // The Claude API rejects a request whose final message is an assistant turn (an assistant-turn prefill),
+    // and rejects it outright alongside structured outputs. Enforce the wire contract here so that class of bug
+    // surfaces in tests instead of only against production.
+    require(
+      body.messages.lastOption.forall(_.role != ClaudeRole.Assistant),
+      "Request must not end with an assistant message (assistant-turn prefill is rejected by the Claude API)"
+    )
     if (shouldRequestTool(body)) {
       toolUseResponse(body)
     } else {

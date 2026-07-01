@@ -21,7 +21,8 @@
                 { "name": "text" },
                 { "name": "tool_use" },
                 { "name": "tool_result" },
-                { "name": "thinking" }
+                { "name": "thinking" },
+                { "name": "redacted_thinking" }
             ]
         },
         "claude_stop_reason": {
@@ -135,7 +136,7 @@
             ]
         },
         "claude_content_block": {
-            "description": "One content block on a message or response. A single flat model spanning all block types (discriminated on type) rather than a union, because a spec that has both a union and error-response mustParse handling hits a known bryzek-generator ambiguous-implicit compile error. Wire JSON is identical to the union form; only the populated fields differ by type: text -> text; tool_use -> id, name, input; tool_result -> tool_use_id, content, is_error; thinking -> thinking, signature.",
+            "description": "One content block on a message or response. A single flat model spanning all block types (discriminated on type) rather than a union, because a spec that has both a union and error-response mustParse handling hits a known bryzek-generator ambiguous-implicit compile error. Wire JSON is identical to the union form; only the populated fields differ by type: text -> text; tool_use -> id, name, input; tool_result -> tool_use_id, content, is_error; thinking -> thinking, signature; redacted_thinking -> data. Retain every field verbatim when echoing assistant content back, or the API rejects the modified block.",
             "fields": [
                 { "name": "type", "type": "claude_content_type" },
                 { "name": "text", "type": "string", "required": false },
@@ -147,6 +148,7 @@
                 { "name": "is_error", "type": "boolean", "required": false },
                 { "name": "thinking", "type": "string", "required": false },
                 { "name": "signature", "type": "string", "required": false },
+                { "name": "data", "type": "string", "required": false },
                 { "name": "cache_control", "type": "claude_cache_control", "required": false }
             ]
         },
