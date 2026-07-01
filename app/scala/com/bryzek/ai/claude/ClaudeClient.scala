@@ -310,9 +310,9 @@ case class ClaudeClient(
 
   /** Agentic tool loop. Sends `request` with `tools` and lets the model call them; every `tool_use` block is executed
     * via `execute`, and all results for a turn are returned in ONE user message (splitting degrades parallel tool
-    * calling). Budget-capped at `maxCalls` tool executions; a run of [[ClaudeClient.MaxConsecutiveToolErrors]]
-    * consecutive tool errors aborts. The final turn forces `tool_choice: none` + structured output so the answer parses
-    * into `T` without regex-and-nudge. Every request/response is journaled via the store with `context`.
+    * calling). Budget-capped at `maxCalls` tool executions; a run of [[ClaudeClient.MaxConsecutiveFailedTurns]]
+    * consecutive fully-failed tool turns aborts. The final turn forces `tool_choice: none` + structured output so the
+    * answer parses into `T` without regex-and-nudge. Every request/response is journaled via the store with `context`.
     */
   def runToolLoop[T](
     request: AiRequest,
