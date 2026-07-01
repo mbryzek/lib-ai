@@ -11,7 +11,7 @@ class ClaudeJsonSpec extends AnyWordSpec with Matchers {
       ClaudeJson.extractJson("""{"a":1}""") mustBe Right(Json.obj("a" -> 1))
     }
 
-    "strip a ```json fenced object (the weekly-insight failure case)" in {
+    "strip a ```json fenced object" in {
       val fenced =
         """```json
           |{
@@ -22,6 +22,15 @@ class ClaudeJsonSpec extends AnyWordSpec with Matchers {
       ClaudeJson.extractJson(fenced) mustBe Right(
         Json.obj("corrections" -> Json.arr(), "content" -> Json.obj("headline" -> "hi"))
       )
+    }
+
+    "recover an object from prose that leads into a fenced block" in {
+      val text =
+        """Here's the corrected JSON:
+          |```json
+          |{"a":1}
+          |```""".stripMargin
+      ClaudeJson.extractJson(text) mustBe Right(Json.obj("a" -> 1))
     }
 
     "strip a bare ``` fence with no language tag" in {

@@ -28,18 +28,17 @@ object ClaudeJson {
     }
   }
 
-  /** Like [[extractJson]] but yields the value as a JsObject, or None when no JSON object can be recovered. Convenience
-    * for callers that require an object.
+  /** Like [[extractJson]] but yields the value as a JsObject. Returns None when no JSON can be recovered or the
+    * recovered JSON is not an object (a top-level array or scalar yields None). Convenience for callers that require an
+    * object.
     */
   def extractJsonObject(text: String): Option[JsObject] =
-    extractJson(text).toOption
-      .flatMap(_.asOpt[JsObject])
-      .orElse(objectSubstring(stripFences(text)).flatMap(s => Try(Json.parse(s)).toOption).flatMap(_.asOpt[JsObject]))
+    extractJson(text).toOption.flatMap(_.asOpt[JsObject])
 
   private def stripFences(text: String): String =
     text.trim
-      .replaceAll("(?s)^```(?:json)?\\s*", "")
-      .replaceAll("(?s)```\\s*$", "")
+      .replaceAll("^```(?:json)?\\s*", "")
+      .replaceAll("```\\s*$", "")
       .trim
 
   private def objectSubstring(stripped: String): Option[String] = {
