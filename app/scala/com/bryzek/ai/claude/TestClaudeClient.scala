@@ -10,7 +10,7 @@ import com.bryzek.claude.models.*
 import play.api.libs.json.{JsValue, Json}
 
 import javax.inject.Singleton
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.Future
 import scala.concurrent.ExecutionContext.Implicits.global
 
 object TestClaudeClient {
@@ -44,35 +44,61 @@ class TestClaudeClient extends IClient {
     format.generateResponse(claudeRequest)
   }
 
-  override def createMessage(
-    body: ClaudeRequest,
-    requestHeaders: Seq[(String, String)] = Nil
-  ): Future[ClaudeResponse] = Future {
-    val responseText = getHeader(requestHeaders, TestClaudeClient.OutputFormatNameHeader) match {
-      case None =>
-        "This is a test plain text response."
-      case Some(name) =>
-        val format = expectValid { validateOutputFormatByName(name) }
-        Json.prettyPrint(postClaudeRequest(body, format, requestHeaders))
-    }
+  /** The model wants a tool call when tools are offered, the caller hasn't forced `tool_choice: none`, and no tool
+    * result has been returned yet. This lets [[ClaudeClient.runToolLoop]] be exercised without a live API: one
+    * `tool_use` turn, then (once results come back) a structured / text final turn.
+    */
+  private def shouldRequestTool(body: ClaudeRequest): Boolean = {
+    val hasTools = body.tools.exists(_.nonEmpty)
+    val forcedNone = body.toolChoice.exists(_.`type` == ClaudeToolChoiceType.None)
+    val alreadyRanTool = body.messages.exists(_.content.exists(_.`type` == ClaudeContentType.ToolResult))
+    hasTools && !forcedNone && !alreadyRanTool
+  }
+
+  private def toolUseResponse(body: ClaudeRequest): ClaudeResponse = {
+    val tool = body.tools
+      .flatMap(_.headOption)
+      .getOrElse(sys.error("shouldRequestTool implies at least one tool is present"))
+    response(
+      Seq(
+        ClaudeContentBlock(ClaudeContentType.ToolUse).copy(
+          id = Some("test-tool-use-1"),
+          name = Some(tool.name),
+          input = Some(Json.obj())
+        )
+      ),
+      ClaudeStopReason.ToolUse
+    )
+  }
+
+  private def response(content: Seq[ClaudeContentBlock], stopReason: ClaudeStopReason): ClaudeResponse = {
     ClaudeResponse(
       id = "test-response-id",
       `type` = "message",
       role = ClaudeRole.Assistant,
-      content = Seq(
-        ClaudeResponseContent(
-          `type` = ClaudeContentType.Text,
-          text = Some(responseText)
-        )
-      ),
+      content = content,
       model = ClaudeModel.ClaudeSonnet5,
-      stopReason = ClaudeStopReason.EndTurn,
-      stopSequence = None,
-      usage = ClaudeUsage(
-        inputTokens = 10,
-        outputTokens = 20
-      )
+      stopReason = stopReason,
+      usage = ClaudeUsage(inputTokens = 10, outputTokens = 20)
     )
+  }
+
+  override def createMessage(
+    body: ClaudeRequest,
+    requestHeaders: Seq[(String, String)] = Nil
+  ): Future[ClaudeResponse] = Future {
+    if (shouldRequestTool(body)) {
+      toolUseResponse(body)
+    } else {
+      val responseText = getHeader(requestHeaders, TestClaudeClient.OutputFormatNameHeader) match {
+        case None =>
+          "This is a test plain text response."
+        case Some(name) =>
+          val format = expectValid { validateOutputFormatByName(name) }
+          Json.prettyPrint(postClaudeRequest(body, format, requestHeaders))
+      }
+      response(Seq(ClaudeClient.textBlock(responseText)), ClaudeStopReason.EndTurn)
+    }
   }
 
   private def toTestResponseType(f: ClaudeOutputFormat): ValidatedNec[String, TestResponseFormat] = {

@@ -16,8 +16,12 @@
             ]
         },
         "claude_content_type": {
+            "description": "Discriminator for a content block. Matches the Anthropic wire format; unknown values deserialize as UNDEFINED and are skipped downstream.",
             "values": [
-                { "name": "text" }
+                { "name": "text" },
+                { "name": "tool_use" },
+                { "name": "tool_result" },
+                { "name": "thinking" }
             ]
         },
         "claude_stop_reason": {
@@ -43,6 +47,23 @@
                 { "name": "disabled" },
                 { "name": "adaptive" }
             ]
+        },
+        "claude_tool_choice_type": {
+            "values": [
+                { "name": "auto" },
+                { "name": "any" },
+                { "name": "tool" },
+                { "name": "none" }
+            ]
+        },
+        "claude_effort": {
+            "values": [
+                { "name": "low" },
+                { "name": "medium" },
+                { "name": "high" },
+                { "name": "xhigh" },
+                { "name": "max" }
+            ]
         }
     },
 
@@ -53,7 +74,9 @@
                 { "name": "messages", "type": "[claude_message]" },
                 { "name": "max_tokens", "type": "long", "default": 30000 },
                 { "name": "system", "type": "[claude_system_block]", "required": false },
-                { "name": "output_format", "type": "claude_api_output_format", "required": false },
+                { "name": "tools", "type": "[claude_tool]", "required": false },
+                { "name": "tool_choice", "type": "claude_tool_choice", "required": false },
+                { "name": "output_config", "type": "claude_output_config", "required": false },
                 { "name": "thinking", "type": "claude_thinking", "required": false }
             ]
         },
@@ -74,6 +97,30 @@
                 { "name": "cache_control", "type": "claude_cache_control", "required": false }
             ]
         },
+        "claude_tool": {
+            "description": "A tool the model may call. input_schema is the JSON schema for the tool's arguments; strict guarantees the model's input validates against it.",
+            "fields": [
+                { "name": "name", "type": "string" },
+                { "name": "description", "type": "string" },
+                { "name": "input_schema", "type": "object" },
+                { "name": "strict", "type": "boolean", "required": false },
+                { "name": "cache_control", "type": "claude_cache_control", "required": false }
+            ]
+        },
+        "claude_tool_choice": {
+            "fields": [
+                { "name": "type", "type": "claude_tool_choice_type" },
+                { "name": "name", "type": "string", "required": false },
+                { "name": "disable_parallel_tool_use", "type": "boolean", "required": false }
+            ]
+        },
+        "claude_output_config": {
+            "description": "Output controls. effort tunes thinking depth and token spend; format constrains the response to a JSON schema (replaces the deprecated top-level output_format).",
+            "fields": [
+                { "name": "effort", "type": "claude_effort", "required": false },
+                { "name": "format", "type": "claude_api_output_format", "required": false }
+            ]
+        },
         "claude_api_output_format": {
             "description": "Structured output configuration for guaranteed JSON schema compliance",
             "fields": [
@@ -84,13 +131,22 @@
         "claude_message": {
             "fields": [
                 { "name": "role", "type": "claude_role" },
-                { "name": "content", "type": "[claude_content]" }
+                { "name": "content", "type": "[claude_content_block]" }
             ]
         },
-        "claude_content": {
+        "claude_content_block": {
+            "description": "One content block on a message or response. A single flat model spanning all block types (discriminated on type) rather than a union, because a spec that has both a union and error-response mustParse handling hits a known bryzek-generator ambiguous-implicit compile error. Wire JSON is identical to the union form; only the populated fields differ by type: text -> text; tool_use -> id, name, input; tool_result -> tool_use_id, content, is_error; thinking -> thinking, signature.",
             "fields": [
                 { "name": "type", "type": "claude_content_type" },
-                { "name": "text", "type": "string" },
+                { "name": "text", "type": "string", "required": false },
+                { "name": "id", "type": "string", "required": false },
+                { "name": "name", "type": "string", "required": false },
+                { "name": "input", "type": "object", "required": false },
+                { "name": "tool_use_id", "type": "string", "required": false },
+                { "name": "content", "type": "string", "required": false },
+                { "name": "is_error", "type": "boolean", "required": false },
+                { "name": "thinking", "type": "string", "required": false },
+                { "name": "signature", "type": "string", "required": false },
                 { "name": "cache_control", "type": "claude_cache_control", "required": false }
             ]
         },
@@ -99,23 +155,19 @@
                 { "name": "id", "type": "string" },
                 { "name": "type", "type": "string" },
                 { "name": "role", "type": "claude_role" },
-                { "name": "content", "type": "[claude_response_content]" },
+                { "name": "content", "type": "[claude_content_block]" },
                 { "name": "model", "type": "claude_model" },
                 { "name": "stop_reason", "type": "claude_stop_reason" },
                 { "name": "stop_sequence", "type": "string", "required": false },
                 { "name": "usage", "type": "claude_usage" }
             ]
         },
-        "claude_response_content": {
-            "fields": [
-                { "name": "type", "type": "claude_content_type" },
-                { "name": "text", "type": "string", "required": false }
-            ]
-        },
         "claude_usage": {
             "fields": [
                 { "name": "input_tokens", "type": "long" },
-                { "name": "output_tokens", "type": "long" }
+                { "name": "output_tokens", "type": "long" },
+                { "name": "cache_creation_input_tokens", "type": "long", "required": false },
+                { "name": "cache_read_input_tokens", "type": "long", "required": false }
             ]
         },
         "claude_error_response": {
