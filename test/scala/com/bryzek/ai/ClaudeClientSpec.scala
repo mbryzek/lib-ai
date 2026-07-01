@@ -160,6 +160,31 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
     "ClaudeToolChoiceType.None renders as none on the wire" in {
       ClaudeToolChoiceType.None.toString mustBe "none"
     }
+
+    "preserves a redacted_thinking block's data field for verbatim echo-back" in {
+      val js = Json.parse(
+        """
+        {
+          "id": "msg_x",
+          "type": "message",
+          "role": "assistant",
+          "content": [
+            { "type": "redacted_thinking", "data": "ENCRYPTED" },
+            { "type": "text", "text": "the answer" }
+          ],
+          "model": "claude-sonnet-5",
+          "stop_reason": "end_turn",
+          "usage": { "input_tokens": 10, "output_tokens": 20 }
+        }
+        """
+      )
+      val response = js.as[ClaudeResponse]
+      val redacted = response.content.head
+      redacted.`type` mustBe com.bryzek.claude.models.ClaudeContentType.RedactedThinking
+      redacted.data mustBe Some("ENCRYPTED")
+      redacted.text mustBe None
+      response.content.flatMap(_.text) mustBe Seq("the answer")
+    }
   }
 
   "runToolLoop" should {

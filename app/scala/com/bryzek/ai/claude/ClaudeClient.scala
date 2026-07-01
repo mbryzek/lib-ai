@@ -151,8 +151,8 @@ object ClaudeClient {
   /** Total HTTP attempts per model before falling back / failing (initial call + retries). */
   private val MaxHttpAttempts = 3
 
-  /** A tool-execution error streak this long aborts the loop rather than looping into more failures. */
-  private val MaxConsecutiveToolErrors = 3
+  /** This many consecutive fully-failed tool turns aborts the loop rather than looping into more failures. */
+  private val MaxConsecutiveFailedTurns = 3
 
   private val scheduler = Executors.newSingleThreadScheduledExecutor(new ThreadFactory {
     override def newThread(r: Runnable): Thread = {
@@ -190,15 +190,27 @@ object ClaudeClient {
     )
   }
 
+  /** Trailing user turn appended when finalizing a tool loop after the model stops calling tools, so the finalize
+    * request does not end in an assistant turn (which would be a rejected assistant prefill).
+    */
+  private[claude] def finalizeInstruction: ClaudeMessage =
+    makeClaudeMessage(
+      ClaudeRole.User,
+      "Return your final answer now as a single JSON object matching the required schema."
+    )
+
   def toolUses(response: ClaudeResponse): Seq[ClaudeToolUse] =
     response.content.collect {
       case b if b.`type` == ClaudeContentType.ToolUse =>
         (b.id, b.name).mapN((id, name) => ClaudeToolUse(id, name, b.input.getOrElse(Json.obj())))
     }.flatten
 
-  /** Checks if an error message indicates a 529 overloaded response from the Claude API */
+  /** Checks if an error message indicates a 529 overloaded response from the Claude API. Matches the generated
+    * `ApiException` message (`... failed with status 529`) rather than a bare `529`, which could collide with the
+    * random request id embedded in the same error string.
+    */
   def isOverloadedError(errorMessage: String): Boolean =
-    errorMessage.contains("529")
+    errorMessage.contains("status 529")
 
 }
 
@@ -327,11 +339,8 @@ case class ClaudeClient(
           toolChoice = Some(ClaudeToolChoice(ClaudeToolChoiceType.None)),
           outputConfig = Some(mergeFormat(base.outputConfig, finalFormat))
         )
-        send(req, structuredHeaders(finalFormat), context).map(_.andThen { rm =>
-          parseText[T](rm.request, rm.response).map { parsed =>
-            ClaudeToolLoopResult(parsed.content, invocations, turns)
-          }
-        })
+        sendAndStore[T](req, structuredHeaders(finalFormat), context)((rm, resp) => parseText[T](rm, resp))
+          .map(_.map(parsed => ClaudeToolLoopResult(parsed.content, invocations, turns)))
       }
 
       def loop(
@@ -350,17 +359,19 @@ case class ClaudeClient(
             toolChoice = Some(ClaudeToolChoice(ClaudeToolChoiceType.Auto)),
             outputConfig = base.outputConfig
           )
-          send(req, defaultHeaders, context).flatMap {
+          sendRaw(req, defaultHeaders, context).flatMap {
             case Invalid(errors) => Future.successful(Invalid(errors))
             case Valid(rm) =>
               val uses = ClaudeClient.toolUses(rm.response)
               if (rm.response.stopReason == ClaudeStopReason.ToolUse && uses.nonEmpty) {
-                Future.traverse(uses)(u => execute(u).map(ClaudeToolInvocation(u, _))).flatMap { newInvocations =>
+                Future.traverse(uses)(u => runTool(execute, u)).flatMap { newInvocations =>
                   val allErrored = newInvocations.forall(_.output.isError)
-                  val streak = if (allErrored) consecutiveErrors + newInvocations.size else 0
-                  if (streak >= MaxConsecutiveToolErrors) {
+                  val streak = if (allErrored) consecutiveErrors + 1 else 0
+                  if (streak >= MaxConsecutiveFailedTurns) {
                     Future.successful(
-                      rm.request.error(s"Aborting tool loop after $streak consecutive tool errors").invalidNec
+                      rm.request
+                        .error(s"Aborting tool loop after $streak consecutive fully-failed tool turns")
+                        .invalidNec
                     )
                   } else {
                     val assistantMsg = ClaudeMessage(ClaudeRole.Assistant, rm.response.content)
@@ -378,8 +389,13 @@ case class ClaudeClient(
                   }
                 }
               } else {
-                // Model stopped asking for tools; force a structured final answer.
-                finalize(messages :+ ClaudeMessage(ClaudeRole.Assistant, rm.response.content), invocations, turns)
+                // Model stopped asking for tools; force a structured final answer. The finalize request
+                // must end in a user turn — a trailing assistant turn is an assistant prefill, which modern
+                // models reject with a 400 — so echo the model's turn and add an explicit user instruction.
+                val done = messages :+
+                  ClaudeMessage(ClaudeRole.Assistant, rm.response.content) :+
+                  finalizeInstruction
+                finalize(done, invocations, turns)
               }
           }
         }
@@ -388,6 +404,20 @@ case class ClaudeClient(
       loop(base.messages, 0, 0, Nil, 0)
     }
   }
+
+  /** Runs a caller-supplied tool, capturing a synchronous throw or a failed Future as an error result so a misbehaving
+    * tool flows through the loop's error handling instead of failing the whole loop Future.
+    */
+  private def runTool(execute: ClaudeToolUse => Future[ClaudeToolOutput], use: ClaudeToolUse)(implicit
+    ec: ExecutionContext
+  ): Future[ClaudeToolInvocation] =
+    Future
+      .fromTry(Try(execute(use)))
+      .flatten
+      .recover { case NonFatal(e) =>
+        ClaudeToolOutput(content = s"Tool execution failed: ${e.getMessage}", isError = true)
+      }
+      .map(ClaudeToolInvocation(use, _))
 
   private def mergeFormat(existing: Option[ClaudeOutputConfig], format: ClaudeOutputFormat): ClaudeOutputConfig =
     existing.getOrElse(ClaudeOutputConfig(effort = None, format = None)).copy(format = Some(format.toApi))
@@ -426,8 +456,11 @@ case class ClaudeClient(
   private def withRetries(attempt: => Future[ClaudeResponse])(implicit ec: ExecutionContext): Future[ClaudeResponse] = {
     def loop(n: Int): Future[ClaudeResponse] =
       attempt.recoverWith {
-        case NonFatal(e) if n < MaxHttpAttempts && retryDelay(e).isDefined =>
-          delay(retryDelay(e).get).flatMap(_ => loop(n + 1))
+        case NonFatal(e) if n < MaxHttpAttempts =>
+          retryDelay(e) match {
+            case Some(d) => delay(d).flatMap(_ => loop(n + 1))
+            case None => Future.failed(e)
+          }
       }
     loop(1)
   }
@@ -451,21 +484,44 @@ case class ClaudeClient(
 
   private def jitter(): FiniteDuration = FiniteDuration(500L + Random.nextInt(500), MILLISECONDS)
 
+  /** Low-level send: journals the request, performs the retrying HTTP call, and returns the raw envelope. It does NOT
+    * store the response — the audit outcome is recorded once, by [[sendAndStore]], on the fully content-parsed result
+    * the caller actually receives (so a schema-parse failure is recorded as an error, not a success).
+    */
   private def send(request: ClaudeRequest, headers: Seq[(String, String)], context: Option[String])(implicit
     ec: ExecutionContext
-  ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[ClaudeResponse]]] = {
+  ): Future[(ClaudeRequestMetadata, ValidatedNec[ClaudeError, ClaudeResponse])] = {
     val rm = ClaudeRequestMetadata(client, randomId("req"), request, context)
     store.storeRequest(rm)
     withRetries(client.createMessage(request, headers))
-      .map(response => ClaudeResponseMetadata(rm, response, response).validNec)
+      .map(response => (rm, response.validNec))
       .recover {
-        case r: ClaudeErrorResponseResponse => r.claudeErrorResponse.error.invalidNec
-        case NonFatal(e) => rm.error(e.getMessage).invalidNec
-      }
-      .map { res =>
-        storeResponse(rm, res); res
+        case r: ClaudeErrorResponseResponse => (rm, errorFrom(rm, r).invalidNec)
+        case NonFatal(e) => (rm, rm.error(e.getMessage).invalidNec)
       }
   }
+
+  /** Parses a non-2xx body into a [[ClaudeError]]; a malformed body (e.g. an HTML error page from a proxy) throws
+    * inside the generated wrapper, so fall back to the status rather than letting it escape the Validated channel.
+    */
+  private def errorFrom(rm: ClaudeRequestMetadata, r: ClaudeErrorResponseResponse): ClaudeError =
+    Try(r.claudeErrorResponse.error).getOrElse(rm.error(s"HTTP ${r.response.status}: ${r.getMessage}"))
+
+  private def sendAndStore[T](request: ClaudeRequest, headers: Seq[(String, String)], context: Option[String])(
+    parse: (ClaudeRequestMetadata, ClaudeResponse) => ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]
+  )(implicit ec: ExecutionContext): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]] = {
+    send(request, headers, context).map { case (rm, envelope) =>
+      val result = envelope.andThen(resp => parse(rm, resp))
+      storeResponse(rm, result)
+      result
+    }
+  }
+
+  /** Send that persists (and returns) the raw response — used for the intermediate tool-loop turns. */
+  private def sendRaw(request: ClaudeRequest, headers: Seq[(String, String)], context: Option[String])(implicit
+    ec: ExecutionContext
+  ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[ClaudeResponse]]] =
+    sendAndStore(request, headers, context)((rm, resp) => ClaudeResponseMetadata(rm, resp, resp).validNec)
 
   private def chatCompletionSingle[T](
     originalRequest: ClaudeRequest,
@@ -478,22 +534,20 @@ case class ClaudeClient(
     val request = originalRequest.copy(
       outputConfig = Some(mergeFormat(originalRequest.outputConfig, outputFormat))
     )
-    send(request, structuredHeaders(outputFormat), context).map(_.andThen { rm =>
-      parseText[T](rm.request, rm.response)
-    })
+    sendAndStore[T](request, structuredHeaders(outputFormat), context)((rm, resp) => parseText[T](rm, resp))
   }
 
   private def chatTextSingle(originalRequest: ClaudeRequest, context: Option[String])(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[String]]] = {
-    send(originalRequest, defaultHeaders, context).map(_.andThen { rm =>
-      val text = textContent(rm.response)
+    sendAndStore[String](originalRequest, defaultHeaders, context) { (rm, resp) =>
+      val text = textContent(resp)
       if (text.nonEmpty) {
-        ClaudeResponseMetadata(rm.request, rm.response, text).validNec
+        ClaudeResponseMetadata(rm, resp, text).validNec
       } else {
-        rm.request.error("No content found in message").invalidNec
+        rm.error("No content found in message").invalidNec
       }
-    })
+    }
   }
 
   private def storeResponse[T](
