@@ -50,8 +50,11 @@ case class ClaudeToolOutput(content: String, isError: Boolean = false)
 /** One executed tool call: what the model asked for and what we returned. */
 case class ClaudeToolInvocation(use: ClaudeToolUse, output: ClaudeToolOutput)
 
-/** Outcome of [[ClaudeClient.runToolLoop]]: the parsed final answer plus the full tool transcript. */
-case class ClaudeToolLoopResult[T](value: T, invocations: Seq[ClaudeToolInvocation], turns: Int)
+/** Outcome of [[ClaudeClient.runToolLoop]]: the parsed final answer, the full tool transcript, and `model` -- the model
+  * the FINAL (structured-answer) turn resolved to after any fallback, so a caller can record which model actually
+  * produced the answer (the tool-call turns may differ only under fallback).
+  */
+case class ClaudeToolLoopResult[T](value: T, invocations: Seq[ClaudeToolInvocation], turns: Int, model: ClaudeModel)
 
 case class AiRequest(
   messages: Seq[ClaudeMessage],
@@ -344,7 +347,7 @@ case class ClaudeClient(
           outputConfig = Some(mergeFormat(base.outputConfig, finalFormat))
         )
         sendAndStore[T](req, structuredHeaders(finalFormat), context)((rm, resp) => parseText[T](rm, resp))
-          .map(_.map(parsed => ClaudeToolLoopResult(parsed.content, invocations, turns)))
+          .map(_.map(parsed => ClaudeToolLoopResult(parsed.content, invocations, turns, parsed.response.model)))
       }
 
       def loop(

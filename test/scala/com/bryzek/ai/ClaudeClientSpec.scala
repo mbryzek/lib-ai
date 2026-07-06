@@ -226,6 +226,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       loop.invocations.map(_.use.name) mustBe Seq("get_metric")
       loop.invocations.head.output.content mustBe """{"total": 42}"""
       loop.value.insight mustBe "You are doing amazing"
+      loop.model mustBe ClaudeModel.ClaudeSonnet5
     }
 
     "finalizes directly when the tool-call budget is zero" in {
@@ -247,6 +248,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       executed mustBe 0
       result.toOption.get.turns mustBe 0
       result.toOption.get.invocations mustBe empty
+      result.toOption.get.model mustBe ClaudeModel.ClaudeSonnet5
     }
   }
 
