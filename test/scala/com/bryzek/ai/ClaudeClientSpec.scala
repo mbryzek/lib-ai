@@ -23,6 +23,7 @@ import org.scalatestplus.play.guice.GuiceOneAppPerSuite
 import java.io.IOException
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicInteger
+import javax.net.ssl.SSLException
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration.{FiniteDuration, SECONDS}
 
@@ -288,6 +289,16 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
 
       result.isInvalid mustBe true
       calls.get mustBe 3
+    }
+
+    "fails fast on a permanent transport failure (TLS)" in {
+      val calls = new AtomicInteger(0)
+      val client = flakyClient(_ => Some(new SSLException("unable to find valid certification path")))(calls)
+
+      val result = await(client.chatText(request, models))(using timeout)
+
+      result.isInvalid mustBe true
+      calls.get mustBe 1
     }
   }
 

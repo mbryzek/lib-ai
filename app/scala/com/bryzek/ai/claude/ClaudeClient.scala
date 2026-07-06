@@ -12,8 +12,11 @@ import com.google.inject.ImplementedBy
 import play.api.libs.json.*
 
 import java.io.IOException
+import java.net.UnknownHostException
+import java.nio.channels.ClosedByInterruptException
 import java.util.UUID
 import java.util.concurrent.{Executors, ThreadFactory, TimeUnit, TimeoutException}
+import javax.net.ssl.SSLException
 import javax.inject.Inject
 import scala.concurrent.duration.{FiniteDuration, MILLISECONDS}
 import scala.concurrent.{ExecutionContext, Future, Promise}
@@ -476,7 +479,11 @@ case class ClaudeClient(
       }
     case a: ApiException if a.response.status >= 500 => Some(jitter())
     // AsyncHttpClient surfaces read/request timeouts as j.u.c.TimeoutException and dropped connections as
-    // IOException; both are transient transport failures, not API rejections.
+    // IOException; both are transient transport failures, not API rejections. Known-permanent IOException
+    // subtypes (TLS/config, DNS, thread interrupt) fail fast instead of burning retries -- an exclusion
+    // list, because the transient drops we do want to retry surface as bare IOException (e.g. AHC's
+    // "Remotely closed") with no dedicated subtype to allow-list.
+    case _: SSLException | _: UnknownHostException | _: ClosedByInterruptException => None
     case _: TimeoutException => Some(jitter())
     case _: IOException => Some(jitter())
     case _ => None
