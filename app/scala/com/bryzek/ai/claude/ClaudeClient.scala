@@ -450,8 +450,9 @@ case class ClaudeClient(
   private def isOverloaded(errors: NonEmptyChain[ClaudeError]): Boolean =
     errors.exists(e => ClaudeClient.isOverloadedError(e.message))
 
-  /** Retry the given HTTP attempt, honoring `Retry-After` on 429 and using jittered backoff on 5xx. Non-retryable
-    * failures (or exhausted attempts) propagate the original exception.
+  /** Retry the given HTTP attempt, honoring `Retry-After` on 429 and using jittered backoff on 5xx and transient
+    * transport failures (read/request timeouts, connection resets). Non-retryable failures (or exhausted attempts)
+    * propagate the original exception.
     */
   private def withRetries(attempt: => Future[ClaudeResponse])(implicit ec: ExecutionContext): Future[ClaudeResponse] = {
     def loop(n: Int): Future[ClaudeResponse] =
@@ -473,6 +474,10 @@ case class ClaudeClient(
         case _ => None
       }
     case a: ApiException if a.response.status >= 500 => Some(jitter())
+    // AsyncHttpClient surfaces read/request timeouts as j.u.c.TimeoutException and dropped connections as
+    // IOException; both are transient transport failures, not API rejections.
+    case _: java.util.concurrent.TimeoutException => Some(jitter())
+    case _: java.io.IOException => Some(jitter())
     case _ => None
   }
 

@@ -12,6 +12,7 @@ import com.bryzek.claude.models.{
 import com.bryzek.claude.models.json.*
 import com.bryzek.claude.response.models.SingleInsightResponse
 import com.bryzek.claude.response.models.json.*
+import com.bryzek.claude.client.IClient
 import helpers.FutureHelpers
 import play.api.libs.json.Json
 import org.apache.pekko.util.Timeout
@@ -19,6 +20,9 @@ import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 import org.scalatestplus.play.guice.GuiceOneAppPerSuite
 
+import java.io.IOException
+import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration.{FiniteDuration, SECONDS}
 
@@ -243,5 +247,59 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       result.toOption.get.turns mustBe 0
       result.toOption.get.invocations mustBe empty
     }
+
+    "retries a transient read timeout and succeeds" in {
+      val calls = new AtomicInteger(0)
+      val client = flakyClient { n =>
+        if (n == 1) Some(new TimeoutException("Read timeout to api.anthropic.com/160.79.104.10:443 after 120000 ms"))
+        else None
+      }(calls)
+
+      val result = await(client.chatText(request, models))(using timeout)
+
+      result.isValid mustBe true
+      calls.get mustBe 2
+    }
+
+    "retries a dropped connection and succeeds" in {
+      val calls = new AtomicInteger(0)
+      val client = flakyClient { n =>
+        if (n == 1) Some(new IOException("Remotely closed")) else None
+      }(calls)
+
+      val result = await(client.chatText(request, models))(using timeout)
+
+      result.isValid mustBe true
+      calls.get mustBe 2
+    }
+
+    "gives up after exhausting attempts on a persistent timeout" in {
+      val calls = new AtomicInteger(0)
+      val client = flakyClient(_ => Some(new TimeoutException("Read timeout after 120000 ms")))(calls)
+
+      val result = await(client.chatText(request, models))(using timeout)
+
+      result.isInvalid mustBe true
+      calls.get mustBe 3
+    }
+  }
+
+  /** A client whose nth call (1-based) fails with `failure(n)` when defined, delegating to the sandbox TestClaudeClient
+    * otherwise. `calls` observes how many HTTP attempts the retry layer made.
+    */
+  private def flakyClient(failure: Int => Option[Throwable])(calls: AtomicInteger): ClaudeClient = {
+    val delegate = new TestClaudeClient()
+    val flaky = new IClient {
+      override def createMessage(
+        body: com.bryzek.claude.models.ClaudeRequest,
+        requestHeaders: Seq[(String, String)]
+      ): scala.concurrent.Future[ClaudeResponse] = {
+        failure(calls.incrementAndGet()) match {
+          case Some(e) => scala.concurrent.Future.failed(e)
+          case None => delegate.createMessage(body, requestHeaders)
+        }
+      }
+    }
+    ClaudeClient(flaky, ClaudeConfig("test-api-key"), NoopClaudeStore)
   }
 }
