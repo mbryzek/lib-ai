@@ -11,8 +11,9 @@ import com.bryzek.claude.models.*
 import com.google.inject.ImplementedBy
 import play.api.libs.json.*
 
+import java.io.IOException
 import java.util.UUID
-import java.util.concurrent.{Executors, ThreadFactory, TimeUnit}
+import java.util.concurrent.{Executors, ThreadFactory, TimeUnit, TimeoutException}
 import javax.inject.Inject
 import scala.concurrent.duration.{FiniteDuration, MILLISECONDS}
 import scala.concurrent.{ExecutionContext, Future, Promise}
@@ -476,8 +477,8 @@ case class ClaudeClient(
     case a: ApiException if a.response.status >= 500 => Some(jitter())
     // AsyncHttpClient surfaces read/request timeouts as j.u.c.TimeoutException and dropped connections as
     // IOException; both are transient transport failures, not API rejections.
-    case _: java.util.concurrent.TimeoutException => Some(jitter())
-    case _: java.io.IOException => Some(jitter())
+    case _: TimeoutException => Some(jitter())
+    case _: IOException => Some(jitter())
     case _ => None
   }
 

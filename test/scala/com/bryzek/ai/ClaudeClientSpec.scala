@@ -1,5 +1,6 @@
 package com.bryzek.ai.claude
 
+import com.bryzek.claude.client.IClient
 import com.bryzek.claude.models.{
   ClaudeEffort,
   ClaudeModel,
@@ -12,7 +13,6 @@ import com.bryzek.claude.models.{
 import com.bryzek.claude.models.json.*
 import com.bryzek.claude.response.models.SingleInsightResponse
 import com.bryzek.claude.response.models.json.*
-import com.bryzek.claude.client.IClient
 import helpers.FutureHelpers
 import play.api.libs.json.Json
 import org.apache.pekko.util.Timeout
@@ -247,6 +247,13 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       result.toOption.get.turns mustBe 0
       result.toOption.get.invocations mustBe empty
     }
+  }
+
+  "withRetries" should {
+    val models = Seq(ClaudeModel.ClaudeSonnet5)
+    val request = AiRequest(
+      messages = Seq(ClaudeClient.makeClaudeMessage(ClaudeRole.User, "Sending a test message"))
+    )
 
     "retries a transient read timeout and succeeds" in {
       val calls = new AtomicInteger(0)
