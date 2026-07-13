@@ -2,13 +2,17 @@ package com.bryzek.ai.claude
 
 import com.bryzek.claude.client.IClient
 import com.bryzek.claude.models.{
+  ClaudeContentBlock,
+  ClaudeContentType,
   ClaudeEffort,
   ClaudeModel,
   ClaudeResponse,
   ClaudeRole,
+  ClaudeStopReason,
   ClaudeThinkingType,
   ClaudeTool,
-  ClaudeToolChoiceType
+  ClaudeToolChoiceType,
+  ClaudeUsage
 }
 import com.bryzek.claude.models.json.*
 import com.bryzek.claude.response.models.SingleInsightResponse
@@ -74,6 +78,32 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       result.isValid mustBe true
       result.toOption.get.content must not be empty
       result.toOption.get.response.usage.outputTokens must be > 0L
+    }
+
+    "reports stop_reason and output_tokens when the response has no text block" in {
+      // Reproduces the synthesis failure: extended thinking consumed the whole output budget, so the
+      // response is a lone thinking block with stop_reason=max_tokens and NO text -- the error must name
+      // both so the failure is self-diagnosing rather than an opaque "no content".
+      val client = fixedClient(
+        ClaudeResponse(
+          id = "msg_x",
+          `type` = "message",
+          role = ClaudeRole.Assistant,
+          content = Seq(
+            ClaudeContentBlock(ClaudeContentType.Thinking).copy(thinking = Some("reasoning that never finished"))
+          ),
+          model = ClaudeModel.ClaudeSonnet5,
+          stopReason = ClaudeStopReason.MaxTokens,
+          usage = ClaudeUsage(inputTokens = 5000, outputTokens = 30000)
+        )
+      )
+
+      val result = await(client.chatText(request, models))(using timeout)
+
+      result.isInvalid mustBe true
+      val message = result.swap.toOption.get.toNonEmptyList.head.message
+      message must include("stop_reason=max_tokens")
+      message must include("output_tokens=30000")
     }
 
     "toClaudeRequest wraps system in a single block" in {
@@ -307,6 +337,19 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
   /** A client whose nth call (1-based) fails with `failure(n)` when defined, delegating to the sandbox TestClaudeClient
     * otherwise. `calls` observes how many HTTP attempts the retry layer made.
     */
+  /** A client that always returns the given response verbatim -- used to exercise response-shape handling (e.g. a
+    * no-text turn) that the sandbox TestClaudeClient never produces on its own.
+    */
+  private def fixedClient(response: ClaudeResponse): ClaudeClient = {
+    val fixed = new IClient {
+      override def createMessage(
+        body: com.bryzek.claude.models.ClaudeRequest,
+        requestHeaders: Seq[(String, String)]
+      ): scala.concurrent.Future[ClaudeResponse] = scala.concurrent.Future.successful(response)
+    }
+    ClaudeClient(fixed, ClaudeConfig("test-api-key"), NoopClaudeStore)
+  }
+
   private def flakyClient(failure: Int => Option[Throwable])(calls: AtomicInteger): ClaudeClient = {
     val delegate = new TestClaudeClient()
     val flaky = new IClient {
