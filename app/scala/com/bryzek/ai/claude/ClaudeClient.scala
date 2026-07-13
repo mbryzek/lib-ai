@@ -561,7 +561,7 @@ case class ClaudeClient(
       if (text.nonEmpty) {
         ClaudeResponseMetadata(rm, resp, text).validNec
       } else {
-        rm.error("No content found in message").invalidNec
+        noTextError(rm, resp).invalidNec
       }
     }
   }
@@ -585,9 +585,19 @@ case class ClaudeClient(
   ): ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]] = {
     textContent(response) match {
       case content if content.nonEmpty => parseContent[T](rm, response, content)
-      case _ => rm.error("No content found in message").invalidNec
+      case _ => noTextError(rm, response).invalidNec
     }
   }
+
+  /** A response with no `text` content block -- almost always `stop_reason=max_tokens` where extended thinking consumed
+    * the whole output budget before any answer was emitted, but also a refusal or a pure-thinking turn. Names
+    * `stop_reason` + `output_tokens` in the message so the failure is self-diagnosing on the run page and in the
+    * persisted audit error, instead of an opaque "no content".
+    */
+  private def noTextError(rm: ClaudeRequestMetadata, response: ClaudeResponse): ClaudeError =
+    rm.error(
+      s"No text content in response (stop_reason=${response.stopReason}, output_tokens=${response.usage.outputTokens})"
+    )
 
   private def parseContent[T](rm: ClaudeRequestMetadata, response: ClaudeResponse, content: String)(implicit
     reads: Reads[T]
