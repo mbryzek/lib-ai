@@ -31,7 +31,8 @@
                 { "name": "end_turn" },
                 { "name": "max_tokens" },
                 { "name": "stop_sequence" },
-                { "name": "tool_use" }
+                { "name": "tool_use" },
+                { "name": "refusal" }
             ]
         },
         "claude_output_format_type": {

@@ -149,6 +149,48 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       ClaudeClient.isOverloadedError("POST /v1/messages failed with status 404 [req_529abc]") mustBe false
       ClaudeClient.isModelNotFoundError("POST /v1/messages failed with status 404 [req_404abc]") mustBe true
       ClaudeClient.isModelNotFoundError("POST /v1/messages failed with status 400 [req_404abc]") mustBe false
+      ClaudeClient.isRefusalError("No text content in response (stop_reason=refusal, output_tokens=0)") mustBe true
+      ClaudeClient.isRefusalError("No text content in response (stop_reason=max_tokens, output_tokens=9)") mustBe false
+    }
+
+    "falls back to the next model when the primary refuses the request" in {
+      // Fable 5's safety classifiers return HTTP 200 with stop_reason=refusal and no text content;
+      // the chain must degrade to the next model instead of surfacing the refusal as a terminal error.
+      def response(stopReason: ClaudeStopReason, content: Seq[ClaudeContentBlock]): ClaudeResponse = {
+        ClaudeResponse(
+          id = "msg_x",
+          `type` = "message",
+          role = ClaudeRole.Assistant,
+          content = content,
+          model = ClaudeModel.ClaudeFable5,
+          stopReason = stopReason,
+          usage = ClaudeUsage(inputTokens = 10, outputTokens = 0)
+        )
+      }
+      val perModel = new IClient {
+        override def createMessage(
+          body: com.bryzek.claude.models.ClaudeRequest,
+          requestHeaders: Seq[(String, String)]
+        ): scala.concurrent.Future[ClaudeResponse] = scala.concurrent.Future.successful {
+          body.model match {
+            case ClaudeModel.ClaudeFable5 => response(ClaudeStopReason.Refusal, Nil)
+            case _ => response(ClaudeStopReason.EndTurn, Seq(ClaudeClient.textBlock("fallback answer")))
+          }
+        }
+      }
+      val client = ClaudeClient(perModel, ClaudeConfig("test-api-key"), NoopClaudeStore)
+
+      val result = await(
+        client.chatText(request, Seq(ClaudeModel.ClaudeFable5, ClaudeModel.ClaudeOpus48))
+      )(using timeout)
+
+      result.isValid mustBe true
+      result.toOption.get.content mustBe "fallback answer"
+
+      // A refusal on the LAST model in the chain still surfaces as a self-diagnosing error
+      val exhausted = await(client.chatText(request, Seq(ClaudeModel.ClaudeFable5)))(using timeout)
+      exhausted.isInvalid mustBe true
+      exhausted.swap.toOption.get.toNonEmptyList.head.message must include("stop_reason=refusal")
     }
 
     "toClaudeRequest omits the thinking field entirely for Fable 5" in {
