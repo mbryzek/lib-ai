@@ -96,12 +96,14 @@ case class AiRequest(
       tools = None,
       toolChoice = None,
       outputConfig = effort.map(e => ClaudeOutputConfig(effort = Some(e), format = None)),
-      thinking = model match {
-        case ClaudeModel.ClaudeFable5 =>
+      thinking = KnownClaudeModel.validate(model).toOption match {
+        case Some(KnownClaudeModel.ClaudeFable5) =>
           // Fable 5 rejects any explicit thinking config except adaptive (thinking is always on);
           // omitting the field runs adaptive, so a Disabled request cannot be honored on this model.
           None
-        case _ => Some(ClaudeThinking(thinking))
+        case Some(KnownClaudeModel.ClaudeSonnet5 | KnownClaudeModel.ClaudeHaiku45 | KnownClaudeModel.ClaudeOpus48) |
+            None =>
+          Some(ClaudeThinking(thinking))
       }
     )
   }
