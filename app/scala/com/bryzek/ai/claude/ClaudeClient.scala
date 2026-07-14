@@ -96,7 +96,13 @@ case class AiRequest(
       tools = None,
       toolChoice = None,
       outputConfig = effort.map(e => ClaudeOutputConfig(effort = Some(e), format = None)),
-      thinking = Some(ClaudeThinking(thinking))
+      thinking = model match {
+        case ClaudeModel.ClaudeFable5 =>
+          // Fable 5 rejects any explicit thinking config except adaptive (thinking is always on);
+          // omitting the field runs adaptive, so a Disabled request cannot be honored on this model.
+          None
+        case _ => Some(ClaudeThinking(thinking))
+      }
     )
   }
 }
@@ -218,6 +224,19 @@ object ClaudeClient {
     */
   def isOverloadedError(errorMessage: String): Boolean =
     errorMessage.contains("status 529")
+
+  /** Checks if an error message indicates a 404 from the Claude API — a model this API key cannot access (e.g. a newly
+    * released model id). Same `ApiException` message-shape matching as [[isOverloadedError]].
+    */
+  def isModelNotFoundError(errorMessage: String): Boolean =
+    errorMessage.contains("status 404")
+
+  /** Checks if an error message indicates the model declined the request (`stop_reason=refusal`, an HTTP 200 with no
+    * text content — Fable 5's safety classifiers). Matches the message shape produced by `noTextError`. A refusal is
+    * model-specific, so falling back to the next model in the chain is the documented recovery.
+    */
+  def isRefusalError(errorMessage: String): Boolean =
+    errorMessage.contains(s"stop_reason=${ClaudeStopReason.Refusal}")
 
 }
 
@@ -445,6 +464,12 @@ case class ClaudeClient(
               if (rest.nonEmpty && isOverloaded(errors)) {
                 println(s"Claude model ${model} returned 529 overloaded, falling back to ${rest.head}")
                 loop(rest)
+              } else if (rest.nonEmpty && isModelNotFound(errors)) {
+                println(s"Claude model ${model} returned 404 not found, falling back to ${rest.head}")
+                loop(rest)
+              } else if (rest.nonEmpty && isRefusal(errors)) {
+                println(s"Claude model ${model} refused the request, falling back to ${rest.head}")
+                loop(rest)
               } else {
                 Future.successful(result)
               }
@@ -456,6 +481,12 @@ case class ClaudeClient(
 
   private def isOverloaded(errors: NonEmptyChain[ClaudeError]): Boolean =
     errors.exists(e => ClaudeClient.isOverloadedError(e.message))
+
+  private def isModelNotFound(errors: NonEmptyChain[ClaudeError]): Boolean =
+    errors.exists(e => ClaudeClient.isModelNotFoundError(e.message))
+
+  private def isRefusal(errors: NonEmptyChain[ClaudeError]): Boolean =
+    errors.exists(e => ClaudeClient.isRefusalError(e.message))
 
   /** Retry the given HTTP attempt, honoring `Retry-After` on 429 and using jittered backoff on 5xx and transient
     * transport failures (read/request timeouts, connection resets). Non-retryable failures (or exhausted attempts)
