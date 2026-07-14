@@ -22,7 +22,8 @@
         "recommendation_response": {
             "fields": [
                 { "name": "steps", "type": "[claude_step]" },
-                { "name": "recommendations", "type": "[recommendation]" }
+                { "name": "recommendations", "type": "[recommendation]" },
+                { "name": "type_label", "type": "string", "required": false }
             ]
         },
 
