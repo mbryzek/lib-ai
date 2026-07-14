@@ -15,7 +15,7 @@ import com.bryzek.claude.models.{
   ClaudeUsage
 }
 import com.bryzek.claude.models.json.*
-import com.bryzek.claude.response.models.SingleInsightResponse
+import com.bryzek.claude.response.models.{RecommendationResponse, SingleInsightResponse}
 import com.bryzek.claude.response.models.json.*
 import helpers.FutureHelpers
 import play.api.libs.json.Json
@@ -178,6 +178,19 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       response.content.size mustBe 2
       response.content.head.text mustBe None
       response.content.flatMap(_.text) mustBe Seq("the answer")
+    }
+
+    "parses a recommendation_response with type_label" in {
+      val json = """{"steps":[],"recommendations":[{"category":"Fitness","confidence":90}],"type_label":"gym"}"""
+      val parsed = Json.parse(json).as[RecommendationResponse]
+      parsed.recommendations.map(_.category) mustBe Seq("Fitness")
+      parsed.typeLabel mustBe Some("gym")
+    }
+
+    "parses a recommendation_response with no type_label as None" in {
+      val json = """{"steps":[],"recommendations":[{"category":"Fitness","confidence":90}]}"""
+      val parsed = Json.parse(json).as[RecommendationResponse]
+      parsed.typeLabel mustBe None
     }
 
     "parses usage with cache token fields" in {

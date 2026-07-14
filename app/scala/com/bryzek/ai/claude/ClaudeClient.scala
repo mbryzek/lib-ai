@@ -264,11 +264,11 @@ case class ClaudeClient(
 
   def chatRecommendations(request: AiRequest, models: Seq[ClaudeModel], context: Option[String] = None)(implicit
     ec: ExecutionContext
-  ): Future[ValidatedNec[ClaudeError, Seq[Recommendation]]] = {
+  ): Future[ValidatedNec[ClaudeError, RecommendationResponse]] = {
     chatCompletion[RecommendationResponse](request, ClaudeOutputFormats.RecommendationsResponse, models, context)(using
       ec
     )
-      .map(_.map(_.content.recommendations))
+      .map(_.map(_.content))
   }
 
   def chatInsight(request: AiRequest, models: Seq[ClaudeModel], context: Option[String] = None)(implicit
