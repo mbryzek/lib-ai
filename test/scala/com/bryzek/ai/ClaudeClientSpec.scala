@@ -144,6 +144,21 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       out.thinking.map(_.`type`) mustBe Some(ClaudeThinkingType.Disabled)
     }
 
+    "classifies model-fallback error messages by status code, not embedded ids" in {
+      ClaudeClient.isOverloadedError("POST /v1/messages failed with status 529 [req_529abc]") mustBe true
+      ClaudeClient.isOverloadedError("POST /v1/messages failed with status 404 [req_529abc]") mustBe false
+      ClaudeClient.isModelNotFoundError("POST /v1/messages failed with status 404 [req_404abc]") mustBe true
+      ClaudeClient.isModelNotFoundError("POST /v1/messages failed with status 400 [req_404abc]") mustBe false
+    }
+
+    "toClaudeRequest omits the thinking field entirely for Fable 5" in {
+      // Fable 5 rejects any explicit thinking config except adaptive; omitting runs adaptive.
+      AiRequest(messages = Nil).toClaudeRequest(ClaudeModel.ClaudeFable5).thinking mustBe None
+      AiRequest(messages = Nil, thinking = ClaudeThinkingType.Disabled)
+        .toClaudeRequest(ClaudeModel.ClaudeFable5)
+        .thinking mustBe None
+    }
+
     "toClaudeRequest sets effort in output_config when provided" in {
       val out = AiRequest(messages = Nil, effort = Some(ClaudeEffort.High)).toClaudeRequest(ClaudeModel.ClaudeSonnet5)
       out.outputConfig.flatMap(_.effort) mustBe Some(ClaudeEffort.High)

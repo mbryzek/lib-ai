@@ -6,7 +6,8 @@
             "values": [
                 { "name": "claude-sonnet-5" },
                 { "name": "claude-haiku-4-5" },
-                { "name": "claude-opus-4-8" }
+                { "name": "claude-opus-4-8" },
+                { "name": "claude-fable-5" }
             ]
         },
         "claude_role": {
