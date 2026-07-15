@@ -201,6 +201,15 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
         .thinking mustBe None
     }
 
+    "toClaudeRequest omits the thinking field entirely for Haiku 4.5" in {
+      // Haiku 4.5 rejects adaptive thinking ("adaptive thinking is not supported on this model");
+      // omitting the field runs without thinking.
+      AiRequest(messages = Nil).toClaudeRequest(ClaudeModel.ClaudeHaiku45).thinking mustBe None
+      AiRequest(messages = Nil, thinking = ClaudeThinkingType.Disabled)
+        .toClaudeRequest(ClaudeModel.ClaudeHaiku45)
+        .thinking mustBe None
+    }
+
     "toClaudeRequest sets effort in output_config when provided" in {
       val out = AiRequest(messages = Nil, effort = Some(ClaudeEffort.High)).toClaudeRequest(ClaudeModel.ClaudeSonnet5)
       out.outputConfig.flatMap(_.effort) mustBe Some(ClaudeEffort.High)
