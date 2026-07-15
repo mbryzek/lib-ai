@@ -101,8 +101,12 @@ case class AiRequest(
           // Fable 5 rejects any explicit thinking config except adaptive (thinking is always on);
           // omitting the field runs adaptive, so a Disabled request cannot be honored on this model.
           None
-        case Some(KnownClaudeModel.ClaudeSonnet5 | KnownClaudeModel.ClaudeHaiku45 | KnownClaudeModel.ClaudeOpus48) |
-            None =>
+        case Some(KnownClaudeModel.ClaudeHaiku45) =>
+          // Haiku 4.5 predates adaptive thinking and rejects it ("adaptive thinking is not
+          // supported on this model"). Its only thinking mode is a budget-based config we don't
+          // model, so omit the field and the request runs without thinking.
+          None
+        case Some(KnownClaudeModel.ClaudeSonnet5 | KnownClaudeModel.ClaudeOpus48) | None =>
           Some(ClaudeThinking(thinking))
       }
     )
