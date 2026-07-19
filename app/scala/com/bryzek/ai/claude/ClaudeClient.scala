@@ -241,7 +241,8 @@ object ClaudeClient {
     }
 
   /** Re-applies the rolling conversation breakpoints, tagging the last content block of the newest message and of the
-    * message one turn (two messages: assistant + tool results) earlier. Existing markers are cleared first so the count
+    * message one turn (two messages) earlier -- a turn is always an assistant message plus the user message answering
+    * it, whether that is tool results or the finalize instruction. Existing markers are cleared first so the count
     * stays fixed as the transcript grows rather than accumulating past the API's limit -- a breakpoint is a read point,
     * not part of the cached bytes, so moving one does not invalidate anything already written.
     */
