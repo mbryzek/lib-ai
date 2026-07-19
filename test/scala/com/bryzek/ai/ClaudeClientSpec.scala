@@ -361,6 +361,82 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
     }
   }
 
+  "tool-loop prompt caching" should {
+    val ephemeral = Some(com.bryzek.claude.models.ClaudeCacheType.Ephemeral)
+    val tool = ClaudeTool(
+      name = "get_metric",
+      description = "Return a metric",
+      inputSchema = Json.obj("type" -> "object", "properties" -> Json.obj(), "additionalProperties" -> false)
+    )
+
+    def markers(msgs: Seq[com.bryzek.claude.models.ClaudeMessage]): Seq[Int] =
+      msgs.zipWithIndex.collect { case (m, i) if m.content.exists(_.cacheControl.isDefined) => i }
+
+    "cacheStaticPrefix breaks on the last system block, covering tools and system" in {
+      val base = AiRequest(messages = Nil, system = Some("investigator rules"))
+        .toClaudeRequest(ClaudeModel.ClaudeSonnet5)
+        .copy(tools = Some(Seq(tool)))
+      val out = ClaudeClient.cacheStaticPrefix(base)
+      out.system.get.last.cacheControl.map(_.`type`) mustBe ephemeral
+      // tools render before system, so the system breakpoint already covers them -- a second one would waste budget
+      out.tools.get.flatMap(_.cacheControl) mustBe Nil
+    }
+
+    "cacheStaticPrefix falls back to the last tool when there is no system prompt" in {
+      val base = AiRequest(messages = Nil)
+        .toClaudeRequest(ClaudeModel.ClaudeSonnet5)
+        .copy(tools = Some(Seq(tool, tool.copy(name = "other"))))
+      val out = ClaudeClient.cacheStaticPrefix(base)
+      out.system mustBe None
+      out.tools.get.init.flatMap(_.cacheControl) mustBe Nil
+      out.tools.get.last.cacheControl.map(_.`type`) mustBe ephemeral
+    }
+
+    "cacheConversation rolls breakpoints across turns and never exceeds the budget" in {
+      def transcript(turns: Int): Seq[com.bryzek.claude.models.ClaudeMessage] =
+        ClaudeClient.makeClaudeMessage(ClaudeRole.User, "start") +: (1 to turns).flatMap { n =>
+          Seq(
+            ClaudeClient.makeClaudeMessage(ClaudeRole.Assistant, s"calling tool $n"),
+            ClaudeClient.makeClaudeMessage(ClaudeRole.User, s"result $n")
+          )
+        }
+
+      markers(ClaudeClient.cacheConversation(transcript(0))) mustBe Seq(0)
+      // one turn back = two messages back, so both breakpoints land on user (tool-result) turns
+      markers(ClaudeClient.cacheConversation(transcript(1))) mustBe Seq(0, 2)
+      markers(ClaudeClient.cacheConversation(transcript(3))) mustBe Seq(4, 6)
+
+      (0 to 6).foreach { turns =>
+        val out = ClaudeClient.cacheConversation(transcript(turns))
+        withClue(s"turns=$turns: ") {
+          markers(out).size must be <= ClaudeClient.ConversationBreakpoints
+        }
+      }
+    }
+
+    "cacheConversation clears stale markers rather than accumulating them" in {
+      val stale = Seq("a", "b", "c", "d", "e").map { t =>
+        val m = ClaudeClient.makeClaudeMessage(ClaudeRole.User, t)
+        m.copy(content = m.content.map(_.copy(cacheControl = Some(com.bryzek.claude.models.ClaudeCacheControl()))))
+      }
+      markers(stale) mustBe Seq(0, 1, 2, 3, 4)
+      markers(ClaudeClient.cacheConversation(stale)) mustBe Seq(2, 4)
+    }
+
+    "cacheConversation tags the last content block of a multi-block tool-result turn" in {
+      val results = com.bryzek.claude.models.ClaudeMessage(
+        role = ClaudeRole.User,
+        content = Seq(
+          ClaudeClient.toolResultBlock("t1", ClaudeToolOutput("one")),
+          ClaudeClient.toolResultBlock("t2", ClaudeToolOutput("two"))
+        )
+      )
+      val out = ClaudeClient.cacheConversation(Seq(results))
+      out.last.content.init.flatMap(_.cacheControl) mustBe Nil
+      out.last.content.last.cacheControl.map(_.`type`) mustBe ephemeral
+    }
+  }
+
   "withRetries" should {
     val models = Seq(ClaudeModel.ClaudeSonnet5)
     val request = AiRequest(

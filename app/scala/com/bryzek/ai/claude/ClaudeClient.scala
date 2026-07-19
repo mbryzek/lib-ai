@@ -218,6 +218,43 @@ object ClaudeClient {
       "Return your final answer now as a single JSON object matching the required schema."
     )
 
+  private val ephemeral: Option[ClaudeCacheControl] = Some(ClaudeCacheControl())
+
+  /** How many message boundaries carry a rolling cache breakpoint. Two lets a turn read the breakpoint the previous
+    * turn wrote while writing its own, so hits accrue as the transcript grows. Together with the one static-prefix
+    * breakpoint this stays inside the API's limit of 4 breakpoints per request.
+    */
+  private[claude] val ConversationBreakpoints = 2
+
+  /** Puts one cache breakpoint on the static prefix of a tool-loop request. Blocks render `tools` -> `system` ->
+    * `messages`, so a breakpoint on the LAST system block covers tools and system together; with no system prompt the
+    * last tool is the end of the static prefix instead. Every turn of a loop resends this prefix byte-identical, so
+    * caching it is always the right call regardless of what the caller asked for on [[AiRequest]]. A prefix shorter
+    * than the model's minimum cacheable length simply does not cache -- there is no error and no extra cost.
+    */
+  private[claude] def cacheStaticPrefix(request: ClaudeRequest): ClaudeRequest =
+    request.system.filter(_.nonEmpty) match {
+      case Some(blocks) =>
+        request.copy(system = Some(blocks.init :+ blocks.last.copy(cacheControl = ephemeral)))
+      case None =>
+        request.copy(tools = request.tools.filter(_.nonEmpty).map(t => t.init :+ t.last.copy(cacheControl = ephemeral)))
+    }
+
+  /** Re-applies the rolling conversation breakpoints, tagging the last content block of the newest message and of the
+    * message one turn (two messages: assistant + tool results) earlier. Existing markers are cleared first so the count
+    * stays fixed as the transcript grows rather than accumulating past the API's limit -- a breakpoint is a read point,
+    * not part of the cached bytes, so moving one does not invalidate anything already written.
+    */
+  private[claude] def cacheConversation(messages: Seq[ClaudeMessage]): Seq[ClaudeMessage] = {
+    val cleared = messages.map(m => m.copy(content = m.content.map(_.copy(cacheControl = None))))
+    val breakpoints = Seq.tabulate(ConversationBreakpoints)(i => cleared.size - 1 - (i * 2)).filter(_ >= 0).toSet
+    cleared.zipWithIndex.map {
+      case (m, i) if breakpoints(i) && m.content.nonEmpty =>
+        m.copy(content = m.content.init :+ m.content.last.copy(cacheControl = ephemeral))
+      case (m, _) => m
+    }
+  }
+
   def toolUses(response: ClaudeResponse): Seq[ClaudeToolUse] =
     response.content.collect {
       case b if b.`type` == ClaudeContentType.ToolUse =>
@@ -345,6 +382,12 @@ case class ClaudeClient(
     * calling). Budget-capped at `maxCalls` tool executions; a run of [[ClaudeClient.MaxConsecutiveFailedTurns]]
     * consecutive fully-failed tool turns aborts. The final turn forces `tool_choice: none` + structured output so the
     * answer parses into `T` without regex-and-nudge. Every request/response is journaled via the store with `context`.
+    *
+    * Prompt caching is applied automatically and does not depend on [[AiRequest.cacheSystem]] /
+    * [[AiRequest.cacheLastMessage]]: a loop resends tools + system + the entire growing transcript on every turn, so
+    * the static prefix gets one breakpoint ([[ClaudeClient.cacheStaticPrefix]]) and the transcript gets rolling ones
+    * ([[ClaudeClient.cacheConversation]]). Verify it is working via `usage.cache_read_input_tokens` on the journaled
+    * responses -- a persistent zero there means something is invalidating the prefix between turns.
     */
   def runToolLoop[T](
     request: AiRequest,
@@ -358,16 +401,18 @@ case class ClaudeClient(
     reads: Reads[T]
   ): Future[ValidatedNec[ClaudeError, ClaudeToolLoopResult[T]]] = {
     tryModels(models) { model =>
-      val base = request.toClaudeRequest(model)
+      // Every turn resends tools + system + the whole transcript, so the prefix is cached unconditionally here.
+      val base = cacheStaticPrefix(request.toClaudeRequest(model).copy(tools = Some(tools)))
 
       def finalize(
         messages: Seq[ClaudeMessage],
         invocations: Seq[ClaudeToolInvocation],
         turns: Int
       ): Future[ValidatedNec[ClaudeError, ClaudeToolLoopResult[T]]] = {
+        // `tools` stays on the request and `tool_choice: none` does the forbidding. Dropping the tools would change
+        // the very front of the prefix and throw away the tools+system cache on the most expensive turn of the loop.
         val req = base.copy(
-          messages = messages,
-          tools = None,
+          messages = cacheConversation(messages),
           toolChoice = Some(ClaudeToolChoice(ClaudeToolChoiceType.None)),
           outputConfig = Some(mergeFormat(base.outputConfig, finalFormat))
         )
@@ -386,8 +431,7 @@ case class ClaudeClient(
           finalize(messages, invocations, turns)
         } else {
           val req = base.copy(
-            messages = messages,
-            tools = Some(tools),
+            messages = cacheConversation(messages),
             toolChoice = Some(ClaudeToolChoice(ClaudeToolChoiceType.Auto)),
             outputConfig = base.outputConfig
           )
