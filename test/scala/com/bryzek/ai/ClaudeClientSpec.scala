@@ -181,7 +181,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       val client = ClaudeClient(perModel, ClaudeConfig("test-api-key"), NoopClaudeStore)
 
       val result = await(
-        client.chatText(request, Seq(ClaudeModel.ClaudeFable5, ClaudeModel.ClaudeOpus48))
+        client.chatText(request, Seq(ClaudeModel.ClaudeFable5, ClaudeModel.ClaudeOpus5))
       )(using timeout)
 
       result.isValid mustBe true

@@ -106,7 +106,9 @@ case class AiRequest(
           // supported on this model"). Its only thinking mode is a budget-based config we don't
           // model, so omit the field and the request runs without thinking.
           None
-        case Some(KnownClaudeModel.ClaudeSonnet5 | KnownClaudeModel.ClaudeOpus48) | None =>
+        case Some(KnownClaudeModel.ClaudeSonnet5 | KnownClaudeModel.ClaudeOpus5) | None =>
+          // Opus 5 thinks by default; an explicit Disabled is accepted only at effort high or
+          // below, so pairing Disabled with xhigh/max is rejected by the API as a caller error.
           Some(ClaudeThinking(thinking))
       }
     )
