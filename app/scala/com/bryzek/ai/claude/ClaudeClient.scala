@@ -197,6 +197,18 @@ object ClaudeClient {
   def textBlock(text: String): ClaudeContentBlock =
     ClaudeContentBlock(ClaudeContentType.Text).copy(text = Some(text))
 
+  def imageBlock(mediaType: ClaudeMediaType, base64: String): ClaudeContentBlock =
+    ClaudeContentBlock(ClaudeContentType.Image).copy(
+      source = Some(ClaudeSource(`type` = ClaudeSourceType.Base64, mediaType = mediaType, data = base64))
+    )
+
+  def documentBlock(base64: String): ClaudeContentBlock =
+    ClaudeContentBlock(ClaudeContentType.Document).copy(
+      source = Some(
+        ClaudeSource(`type` = ClaudeSourceType.Base64, mediaType = ClaudeMediaType.ApplicationPdf, data = base64)
+      )
+    )
+
   def toolResultBlock(toolUseId: String, output: ClaudeToolOutput): ClaudeContentBlock =
     ClaudeContentBlock(ClaudeContentType.ToolResult).copy(
       toolUseId = Some(toolUseId),

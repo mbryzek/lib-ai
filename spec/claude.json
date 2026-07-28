@@ -23,7 +23,23 @@
                 { "name": "tool_use" },
                 { "name": "tool_result" },
                 { "name": "thinking" },
-                { "name": "redacted_thinking" }
+                { "name": "redacted_thinking" },
+                { "name": "image" },
+                { "name": "document" }
+            ]
+        },
+        "claude_source_type": {
+            "values": [
+                { "name": "base64" }
+            ]
+        },
+        "claude_media_type": {
+            "values": [
+                { "name": "image_jpeg", "value": "image/jpeg" },
+                { "name": "image_png", "value": "image/png" },
+                { "name": "image_gif", "value": "image/gif" },
+                { "name": "image_webp", "value": "image/webp" },
+                { "name": "application_pdf", "value": "application/pdf" }
             ]
         },
         "claude_stop_reason": {
@@ -93,6 +109,13 @@
                 { "name": "type", "type": "claude_cache_type", "default": "ephemeral" }
             ]
         },
+        "claude_source": {
+            "fields": [
+                { "name": "type", "type": "claude_source_type" },
+                { "name": "media_type", "type": "claude_media_type" },
+                { "name": "data", "type": "string", "description": "Base64 encoded content" }
+            ]
+        },
         "claude_system_block": {
             "fields": [
                 { "name": "type", "type": "claude_content_type", "default": "text" },
@@ -138,7 +161,7 @@
             ]
         },
         "claude_content_block": {
-            "description": "One content block on a message or response. A single flat model spanning all block types (discriminated on type) rather than a union, because a spec that has both a union and error-response mustParse handling hits a known bryzek-generator ambiguous-implicit compile error. Wire JSON is identical to the union form; only the populated fields differ by type: text -> text; tool_use -> id, name, input; tool_result -> tool_use_id, content, is_error; thinking -> thinking, signature; redacted_thinking -> data. Retain every field verbatim when echoing assistant content back, or the API rejects the modified block.",
+            "description": "One content block on a message or response. A single flat model spanning all block types (discriminated on type) rather than a union, because a spec that has both a union and error-response mustParse handling hits a known bryzek-generator ambiguous-implicit compile error. Wire JSON is identical to the union form; only the populated fields differ by type: text -> text; tool_use -> id, name, input; tool_result -> tool_use_id, content, is_error; thinking -> thinking, signature; redacted_thinking -> data; image -> source; document -> source. Retain every field verbatim when echoing assistant content back, or the API rejects the modified block.",
             "fields": [
                 { "name": "type", "type": "claude_content_type" },
                 { "name": "text", "type": "string", "required": false },
@@ -151,6 +174,7 @@
                 { "name": "thinking", "type": "string", "required": false },
                 { "name": "signature", "type": "string", "required": false },
                 { "name": "data", "type": "string", "required": false },
+                { "name": "source", "type": "claude_source", "required": false },
                 { "name": "cache_control", "type": "claude_cache_control", "required": false }
             ]
         },
