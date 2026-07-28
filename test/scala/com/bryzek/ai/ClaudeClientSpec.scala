@@ -5,9 +5,11 @@ import com.bryzek.claude.models.{
   ClaudeContentBlock,
   ClaudeContentType,
   ClaudeEffort,
+  ClaudeMediaType,
   ClaudeModel,
   ClaudeResponse,
   ClaudeRole,
+  ClaudeSourceType,
   ClaudeStopReason,
   ClaudeThinkingType,
   ClaudeTool,
@@ -244,6 +246,54 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       response.content.size mustBe 2
       response.content.head.text mustBe None
       response.content.flatMap(_.text) mustBe Seq("the answer")
+    }
+
+    "imageBlock builds an image content block with a base64 source" in {
+      val block = ClaudeClient.imageBlock(ClaudeMediaType.ImagePng, "aGVsbG8=")
+      block.`type` mustBe ClaudeContentType.Image
+      block.source.get.`type` mustBe ClaudeSourceType.Base64
+      block.source.get.mediaType mustBe ClaudeMediaType.ImagePng
+      block.source.get.data mustBe "aGVsbG8="
+      block.text mustBe None
+    }
+
+    "documentBlock builds a document content block defaulted to application/pdf" in {
+      val block = ClaudeClient.documentBlock("JVBERi0xLjQK")
+      block.`type` mustBe ClaudeContentType.Document
+      block.source.get.`type` mustBe ClaudeSourceType.Base64
+      block.source.get.mediaType mustBe ClaudeMediaType.ApplicationPdf
+      block.source.get.data mustBe "JVBERi0xLjQK"
+    }
+
+    "serializes an image content block to the exact Anthropic wire shape" in {
+      // https://docs.anthropic.com/en/api/messages -- vision content block. media_type must render as
+      // "image/png" (the enum's `value` override), not the enum name ("image_png"), or the API rejects it.
+      val block = ClaudeClient.imageBlock(ClaudeMediaType.ImagePng, "aGVsbG8=")
+      Json.toJson(block) mustBe Json.parse(
+        """{"type":"image","source":{"type":"base64","media_type":"image/png","data":"aGVsbG8="}}"""
+      )
+    }
+
+    "serializes a document content block to the exact Anthropic wire shape" in {
+      val block = ClaudeClient.documentBlock("JVBERi0xLjQK")
+      Json.toJson(block) mustBe Json.parse(
+        """{"type":"document","source":{"type":"base64","media_type":"application/pdf","data":"JVBERi0xLjQK"}}"""
+      )
+    }
+
+    "round-trips every media type through JSON preserving the exact wire string" in {
+      val cases = Seq(
+        ClaudeMediaType.ImageJpeg -> "image/jpeg",
+        ClaudeMediaType.ImagePng -> "image/png",
+        ClaudeMediaType.ImageGif -> "image/gif",
+        ClaudeMediaType.ImageWebp -> "image/webp",
+        ClaudeMediaType.ApplicationPdf -> "application/pdf"
+      )
+      cases.foreach { case (mediaType, wire) =>
+        val block = ClaudeClient.imageBlock(mediaType, "data")
+        (Json.toJson(block) \ "source" \ "media_type").as[String] mustBe wire
+        ClaudeMediaType(wire) mustBe mediaType
+      }
     }
 
     "parses a recommendation_response with type_label" in {
