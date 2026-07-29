@@ -119,7 +119,12 @@ case class ClaudeRequestMetadata(
   client: IClient,
   id: String,
   request: ClaudeRequest,
-  context: Option[String] = None
+  context: Option[String] = None,
+  // Which product feature/pipeline stage issued this request (e.g. "insight_investigate",
+  // "sms_onboarding"), for cost/usage attribution. Distinct from `context`, which is a free-text
+  // per-call identifier (e.g. a run/stage id) -- `feature` is the low-cardinality label a store
+  // persists and rolls up by.
+  feature: Option[String] = None
 ) {
   val start: Long = System.currentTimeMillis()
 
@@ -332,49 +337,93 @@ case class ClaudeClient(
 
   def makeClaudeMessage(role: ClaudeRole, msg: String*): ClaudeMessage = ClaudeClient.makeClaudeMessage(role, msg*)
 
-  def chatComments(request: AiRequest, models: Seq[ClaudeModel], context: Option[String] = None)(implicit
+  def chatComments(
+    request: AiRequest,
+    models: Seq[ClaudeModel],
+    context: Option[String] = None,
+    feature: Option[String] = None
+  )(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[String]]] = {
-    chatCompletion[CommentsResponse](request, ClaudeOutputFormats.CommentsResponse, models, context)(using ec)
+    chatCompletion[CommentsResponse](request, ClaudeOutputFormats.CommentsResponse, models, context, feature)(using ec)
       .map(_.map(_.content.comments))
   }
 
-  def chatRecommendations(request: AiRequest, models: Seq[ClaudeModel], context: Option[String] = None)(implicit
+  def chatRecommendations(
+    request: AiRequest,
+    models: Seq[ClaudeModel],
+    context: Option[String] = None,
+    feature: Option[String] = None
+  )(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, RecommendationResponse]] = {
-    chatCompletion[RecommendationResponse](request, ClaudeOutputFormats.RecommendationsResponse, models, context)(using
+    chatCompletion[RecommendationResponse](
+      request,
+      ClaudeOutputFormats.RecommendationsResponse,
+      models,
+      context,
+      feature
+    )(using
       ec
     )
       .map(_.map(_.content))
   }
 
-  def chatInsight(request: AiRequest, models: Seq[ClaudeModel], context: Option[String] = None)(implicit
+  def chatInsight(
+    request: AiRequest,
+    models: Seq[ClaudeModel],
+    context: Option[String] = None,
+    feature: Option[String] = None
+  )(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[String]]] = {
-    chatComments(request, models, context)(using ec)
+    chatComments(request, models, context, feature)(using ec)
   }
 
-  def chatSingleInsight(request: AiRequest, models: Seq[ClaudeModel], context: Option[String] = None)(implicit
+  def chatSingleInsight(
+    request: AiRequest,
+    models: Seq[ClaudeModel],
+    context: Option[String] = None,
+    feature: Option[String] = None
+  )(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, String]] = {
-    chatCompletion[SingleInsightResponse](request, ClaudeOutputFormats.SingleInsight, models, context)(using ec)
+    chatCompletion[SingleInsightResponse](request, ClaudeOutputFormats.SingleInsight, models, context, feature)(using
+      ec
+    )
       .map(_.map(_.content.insight))
   }
 
-  def chatInsightSections(request: AiRequest, models: Seq[ClaudeModel], context: Option[String] = None)(implicit
+  def chatInsightSections(
+    request: AiRequest,
+    models: Seq[ClaudeModel],
+    context: Option[String] = None,
+    feature: Option[String] = None
+  )(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[InsightSection]]] = {
-    chatCompletion[InsightSectionsResponse](request, ClaudeOutputFormats.InsightSectionsResponse, models, context)(using
+    chatCompletion[InsightSectionsResponse](
+      request,
+      ClaudeOutputFormats.InsightSectionsResponse,
+      models,
+      context,
+      feature
+    )(using
       ec
     )
       .map(_.map(_.content.sections))
   }
 
-  def chatText(request: AiRequest, models: Seq[ClaudeModel], context: Option[String] = None)(implicit
+  def chatText(
+    request: AiRequest,
+    models: Seq[ClaudeModel],
+    context: Option[String] = None,
+    feature: Option[String] = None
+  )(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[String]]] = {
     tryModels(models) { model =>
-      chatTextSingle(request.toClaudeRequest(model), context)
+      chatTextSingle(request.toClaudeRequest(model), context, feature)
     }
   }
 
@@ -382,13 +431,14 @@ case class ClaudeClient(
     request: AiRequest,
     outputFormat: ClaudeOutputFormat,
     models: Seq[ClaudeModel],
-    context: Option[String] = None
+    context: Option[String] = None,
+    feature: Option[String] = None
   )(implicit
     ec: ExecutionContext,
     reads: Reads[T]
   ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]] = {
     tryModels(models) { model =>
-      chatCompletionSingle(request.toClaudeRequest(model), outputFormat, context)
+      chatCompletionSingle(request.toClaudeRequest(model), outputFormat, context, feature)
     }
   }
 
@@ -410,7 +460,8 @@ case class ClaudeClient(
     models: Seq[ClaudeModel],
     maxCalls: Int,
     finalFormat: ClaudeOutputFormat,
-    context: Option[String] = None
+    context: Option[String] = None,
+    feature: Option[String] = None
   )(execute: ClaudeToolUse => Future[ClaudeToolOutput])(implicit
     ec: ExecutionContext,
     reads: Reads[T]
@@ -431,7 +482,7 @@ case class ClaudeClient(
           toolChoice = Some(ClaudeToolChoice(ClaudeToolChoiceType.None)),
           outputConfig = Some(mergeFormat(base.outputConfig, finalFormat))
         )
-        sendAndStore[T](req, structuredHeaders(finalFormat), context)((rm, resp) => parseText[T](rm, resp))
+        sendAndStore[T](req, structuredHeaders(finalFormat), context, feature)((rm, resp) => parseText[T](rm, resp))
           .map(_.map(parsed => ClaudeToolLoopResult(parsed.content, invocations, turns, parsed.response.model)))
       }
 
@@ -450,7 +501,7 @@ case class ClaudeClient(
             toolChoice = Some(ClaudeToolChoice(ClaudeToolChoiceType.Auto)),
             outputConfig = base.outputConfig
           )
-          sendRaw(req, defaultHeaders, context).flatMap {
+          sendRaw(req, defaultHeaders, context, feature).flatMap {
             case Invalid(errors) => Future.successful(Invalid(errors))
             case Valid(rm) =>
               val uses = ClaudeClient.toolUses(rm.response)
@@ -600,10 +651,15 @@ case class ClaudeClient(
     * store the response — the audit outcome is recorded once, by [[sendAndStore]], on the fully content-parsed result
     * the caller actually receives (so a schema-parse failure is recorded as an error, not a success).
     */
-  private def send(request: ClaudeRequest, headers: Seq[(String, String)], context: Option[String])(implicit
+  private def send(
+    request: ClaudeRequest,
+    headers: Seq[(String, String)],
+    context: Option[String],
+    feature: Option[String]
+  )(implicit
     ec: ExecutionContext
   ): Future[(ClaudeRequestMetadata, ValidatedNec[ClaudeError, ClaudeResponse])] = {
-    val rm = ClaudeRequestMetadata(client, randomId("req"), request, context)
+    val rm = ClaudeRequestMetadata(client, randomId("req"), request, context, feature)
     store.storeRequest(rm)
     withRetries(client.createMessage(request, headers))
       .map(response => (rm, response.validNec))
@@ -619,10 +675,15 @@ case class ClaudeClient(
   private def errorFrom(rm: ClaudeRequestMetadata, r: ClaudeErrorResponseResponse): ClaudeError =
     Try(r.claudeErrorResponse.error).getOrElse(rm.error(s"HTTP ${r.response.status}: ${r.getMessage}"))
 
-  private def sendAndStore[T](request: ClaudeRequest, headers: Seq[(String, String)], context: Option[String])(
+  private def sendAndStore[T](
+    request: ClaudeRequest,
+    headers: Seq[(String, String)],
+    context: Option[String],
+    feature: Option[String]
+  )(
     parse: (ClaudeRequestMetadata, ClaudeResponse) => ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]
   )(implicit ec: ExecutionContext): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]] = {
-    send(request, headers, context).map { case (rm, envelope) =>
+    send(request, headers, context, feature).map { case (rm, envelope) =>
       val result = envelope.andThen(resp => parse(rm, resp))
       storeResponse(rm, result)
       result
@@ -630,15 +691,21 @@ case class ClaudeClient(
   }
 
   /** Send that persists (and returns) the raw response — used for the intermediate tool-loop turns. */
-  private def sendRaw(request: ClaudeRequest, headers: Seq[(String, String)], context: Option[String])(implicit
+  private def sendRaw(
+    request: ClaudeRequest,
+    headers: Seq[(String, String)],
+    context: Option[String],
+    feature: Option[String]
+  )(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[ClaudeResponse]]] =
-    sendAndStore(request, headers, context)((rm, resp) => ClaudeResponseMetadata(rm, resp, resp).validNec)
+    sendAndStore(request, headers, context, feature)((rm, resp) => ClaudeResponseMetadata(rm, resp, resp).validNec)
 
   private def chatCompletionSingle[T](
     originalRequest: ClaudeRequest,
     outputFormat: ClaudeOutputFormat,
-    context: Option[String]
+    context: Option[String],
+    feature: Option[String]
   )(implicit
     ec: ExecutionContext,
     reads: Reads[T]
@@ -646,13 +713,13 @@ case class ClaudeClient(
     val request = originalRequest.copy(
       outputConfig = Some(mergeFormat(originalRequest.outputConfig, outputFormat))
     )
-    sendAndStore[T](request, structuredHeaders(outputFormat), context)((rm, resp) => parseText[T](rm, resp))
+    sendAndStore[T](request, structuredHeaders(outputFormat), context, feature)((rm, resp) => parseText[T](rm, resp))
   }
 
-  private def chatTextSingle(originalRequest: ClaudeRequest, context: Option[String])(implicit
+  private def chatTextSingle(originalRequest: ClaudeRequest, context: Option[String], feature: Option[String])(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[String]]] = {
-    sendAndStore[String](originalRequest, defaultHeaders, context) { (rm, resp) =>
+    sendAndStore[String](originalRequest, defaultHeaders, context, feature) { (rm, resp) =>
       val text = textContent(resp)
       if (text.nonEmpty) {
         ClaudeResponseMetadata(rm, resp, text).validNec
