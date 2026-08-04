@@ -1,4 +1,4 @@
-amends "../../devops/api/ApiConfig.pkl"
+amends "modulepath:/api/ApiConfig.pkl"
 
 org = "bryzek"
 
