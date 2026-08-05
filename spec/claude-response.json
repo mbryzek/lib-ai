@@ -1,73 +1,128 @@
 {
-    "name": "claude-response",
-    "imports": [
-        { "uri": "https://app.apibuilder.io/bryzek/claude/latest/service.json" }
-    ],
-
-    "models": {
-        "comments_response": {
-            "fields": [
-                { "name": "steps", "type": "[claude_step]" },
-                { "name": "comments", "type": "[string]" }
-            ]
+  "name": "claude-response",
+  "models": {
+    "comments_response": {
+      "fields": [
+        {
+          "name": "steps",
+          "type": "[claude_step]"
         },
-
-        "single_insight_response": {
-          "fields": [
-            { "name": "steps", "type": "[claude_step]" },
-            { "name": "insight", "type": "string" }
-          ]
-        },
-
-        "recommendation_response": {
-            "fields": [
-                { "name": "steps", "type": "[claude_step]" },
-                { "name": "recommendations", "type": "[recommendation]" },
-                { "name": "type_label", "type": "string", "required": false }
-            ]
-        },
-
-        "recommendations": {
-            "fields": [
-                { "name": "recommendations", "type": "[recommendation]" }
-            ]
-        },
-
-        "recommendation": {
-            "fields": [
-                { "name": "category", "type": "string" },
-                { "name": "confidence", "type": "long", "minimum": 0, "maximum": 100 }
-            ]
-        },
-
-        "claude_step": {
-            "fields": [
-                { "name": "explanation", "type": "string" },
-                { "name": "output", "type": "string" }
-            ]
-        },
-
-        "insight_subsection": {
-            "fields": [
-                { "name": "heading", "type": "string" },
-                { "name": "items", "type": "[string]" }
-            ]
-        },
-
-        "insight_section": {
-            "fields": [
-                { "name": "title", "type": "string" },
-                { "name": "icon", "type": "string" },
-                { "name": "items", "type": "[string]", "required": false, "default": "[]" },
-                { "name": "subsections", "type": "[insight_subsection]", "required": false, "default": "[]" }
-            ]
-        },
-
-        "insight_sections_response": {
-            "fields": [
-                { "name": "steps", "type": "[claude_step]" },
-                { "name": "sections", "type": "[insight_section]" }
-            ]
+        {
+          "name": "comments",
+          "type": "[string]"
         }
+      ]
+    },
+    "single_insight_response": {
+      "fields": [
+        {
+          "name": "steps",
+          "type": "[claude_step]"
+        },
+        {
+          "name": "insight",
+          "type": "string"
+        }
+      ]
+    },
+    "recommendation_response": {
+      "fields": [
+        {
+          "name": "steps",
+          "type": "[claude_step]"
+        },
+        {
+          "name": "recommendations",
+          "type": "[recommendation]"
+        },
+        {
+          "name": "type_label",
+          "type": "string",
+          "required": false
+        }
+      ]
+    },
+    "recommendations": {
+      "fields": [
+        {
+          "name": "recommendations",
+          "type": "[recommendation]"
+        }
+      ]
+    },
+    "recommendation": {
+      "fields": [
+        {
+          "name": "category",
+          "type": "string"
+        },
+        {
+          "name": "confidence",
+          "type": "long",
+          "minimum": 0,
+          "maximum": 100
+        }
+      ]
+    },
+    "claude_step": {
+      "fields": [
+        {
+          "name": "explanation",
+          "type": "string"
+        },
+        {
+          "name": "output",
+          "type": "string"
+        }
+      ]
+    },
+    "insight_subsection": {
+      "fields": [
+        {
+          "name": "heading",
+          "type": "string"
+        },
+        {
+          "name": "items",
+          "type": "[string]"
+        }
+      ]
+    },
+    "insight_section": {
+      "fields": [
+        {
+          "name": "title",
+          "type": "string"
+        },
+        {
+          "name": "icon",
+          "type": "string"
+        },
+        {
+          "name": "items",
+          "type": "[string]",
+          "required": false,
+          "default": "[]"
+        },
+        {
+          "name": "subsections",
+          "type": "[insight_subsection]",
+          "required": false,
+          "default": "[]"
+        }
+      ]
+    },
+    "insight_sections_response": {
+      "fields": [
+        {
+          "name": "steps",
+          "type": "[claude_step]"
+        },
+        {
+          "name": "sections",
+          "type": "[insight_section]"
+        }
+      ]
     }
+  }
 }
