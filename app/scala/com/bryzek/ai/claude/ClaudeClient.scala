@@ -237,6 +237,12 @@ object ClaudeClient {
       "Return your final answer now as a single JSON object matching the required schema."
     )
 
+  /** [[finalizeInstruction]]'s counterpart for a text-answer loop. Naming a JSON schema here would be worse than
+    * useless -- there is no schema on the request, so the model would be asked to satisfy one that does not exist.
+    */
+  private[claude] def finalizeTextInstruction: ClaudeMessage =
+    makeClaudeMessage(ClaudeRole.User, "Write your final answer now, for the person who asked.")
+
   private val ephemeral: Option[ClaudeCacheControl] = Some(ClaudeCacheControl())
 
   /** How many message boundaries carry a rolling cache breakpoint. Two lets a turn read the breakpoint the previous
@@ -448,6 +454,9 @@ case class ClaudeClient(
     * consecutive fully-failed tool turns aborts. The final turn forces `tool_choice: none` + structured output so the
     * answer parses into `T` without regex-and-nudge. Every request/response is journaled via the store with `context`.
     *
+    * That structured final turn is the most expensive one in the loop, and a caller whose answer is PROSE a person
+    * reads -- rather than an object something parses -- should use [[runToolLoopText]] instead and not pay for it.
+    *
     * Prompt caching is applied automatically and does not depend on [[AiRequest.cacheSystem]] /
     * [[AiRequest.cacheLastMessage]]: a loop resends tools + system + the entire growing transcript on every turn, so
     * the static prefix gets one breakpoint ([[ClaudeClient.cacheStaticPrefix]]) and the transcript gets rolling ones
@@ -465,7 +474,74 @@ case class ClaudeClient(
   )(execute: ClaudeToolUse => Future[ClaudeToolOutput])(implicit
     ec: ExecutionContext,
     reads: Reads[T]
-  ): Future[ValidatedNec[ClaudeError, ClaudeToolLoopResult[T]]] = {
+  ): Future[ValidatedNec[ClaudeError, ClaudeToolLoopResult[T]]] =
+    runLoop[T](request, tools, models, maxCalls, finalizeInstruction, context, feature)(execute) { (base, messages) =>
+      // `tools` stays on the request and `tool_choice: none` does the forbidding. Dropping the tools would change
+      // the very front of the prefix and throw away the tools+system cache on the most expensive turn of the loop.
+      val req = base.copy(
+        messages = cacheConversation(messages),
+        toolChoice = Some(ClaudeToolChoice(ClaudeToolChoiceType.None)),
+        outputConfig = Some(mergeFormat(base.outputConfig, finalFormat))
+      )
+      sendAndStore[T](req, structuredHeaders(finalFormat), context, feature)((rm, resp) => parseText[T](rm, resp))
+    }
+
+  /** [[runToolLoop]] for a caller that wants PROSE, not a parsed object: identical tool loop, but the final turn is a
+    * plain text generation with no `output_config.format` and no schema to satisfy.
+    *
+    * Why this exists rather than everyone taking a structured answer. A structured finalize is not free, and it is the
+    * single most expensive turn of a loop -- it runs last, after all the real work, with the largest output budget.
+    * Every schema in [[ClaudeOutputFormats]] pairs its payload with a `steps` chain-of-thought array, so a caller that
+    * wants one string pays for a reasoning trace as well, and then usually discards it. Measured against the live API
+    * on 2026-08-06 with the club chat's own request shape (22 tools, its system prompt, a month of tool results, both
+    * with thinking off): the structured finalize took a median 12.1s and emitted 807 output tokens; the same turn as
+    * text took 4.6s and 198 tokens. That is the difference between an answer and a timeout on a surface with somebody
+    * waiting on it (ISS-677).
+    *
+    * The tradeoff is real and belongs to the caller: a text answer cannot be validated, so anything that has to PARSE
+    * the result -- the insight pipeline's findings, a judgment, a classification -- must keep using [[runToolLoop]].
+    * This is for answers a person reads.
+    */
+  def runToolLoopText(
+    request: AiRequest,
+    tools: Seq[ClaudeTool],
+    models: Seq[ClaudeModel],
+    maxCalls: Int,
+    context: Option[String] = None,
+    feature: Option[String] = None
+  )(execute: ClaudeToolUse => Future[ClaudeToolOutput])(implicit
+    ec: ExecutionContext
+  ): Future[ValidatedNec[ClaudeError, ClaudeToolLoopResult[String]]] =
+    runLoop[String](request, tools, models, maxCalls, finalizeTextInstruction, context, feature)(execute) {
+      (base, messages) =>
+        // `outputConfig` is carried through untouched rather than cleared: it also holds the caller's `effort`, and
+        // it is only the FORMAT this loop declines to set.
+        val req = base.copy(
+          messages = cacheConversation(messages),
+          toolChoice = Some(ClaudeToolChoice(ClaudeToolChoiceType.None)),
+          outputConfig = base.outputConfig
+        )
+        sendAndStore[String](req, defaultHeaders, context, feature) { (rm, resp) =>
+          val text = textContent(resp)
+          if (text.nonEmpty) ClaudeResponseMetadata(rm, resp, text).validNec else noTextError(rm, resp).invalidNec
+        }
+    }
+
+  /** The tool loop itself, shared by [[runToolLoop]] and [[runToolLoopText]], which differ only in how the last turn
+    * asks for the answer. `finalizeTurn` receives the cached base request and the transcript to answer from; the
+    * `finalizeWith` message is the trailing user turn appended when the model stops calling tools on its own.
+    */
+  private def runLoop[T](
+    request: AiRequest,
+    tools: Seq[ClaudeTool],
+    models: Seq[ClaudeModel],
+    maxCalls: Int,
+    finalizeWith: ClaudeMessage,
+    context: Option[String],
+    feature: Option[String]
+  )(execute: ClaudeToolUse => Future[ClaudeToolOutput])(
+    finalizeTurn: (ClaudeRequest, Seq[ClaudeMessage]) => Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]]
+  )(implicit ec: ExecutionContext): Future[ValidatedNec[ClaudeError, ClaudeToolLoopResult[T]]] = {
     tryModels(models) { model =>
       // Every turn resends tools + system + the whole transcript, so the prefix is cached unconditionally here.
       val base = cacheStaticPrefix(request.toClaudeRequest(model).copy(tools = Some(tools)))
@@ -475,14 +551,7 @@ case class ClaudeClient(
         invocations: Seq[ClaudeToolInvocation],
         turns: Int
       ): Future[ValidatedNec[ClaudeError, ClaudeToolLoopResult[T]]] = {
-        // `tools` stays on the request and `tool_choice: none` does the forbidding. Dropping the tools would change
-        // the very front of the prefix and throw away the tools+system cache on the most expensive turn of the loop.
-        val req = base.copy(
-          messages = cacheConversation(messages),
-          toolChoice = Some(ClaudeToolChoice(ClaudeToolChoiceType.None)),
-          outputConfig = Some(mergeFormat(base.outputConfig, finalFormat))
-        )
-        sendAndStore[T](req, structuredHeaders(finalFormat), context, feature)((rm, resp) => parseText[T](rm, resp))
+        finalizeTurn(base, messages)
           .map(_.map(parsed => ClaudeToolLoopResult(parsed.content, invocations, turns, parsed.response.model)))
       }
 
@@ -531,12 +600,12 @@ case class ClaudeClient(
                   }
                 }
               } else {
-                // Model stopped asking for tools; force a structured final answer. The finalize request
-                // must end in a user turn — a trailing assistant turn is an assistant prefill, which modern
-                // models reject with a 400 — so echo the model's turn and add an explicit user instruction.
+                // Model stopped asking for tools; force the final answer. The finalize request must end in a
+                // user turn — a trailing assistant turn is an assistant prefill, which modern models reject
+                // with a 400 — so echo the model's turn and add an explicit user instruction.
                 val done = messages :+
                   ClaudeMessage(ClaudeRole.Assistant, rm.response.content) :+
-                  finalizeInstruction
+                  finalizeWith
                 finalize(done, invocations, turns)
               }
           }

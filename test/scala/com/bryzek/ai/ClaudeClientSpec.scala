@@ -411,6 +411,54 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
     }
   }
 
+  "runToolLoopText" should {
+    val models = Seq(ClaudeModel.ClaudeSonnet5)
+    val tool = ClaudeTool(
+      name = "get_metric",
+      description = "Return a metric",
+      inputSchema = Json.obj("type" -> "object", "properties" -> Json.obj(), "additionalProperties" -> false)
+    )
+    val request = AiRequest(
+      messages = Seq(ClaudeClient.makeClaudeMessage(ClaudeRole.User, "How full were the sessions?"))
+    )
+
+    "run the same tool loop and return the final turn's prose" in {
+      var executed = 0
+      val result = await(
+        testClient.runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 25) { use =>
+          executed += 1
+          use.name mustBe "get_metric"
+          scala.concurrent.Future.successful(ClaudeToolOutput(content = """{"total": 42}"""))
+        }
+      )(using timeout)
+
+      result.isValid mustBe true
+      val loop = result.toOption.get
+      executed mustBe 1
+      loop.turns mustBe 1
+      loop.invocations.map(_.use.name) mustBe Seq("get_metric")
+      // TestClaudeClient answers in prose exactly when no output-format header is sent, so this string IS the
+      // assertion that the finalize turn declined to ask for a structured answer.
+      loop.value mustBe "This is a test plain text response."
+      loop.model mustBe ClaudeModel.ClaudeSonnet5
+    }
+
+    "finalize directly when the tool-call budget is zero" in {
+      var executed = 0
+      val result = await(
+        testClient.runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 0) { _ =>
+          executed += 1
+          scala.concurrent.Future.successful(ClaudeToolOutput(content = "unused"))
+        }
+      )(using timeout)
+
+      result.isValid mustBe true
+      executed mustBe 0
+      result.toOption.get.turns mustBe 0
+      result.toOption.get.invocations mustBe empty
+    }
+  }
+
   "tool-loop prompt caching" should {
     val ephemeral = Some(com.bryzek.claude.models.ClaudeCacheType.Ephemeral)
     val tool = ClaudeTool(
