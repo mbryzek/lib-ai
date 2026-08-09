@@ -696,6 +696,14 @@ case class ClaudeClient(
         case s if s >= 500 => Some(jitter())
         case _ => None
       }
+    // The streaming transport reports statuses through its own exception rather than a WSResponse (a streamed
+    // response has no materialized body to hand back), so it gets the same status-driven decision.
+    case s: ClaudeStreamException =>
+      s.status match {
+        case 429 => Some(retryAfter(s.retryAfter))
+        case c if c >= 500 => Some(jitter())
+        case _ => None
+      }
     case a: ApiException if a.response.status >= 500 => Some(jitter())
     // AsyncHttpClient surfaces read/request timeouts as j.u.c.TimeoutException and dropped connections as
     // IOException; both are transient transport failures, not API rejections. Known-permanent IOException

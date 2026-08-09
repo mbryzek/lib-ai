@@ -1,13 +1,14 @@
 package com.bryzek.ai.claude
 
-import com.bryzek.claude.client.Client
+import org.apache.pekko.stream.Materializer
 import play.api.libs.ws.WSClient
 
 import javax.inject.{Inject, Singleton}
 import scala.concurrent.ExecutionContext
-import scala.concurrent.duration.Duration
 
-// Thinking-enabled, tool-loop calls legitimately run for minutes; a short timeout is wrong for this class of work.
+/** The production Anthropic client. Streams every request -- see [[ClaudeStreamingClient]] for why that is the whole
+  * answer to "how long is this call allowed to take" rather than a tuning knob on it.
+  */
 @Singleton
-class ProductionClaudeClient @Inject() (ws: WSClient)(implicit ec: ExecutionContext)
-  extends Client(ws, defaultTimeout = Duration(10, scala.concurrent.duration.MINUTES))
+class ProductionClaudeClient @Inject() (ws: WSClient)(implicit ec: ExecutionContext, mat: Materializer)
+  extends ClaudeStreamingClient(ws)

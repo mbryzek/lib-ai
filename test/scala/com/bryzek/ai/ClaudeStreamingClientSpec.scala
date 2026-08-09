@@ -1,0 +1,196 @@
+package com.bryzek.ai.claude
+
+import com.bryzek.claude.models.{ClaudeModel, ClaudeRequest, ClaudeResponse, ClaudeRole, ClaudeStopReason}
+import helpers.FutureHelpers
+import org.apache.pekko.stream.scaladsl.Source
+import org.apache.pekko.util.{ByteString, Timeout}
+import org.scalatest.matchers.must.Matchers
+import org.scalatest.wordspec.AnyWordSpec
+import org.scalatestplus.play.guice.GuiceOneAppPerSuite
+import play.api.libs.json.{JsObject, JsValue, Json}
+import play.api.libs.ws.WSClient
+import play.api.mvc.{Request, Result, Results}
+import play.api.routing.Router
+import play.api.routing.sird.*
+import play.core.server.Server
+
+import java.io.IOException
+import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicReference
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.duration.{FiniteDuration, MILLISECONDS, SECONDS}
+
+/** Transport-level tests for [[ClaudeStreamingClient]] against a local server speaking the real SSE wire format.
+  * [[ClaudeStreamSpec]] covers what the events mean; this covers getting them off a socket, and the error shapes that
+  * [[ClaudeClient]]'s retry and model-fallback logic depends on.
+  */
+class ClaudeStreamingClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuite with FutureHelpers {
+
+  private implicit val timeout: Timeout = FiniteDuration(30, SECONDS)
+  private implicit lazy val mat: org.apache.pekko.stream.Materializer = app.materializer
+
+  private val aiRequest =
+    AiRequest(messages = Seq(ClaudeClient.makeClaudeMessage(ClaudeRole.User, "hello")), maxTokens = 64000L)
+
+  private val request: ClaudeRequest = aiRequest.toClaudeRequest(ClaudeModel.ClaudeSonnet5)
+
+  private def sse(events: String*): String = events.map(e => s"event: x\ndata: $e\n\n").mkString
+
+  private val CompleteStream = sse(
+    """{"type":"message_start","message":{"model":"claude-sonnet-5","id":"msg_1","type":"message",""" +
+      """"role":"assistant","content":[],"stop_reason":null,"usage":{"input_tokens":18,"output_tokens":2}}}""",
+    """{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}""",
+    """{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hello "}}""",
+    """{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"world"}}""",
+    """{"type":"content_block_stop","index":0}""",
+    """{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":9}}""",
+    """{"type":"message_stop"}"""
+  )
+
+  /** Runs `f` against a local server that answers `POST /v1/messages` with `handler`, capturing the request body the
+    * client actually sent so a test can assert on it.
+    */
+  private def withServer(
+    handler: Request[JsValue] => Result
+  )(f: (ClaudeStreamingClient, AtomicReference[JsObject]) => Unit): Unit = {
+    val sent = new AtomicReference[JsObject](Json.obj())
+    Server.withRouterFromComponents() { components =>
+      { case POST(p"/v1/messages") =>
+        components.defaultActionBuilder(components.playBodyParsers.tolerantJson) { req =>
+          sent.set(req.body.as[JsObject])
+          handler(req)
+        }
+      }: Router.Routes
+    } { implicit port =>
+      val ws = app.injector.instanceOf[WSClient]
+      f(
+        new ClaudeStreamingClient(
+          ws,
+          baseUrl = s"http://localhost:${port.value}",
+          requestTimeout = FiniteDuration(20, SECONDS),
+          idleTimeout = FiniteDuration(750, MILLISECONDS)
+        ),
+        sent
+      )
+    }
+  }
+
+  private def eventStream(body: String): Result =
+    Results.Ok.chunked(Source.single(ByteString(body))).as("text/event-stream")
+
+  "createMessage" should {
+
+    "ask for a stream, and return the response a non-streaming call would have" in {
+      withServer(_ => eventStream(CompleteStream)) { (client, sent) =>
+        val response: ClaudeResponse = await(client.createMessage(request, Seq("x-api-key" -> "k")))(using timeout)
+
+        (sent.get() \ "stream").as[Boolean] mustBe true
+        (sent.get() \ "max_tokens").as[Long] mustBe 64000L
+        (sent.get() \ "model").as[String] mustBe "claude-sonnet-5"
+
+        response.id mustBe "msg_1"
+        response.content.flatMap(_.text) mustBe Seq("hello world")
+        response.stopReason mustBe ClaudeStopReason.EndTurn
+        response.usage.outputTokens mustBe 9
+      }
+    }
+
+    "reassemble a body delivered in many small chunks" in {
+      // The point of the transport: bytes arrive over time and are framed across chunk boundaries, including
+      // ones that split a single SSE line.
+      val chunked = Source(CompleteStream.grouped(7).map(ByteString(_)).toList)
+      withServer(_ => Results.Ok.chunked(chunked).as("text/event-stream")) { (client, _) =>
+        val response = await(client.createMessage(request))(using timeout)
+        response.content.flatMap(_.text) mustBe Seq("hello world")
+      }
+    }
+
+    "raise a non-2xx as a ClaudeStreamException carrying the status and Retry-After" in {
+      val body = """{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}"""
+      withServer(_ => Results.TooManyRequests(body).withHeaders("Retry-After" -> "42")) { (client, _) =>
+        val e = intercept[ClaudeStreamException](await(client.createMessage(request))(using timeout))
+        e.status mustBe 429
+        e.retryAfter mustBe Some("42")
+        e.getMessage must include("rate_limit_error: slow down")
+      }
+    }
+
+    "keep 529 legible to the model-fallback check" in {
+      withServer(_ =>
+        Results.Status(529)("""{"type":"error","error":{"type":"overloaded_error","message":"busy"}}""")
+      ) { (client, _) =>
+        val e = intercept[ClaudeStreamException](await(client.createMessage(request))(using timeout))
+        ClaudeClient.isOverloadedError(e.getMessage) mustBe true
+      }
+    }
+
+    "raise a truncated stream as an IOException, so it is retried like any dropped connection" in {
+      val truncated = CompleteStream.substring(0, CompleteStream.indexOf("message_delta"))
+      withServer(_ => eventStream(truncated)) { (client, _) =>
+        val e = intercept[IOException](await(client.createMessage(request))(using timeout))
+        e.getMessage must include("did not complete")
+      }
+    }
+
+    "keep going for as long as bytes keep coming, however long that takes in total" in {
+      // The whole point of ISS-1231, pinned deterministically. This stream runs for several times the idle
+      // timeout and would have died against any fixed wall-clock ceiling of that size; it survives because it
+      // is never silent. Total duration is not a limit on a streaming request -- silence is.
+      val paced = Source(CompleteStream.split("(?<=\n\n)").toList.map(ByteString(_)))
+        .throttle(1, FiniteDuration(400, MILLISECONDS))
+      withServer(_ => Results.Ok.chunked(paced).as("text/event-stream")) { (client, _) =>
+        val started = System.currentTimeMillis()
+        val response = await(client.createMessage(request))(using timeout)
+        val elapsed = System.currentTimeMillis() - started
+
+        response.content.flatMap(_.text) mustBe Seq("hello world")
+        // The harness runs a 750ms idle timeout; this took several times that in total and still completed.
+        elapsed must be > 2000L
+      }
+    }
+
+    "give up on a stream that goes silent, without waiting out the total request timeout" in {
+      // The one timeout that binds on a streaming request. `Source.never` keeps the connection open and
+      // sends nothing, which is what a dead peer looks like.
+      val stalled = Source.single(ByteString("event: x\n")).concat(Source.never[ByteString])
+      withServer(_ => Results.Ok.chunked(stalled).as("text/event-stream")) { (client, _) =>
+        a[TimeoutException] must be thrownBy await(client.createMessage(request))(using timeout)
+      }
+    }
+  }
+
+  "the whole client over the streaming transport" should {
+
+    "flow a streamed answer up through ClaudeClient unchanged" in {
+      withServer(_ => eventStream(CompleteStream)) { (client, _) =>
+        val result = await(
+          ClaudeClient(client, ClaudeConfig("test-api-key"), NoopClaudeStore)
+            .chatText(
+              aiRequest,
+              Seq(ClaudeModel.ClaudeSonnet5)
+            )
+        )(using timeout)
+
+        result.map(_.content) mustBe cats.data.Validated.valid("hello world")
+      }
+    }
+
+    "fall back to the next model when the first one streams an overloaded error" in {
+      val overloaded = sse("""{"type":"error","error":{"type":"overloaded_error","message":"busy"}}""")
+      withServer { req =>
+        val model = (req.body \ "model").asOpt[String]
+        eventStream(if (model.contains("claude-sonnet-5")) overloaded else CompleteStream)
+      } { (client, _) =>
+        val result = await(
+          ClaudeClient(client, ClaudeConfig("test-api-key"), NoopClaudeStore)
+            .chatText(
+              aiRequest,
+              Seq(ClaudeModel.ClaudeSonnet5, ClaudeModel.ClaudeOpus5)
+            )
+        )(using timeout)
+
+        result.map(_.content) mustBe cats.data.Validated.valid("hello world")
+      }
+    }
+  }
+}
