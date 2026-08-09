@@ -174,9 +174,6 @@ class ClaudeClientFactoryImpl @Inject() (
 
 object ClaudeClient {
 
-  /** Total HTTP attempts per model before falling back / failing (initial call + retries). */
-  private val MaxHttpAttempts = 3
-
   /** This many consecutive fully-failed tool turns aborts the loop rather than looping into more failures. */
   private val MaxConsecutiveFailedTurns = 3
 
@@ -676,11 +673,20 @@ case class ClaudeClient(
   /** Retry the given HTTP attempt, honoring `Retry-After` on 429 and using jittered backoff on 5xx and transient
     * transport failures (read/request timeouts, connection resets). Non-retryable failures (or exhausted attempts)
     * propagate the original exception.
+    *
+    * `maxTokens` is the request's own output budget, and it sets how many attempts we get:
+    * [[ClaudeRequestBudget.attemptsFor]] trades attempts against the (larger) per-request timeout that same budget
+    * earns, so the total wall clock per model stays inside [[ClaudeRequestBudget.Envelope]] no matter how big the
+    * request is. A 64k request therefore gets one attempt long enough to finish instead of three that cannot -- see
+    * [[ClaudeRequestBudget]] for why that is the right trade rather than simply retrying longer.
     */
-  private def withRetries(attempt: => Future[ClaudeResponse])(implicit ec: ExecutionContext): Future[ClaudeResponse] = {
+  private def withRetries(maxTokens: Long)(attempt: => Future[ClaudeResponse])(implicit
+    ec: ExecutionContext
+  ): Future[ClaudeResponse] = {
+    val attempts = ClaudeRequestBudget.attemptsFor(maxTokens)
     def loop(n: Int): Future[ClaudeResponse] =
       attempt.recoverWith {
-        case NonFatal(e) if n < MaxHttpAttempts =>
+        case NonFatal(e) if n < attempts =>
           retryDelay(e) match {
             case Some(d) => delay(d).flatMap(_ => loop(n + 1))
             case None => Future.failed(e)
@@ -730,7 +736,7 @@ case class ClaudeClient(
   ): Future[(ClaudeRequestMetadata, ValidatedNec[ClaudeError, ClaudeResponse])] = {
     val rm = ClaudeRequestMetadata(client, randomId("req"), request, context, feature)
     store.storeRequest(rm)
-    withRetries(client.createMessage(request, headers))
+    withRetries(request.maxTokens)(client.createMessage(request, headers))
       .map(response => (rm, response.validNec))
       .recover {
         case r: ClaudeErrorResponseResponse => (rm, errorFrom(rm, r).invalidNec)
