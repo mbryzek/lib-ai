@@ -676,8 +676,17 @@ case class ClaudeClient(
   /** Retry the given HTTP attempt, honoring `Retry-After` on 429 and using jittered backoff on 5xx and transient
     * transport failures (read/request timeouts, connection resets). Non-retryable failures (or exhausted attempts)
     * propagate the original exception.
+    *
+    * Every request gets the same [[ClaudeClient.MaxHttpAttempts]], regardless of its size. ISS-1229 briefly traded
+    * attempts away on large requests, because a non-streaming attempt had to be given a bigger and bigger slice of a
+    * fixed wall-clock envelope to have any chance of finishing. Streaming makes that trade backwards: a failing
+    * streaming attempt fails on [[ClaudeStreamingClient.IdleTimeout]] in minutes rather than burning its whole ceiling,
+    * so a large request can afford its retries as easily as a small one -- and, being large, has more to lose by not
+    * having them.
     */
-  private def withRetries(attempt: => Future[ClaudeResponse])(implicit ec: ExecutionContext): Future[ClaudeResponse] = {
+  private def withRetries(attempt: => Future[ClaudeResponse])(implicit
+    ec: ExecutionContext
+  ): Future[ClaudeResponse] = {
     def loop(n: Int): Future[ClaudeResponse] =
       attempt.recoverWith {
         case NonFatal(e) if n < MaxHttpAttempts =>

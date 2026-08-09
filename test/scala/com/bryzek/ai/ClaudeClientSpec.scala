@@ -538,7 +538,8 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
   "withRetries" should {
     val models = Seq(ClaudeModel.ClaudeSonnet5)
     val request = AiRequest(
-      messages = Seq(ClaudeClient.makeClaudeMessage(ClaudeRole.User, "Sending a test message"))
+      messages = Seq(ClaudeClient.makeClaudeMessage(ClaudeRole.User, "Sending a test message")),
+      maxTokens = 4096L
     )
 
     "retries a transient read timeout and succeeds" in {
@@ -584,6 +585,21 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
 
       result.isInvalid mustBe true
       calls.get mustBe 1
+    }
+
+    "give a large request the same retries as a small one" in {
+      // ISS-1229 briefly traded a large request's retries away, because a non-streaming attempt needed an
+      // ever-larger slice of a fixed wall-clock envelope to have any chance of finishing. Streaming inverts
+      // that (ISS-1231): an attempt that is going to fail fails on the idle timeout in minutes, so size no
+      // longer buys anything by giving up its retries.
+      val calls = new AtomicInteger(0)
+      val client = flakyClient(_ => Some(new TimeoutException("Request timeout after 120000 ms")))(calls)
+      val large = request.copy(maxTokens = 64000L)
+
+      val result = await(client.chatText(large, models))(using timeout)
+
+      result.isInvalid mustBe true
+      calls.get mustBe 3
     }
   }
 
