@@ -174,6 +174,9 @@ class ClaudeClientFactoryImpl @Inject() (
 
 object ClaudeClient {
 
+  /** Total HTTP attempts per model before falling back / failing (initial call + retries). */
+  private val MaxHttpAttempts = 3
+
   /** This many consecutive fully-failed tool turns aborts the loop rather than looping into more failures. */
   private val MaxConsecutiveFailedTurns = 3
 
@@ -674,19 +677,19 @@ case class ClaudeClient(
     * transport failures (read/request timeouts, connection resets). Non-retryable failures (or exhausted attempts)
     * propagate the original exception.
     *
-    * `maxTokens` is the request's own output budget, and it sets how many attempts we get:
-    * [[ClaudeRequestBudget.attemptsFor]] trades attempts against the (larger) per-request timeout that same budget
-    * earns, so the total wall clock per model stays inside [[ClaudeRequestBudget.Envelope]] no matter how big the
-    * request is. A 64k request therefore gets one attempt long enough to finish instead of three that cannot -- see
-    * [[ClaudeRequestBudget]] for why that is the right trade rather than simply retrying longer.
+    * Every request gets the same [[ClaudeClient.MaxHttpAttempts]], regardless of its size. ISS-1229 briefly traded
+    * attempts away on large requests, because a non-streaming attempt had to be given a bigger and bigger slice of a
+    * fixed wall-clock envelope to have any chance of finishing. Streaming makes that trade backwards: a failing
+    * streaming attempt fails on [[ClaudeStreamingClient.IdleTimeout]] in minutes rather than burning its whole ceiling,
+    * so a large request can afford its retries as easily as a small one -- and, being large, has more to lose by not
+    * having them.
     */
-  private def withRetries(maxTokens: Long)(attempt: => Future[ClaudeResponse])(implicit
+  private def withRetries(attempt: => Future[ClaudeResponse])(implicit
     ec: ExecutionContext
   ): Future[ClaudeResponse] = {
-    val attempts = ClaudeRequestBudget.attemptsFor(maxTokens)
     def loop(n: Int): Future[ClaudeResponse] =
       attempt.recoverWith {
-        case NonFatal(e) if n < attempts =>
+        case NonFatal(e) if n < MaxHttpAttempts =>
           retryDelay(e) match {
             case Some(d) => delay(d).flatMap(_ => loop(n + 1))
             case None => Future.failed(e)
@@ -700,6 +703,14 @@ case class ClaudeClient(
       r.response.status match {
         case 429 => Some(retryAfter(r.response.header("Retry-After")))
         case s if s >= 500 => Some(jitter())
+        case _ => None
+      }
+    // The streaming transport reports statuses through its own exception rather than a WSResponse (a streamed
+    // response has no materialized body to hand back), so it gets the same status-driven decision.
+    case s: ClaudeStreamException =>
+      s.status match {
+        case 429 => Some(retryAfter(s.retryAfter))
+        case c if c >= 500 => Some(jitter())
         case _ => None
       }
     case a: ApiException if a.response.status >= 500 => Some(jitter())
@@ -736,7 +747,7 @@ case class ClaudeClient(
   ): Future[(ClaudeRequestMetadata, ValidatedNec[ClaudeError, ClaudeResponse])] = {
     val rm = ClaudeRequestMetadata(client, randomId("req"), request, context, feature)
     store.storeRequest(rm)
-    withRetries(request.maxTokens)(client.createMessage(request, headers))
+    withRetries(client.createMessage(request, headers))
       .map(response => (rm, response.validNec))
       .recover {
         case r: ClaudeErrorResponseResponse => (rm, errorFrom(rm, r).invalidNec)
