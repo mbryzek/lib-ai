@@ -40,7 +40,16 @@ lazy val root = project
     scalafmtOnCompile := true,
     Compile / packageDoc / mappings := Seq(),
     Compile / packageDoc / publishArtifact := true,
-    testOptions += Tests.Argument("-oDF"),
+    // ISS-356: `-oDF` prints a per-test duration to stdout; `-u` writes one JUnit XML file per
+    // suite, which is the only correct per-suite attribution this build produces. stdout carries
+    // no per-line suite marker, so once suites run in parallel a reader (devops/bin/test-timings)
+    // can only attribute a duration to whichever "[info] ClassName:" header was printed most
+    // recently by ANY thread -- which on a real run named the wrong suite for every test it
+    // reported as slow.
+    testOptions ++= Seq(
+      Tests.Argument("-oDF"),
+      Tests.Argument(TestFrameworks.ScalaTest, "-u", (target.value / "test-reports").getAbsolutePath),
+    ),
     scalacOptions ++= allScalacOptions,
     libraryDependencies ++= Seq(
       ws,
