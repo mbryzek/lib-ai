@@ -28,10 +28,16 @@ object ClaudeConfig {
   private val Version = "2023-06-01"
   private val StructuredOutputsBeta = "structured-outputs-2025-11-13"
 
+  /** Gates `output_config.task_budget` (see [[AiRequest.taskBudgetFor]]). Sent on every request rather than only the
+    * ones that carry a budget: a beta header that a request does not exercise costs nothing, and making the header
+    * conditional on the field would put the two in two places that have to agree.
+    */
+  private val TaskBudgetsBeta = "task-budgets-2026-03-13"
+
   def apply(key: String): ClaudeConfig = ClaudeConfig(
     key = key,
     anthropicVersion = Version,
-    betaHeaders = Seq(StructuredOutputsBeta)
+    betaHeaders = Seq(StructuredOutputsBeta, TaskBudgetsBeta)
   )
 }
 
@@ -95,7 +101,12 @@ case class AiRequest(
       system = systemBlocks,
       tools = None,
       toolChoice = None,
-      outputConfig = effort.map(e => ClaudeOutputConfig(effort = Some(e), format = None)),
+      outputConfig = {
+        val budget = AiRequest.taskBudgetFor(model, maxTokens)
+        Option.when(effort.isDefined || budget.isDefined)(
+          ClaudeOutputConfig(effort = effort, format = None, taskBudget = budget)
+        )
+      },
       thinking = KnownClaudeModel.validate(model).toOption match {
         case Some(KnownClaudeModel.ClaudeFable5) =>
           // Fable 5 rejects any explicit thinking config except adaptive (thinking is always on);
@@ -112,6 +123,41 @@ case class AiRequest(
           Some(ClaudeThinking(thinking))
       }
     )
+  }
+}
+
+object AiRequest {
+
+  /** Smallest `total` the API accepts on a task budget. Below it the request is rejected outright, so a budget that
+    * would not clear it is omitted rather than clamped up -- clamping would hand a 200-token request a 20,000-token
+    * budget, which is not a budget.
+    */
+  private[claude] val MinTaskBudget = 20000L
+
+  /** Share of `max_tokens` offered to the model as its advisory budget. The remaining quarter is hard headroom: the
+    * budget is a countdown the model paces itself against, `max_tokens` is the enforced ceiling it never sees, so
+    * leaving room between the two is what turns "truncated mid-sentence" into "wrapped up early".
+    */
+  private[claude] val TaskBudgetFraction = 0.75
+
+  /** The advisory budget for a request, or None when there is no useful one to send.
+    *
+    * `effort` is a hint about how hard to think, not a bound on it, and `budget_tokens` is removed on every model in
+    * this enum -- so before task budgets there was NOTHING bounding a thinking pass, and a large enough one could eat
+    * the whole of `max_tokens` and emit no answer at all (ISS-1717, ISS-1320). This is the API's purpose-built answer:
+    * the server injects a countdown marker the model sees while generating.
+    */
+  private[claude] def taskBudgetFor(model: ClaudeModel, maxTokens: Long): Option[ClaudeTaskBudget] = {
+    val supported = KnownClaudeModel.validate(model).toOption match {
+      // Task budgets are not offered on Haiku 4.5; sending one is a caller error, not a no-op.
+      case Some(KnownClaudeModel.ClaudeHaiku45) => false
+      // An unrecognized model id is one we have not qualified. Omitting the budget loses the pacing; sending it to a
+      // model that does not take it loses the whole request.
+      case None => false
+      case Some(KnownClaudeModel.ClaudeSonnet5 | KnownClaudeModel.ClaudeOpus5 | KnownClaudeModel.ClaudeFable5) => true
+    }
+    val total = (maxTokens * TaskBudgetFraction).toLong
+    Option.when(supported && total >= MinTaskBudget)(ClaudeTaskBudget(total = total))
   }
 }
 
@@ -307,6 +353,44 @@ object ClaudeClient {
   def isRefusalError(errorMessage: String): Boolean =
     errorMessage.contains(s"stop_reason=${ClaudeStopReason.Refusal}")
 
+  /** Whether an error message says the request ran out of `max_tokens` -- thinking and the answer share that ceiling,
+    * so a deep enough thinking pass leaves nothing for the answer. It surfaces as one of TWO messages depending on how
+    * much of the budget thinking took, and both were observed on 2026-08-09 within twenty minutes of each other:
+    *
+    *   - thinking took all of it, so there is no text block at all (see [[ClaudeClient.noTextError]]) -- `No text
+    *     content in response (stop_reason=max_tokens, output_tokens=64000)`
+    *   - thinking left just enough to start the answer, which is then cut off mid-string -- `Content is not valid JSON:
+    *     Unexpected end-of-input: was expecting closing quote ...`
+    *
+    * The second is the same failure wearing a parser error, so it gets the same response. Each is matched on two
+    * independent phrases: `Content is not valid JSON` ON ITS OWN is an ordinary malformed response -- a content problem
+    * the model can correct -- and it is only truncation when the parser also ran out of input.
+    *
+    * This lives here, next to the code that FORMATS those messages, because it used to live in platform: rewording
+    * either message would have silently switched off the recovery over there, with no compile error and no test failure
+    * here to catch it (ISS-1717).
+    */
+  def isBudgetExhaustionError(errorMessage: String): Boolean = {
+    val thinkingTookEverything =
+      errorMessage.contains("No text content") && errorMessage.contains(s"stop_reason=${ClaudeStopReason.MaxTokens}")
+    val answerCutOffMidStream =
+      errorMessage.contains("Content is not valid JSON") && errorMessage.contains("Unexpected end-of-input")
+    thinkingTookEverything || answerCutOffMidStream
+  }
+
+  /** One rung down the effort ladder, or None at the floor. `None` means the caller sent no `effort`, which is the
+    * API's own default of `high`, so it steps to `medium` exactly as an explicit high does. An UNDEFINED effort is a
+    * value this client does not know; it has no place on the ladder, so it does not step.
+    */
+  private[claude] def lowerEffort(effort: Option[ClaudeEffort]): Option[ClaudeEffort] =
+    KnownClaudeEffort.validate(effort.getOrElse(ClaudeEffort.High)).toOption.flatMap {
+      case KnownClaudeEffort.Max => Some(ClaudeEffort.Xhigh)
+      case KnownClaudeEffort.Xhigh => Some(ClaudeEffort.High)
+      case KnownClaudeEffort.High => Some(ClaudeEffort.Medium)
+      case KnownClaudeEffort.Medium => Some(ClaudeEffort.Low)
+      case KnownClaudeEffort.Low => None
+    }
+
 }
 
 final case class ClaudeOutputFormat(
@@ -428,8 +512,10 @@ case class ClaudeClient(
   )(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[String]]] = {
-    tryModels(models) { model =>
-      chatTextSingle(request.toClaudeRequest(model), context, feature)
+    withEffortStepDown(request) { req =>
+      tryModels(models) { model =>
+        chatTextSingle(req.toClaudeRequest(model), context, feature)
+      }
     }
   }
 
@@ -443,8 +529,10 @@ case class ClaudeClient(
     ec: ExecutionContext,
     reads: Reads[T]
   ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]] = {
-    tryModels(models) { model =>
-      chatCompletionSingle(request.toClaudeRequest(model), outputFormat, context, feature)
+    withEffortStepDown(request) { req =>
+      tryModels(models) { model =>
+        chatCompletionSingle(req.toClaudeRequest(model), outputFormat, context, feature)
+      }
     }
   }
 
@@ -542,77 +630,110 @@ case class ClaudeClient(
   )(execute: ClaudeToolUse => Future[ClaudeToolOutput])(
     finalizeTurn: (ClaudeRequest, Seq[ClaudeMessage]) => Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]]
   )(implicit ec: ExecutionContext): Future[ValidatedNec[ClaudeError, ClaudeToolLoopResult[T]]] = {
-    tryModels(models) { model =>
-      // Every turn resends tools + system + the whole transcript, so the prefix is cached unconditionally here.
-      val base = cacheStaticPrefix(request.toClaudeRequest(model).copy(tools = Some(tools)))
+    withEffortStepDown(request) { req =>
+      tryModels(models) { model =>
+        // Every turn resends tools + system + the whole transcript, so the prefix is cached unconditionally here.
+        val base = cacheStaticPrefix(req.toClaudeRequest(model).copy(tools = Some(tools)))
 
-      def finalize(
-        messages: Seq[ClaudeMessage],
-        invocations: Seq[ClaudeToolInvocation],
-        turns: Int
-      ): Future[ValidatedNec[ClaudeError, ClaudeToolLoopResult[T]]] = {
-        finalizeTurn(base, messages)
-          .map(_.map(parsed => ClaudeToolLoopResult(parsed.content, invocations, turns, parsed.response.model)))
-      }
+        def finalize(
+          messages: Seq[ClaudeMessage],
+          invocations: Seq[ClaudeToolInvocation],
+          turns: Int
+        ): Future[ValidatedNec[ClaudeError, ClaudeToolLoopResult[T]]] = {
+          finalizeTurn(base, messages)
+            .map(_.map(parsed => ClaudeToolLoopResult(parsed.content, invocations, turns, parsed.response.model)))
+        }
 
-      def loop(
-        messages: Seq[ClaudeMessage],
-        callsUsed: Int,
-        consecutiveErrors: Int,
-        invocations: Seq[ClaudeToolInvocation],
-        turns: Int
-      ): Future[ValidatedNec[ClaudeError, ClaudeToolLoopResult[T]]] = {
-        if (callsUsed >= maxCalls) {
-          finalize(messages, invocations, turns)
-        } else {
-          val req = base.copy(
-            messages = cacheConversation(messages),
-            toolChoice = Some(ClaudeToolChoice(ClaudeToolChoiceType.Auto)),
-            outputConfig = base.outputConfig
-          )
-          sendRaw(req, defaultHeaders, context, feature).flatMap {
-            case Invalid(errors) => Future.successful(Invalid(errors))
-            case Valid(rm) =>
-              val uses = ClaudeClient.toolUses(rm.response)
-              if (rm.response.stopReason == ClaudeStopReason.ToolUse && uses.nonEmpty) {
-                Future.traverse(uses)(u => runTool(execute, u)).flatMap { newInvocations =>
-                  val allErrored = newInvocations.forall(_.output.isError)
-                  val streak = if (allErrored) consecutiveErrors + 1 else 0
-                  if (streak >= MaxConsecutiveFailedTurns) {
-                    Future.successful(
-                      rm.request
-                        .error(s"Aborting tool loop after $streak consecutive fully-failed tool turns")
-                        .invalidNec
-                    )
-                  } else {
-                    val assistantMsg = ClaudeMessage(ClaudeRole.Assistant, rm.response.content)
-                    val resultMsg = ClaudeMessage(
-                      ClaudeRole.User,
-                      newInvocations.map(i => toolResultBlock(i.use.id, i.output))
-                    )
-                    loop(
-                      messages :+ assistantMsg :+ resultMsg,
-                      callsUsed + uses.size,
-                      streak,
-                      invocations ++ newInvocations,
-                      turns + 1
-                    )
+        def loop(
+          messages: Seq[ClaudeMessage],
+          callsUsed: Int,
+          consecutiveErrors: Int,
+          invocations: Seq[ClaudeToolInvocation],
+          turns: Int
+        ): Future[ValidatedNec[ClaudeError, ClaudeToolLoopResult[T]]] = {
+          if (callsUsed >= maxCalls) {
+            finalize(messages, invocations, turns)
+          } else {
+            val req = base.copy(
+              messages = cacheConversation(messages),
+              toolChoice = Some(ClaudeToolChoice(ClaudeToolChoiceType.Auto)),
+              outputConfig = base.outputConfig
+            )
+            sendRaw(req, defaultHeaders, context, feature).flatMap {
+              case Invalid(errors) => Future.successful(Invalid(errors))
+              case Valid(rm) =>
+                val uses = ClaudeClient.toolUses(rm.response)
+                if (rm.response.stopReason == ClaudeStopReason.ToolUse && uses.nonEmpty) {
+                  Future.traverse(uses)(u => runTool(execute, u)).flatMap { newInvocations =>
+                    val allErrored = newInvocations.forall(_.output.isError)
+                    val streak = if (allErrored) consecutiveErrors + 1 else 0
+                    if (streak >= MaxConsecutiveFailedTurns) {
+                      Future.successful(
+                        rm.request
+                          .error(s"Aborting tool loop after $streak consecutive fully-failed tool turns")
+                          .invalidNec
+                      )
+                    } else {
+                      val assistantMsg = ClaudeMessage(ClaudeRole.Assistant, rm.response.content)
+                      val resultMsg = ClaudeMessage(
+                        ClaudeRole.User,
+                        newInvocations.map(i => toolResultBlock(i.use.id, i.output))
+                      )
+                      loop(
+                        messages :+ assistantMsg :+ resultMsg,
+                        callsUsed + uses.size,
+                        streak,
+                        invocations ++ newInvocations,
+                        turns + 1
+                      )
+                    }
                   }
+                } else {
+                  // Model stopped asking for tools; force the final answer. The finalize request must end in a
+                  // user turn — a trailing assistant turn is an assistant prefill, which modern models reject
+                  // with a 400 — so echo the model's turn and add an explicit user instruction.
+                  val done = messages :+
+                    ClaudeMessage(ClaudeRole.Assistant, rm.response.content) :+
+                    finalizeWith
+                  finalize(done, invocations, turns)
                 }
-              } else {
-                // Model stopped asking for tools; force the final answer. The finalize request must end in a
-                // user turn — a trailing assistant turn is an assistant prefill, which modern models reject
-                // with a 400 — so echo the model's turn and add an explicit user instruction.
-                val done = messages :+
-                  ClaudeMessage(ClaudeRole.Assistant, rm.response.content) :+
-                  finalizeWith
-                finalize(done, invocations, turns)
-              }
+            }
           }
         }
-      }
 
-      loop(base.messages, 0, 0, Nil, 0)
+        loop(base.messages, 0, 0, Nil, 0)
+      }
+    }
+  }
+
+  /** Runs `attempt`, and if it comes back having exhausted `max_tokens`, runs it ONCE more one effort step lower
+    * ([[ClaudeClient.lowerEffort]]) before returning an error to the caller.
+    *
+    * Recovering here rather than leaving it to the caller is the point (ISS-1717). The alternative -- and what platform
+    * did -- is to recover on the NEXT task attempt: by then the stage is already marked `failed`, the error is
+    * persisted where a person reads it, a framework retry is spent, and a full generation has been paid for. None of
+    * that tells anyone anything they can act on, because the fix is mechanical. Absorbed here, the caller sees one
+    * successful answer.
+    *
+    * Once, not down to the floor: a step-down means paying for a second full generation, and the ladder is a fallback
+    * for a request whose budget was already misjudged, not a search. A second exhaustion is a real failure and surfaces
+    * as one -- at that point the caller's `maxTokens` is the thing that is wrong, not its effort.
+    */
+  private def withEffortStepDown[T](request: AiRequest)(
+    attempt: AiRequest => Future[ValidatedNec[ClaudeError, T]]
+  )(implicit ec: ExecutionContext): Future[ValidatedNec[ClaudeError, T]] = {
+    attempt(request).flatMap {
+      case Invalid(errors) if errors.exists(e => ClaudeClient.isBudgetExhaustionError(e.message)) =>
+        lowerEffort(request.effort) match {
+          case None => Future.successful(Invalid(errors))
+          case Some(lower) =>
+            println(
+              s"Claude request exhausted its output budget at effort " +
+                s"${request.effort.getOrElse(ClaudeEffort.High)}, retrying once at $lower"
+            )
+            attempt(request.copy(effort = Some(lower)))
+        }
+      case result => Future.successful(result)
     }
   }
 
@@ -631,7 +752,9 @@ case class ClaudeClient(
       .map(ClaudeToolInvocation(use, _))
 
   private def mergeFormat(existing: Option[ClaudeOutputConfig], format: ClaudeOutputFormat): ClaudeOutputConfig =
-    existing.getOrElse(ClaudeOutputConfig(effort = None, format = None)).copy(format = Some(format.toApi))
+    existing
+      .getOrElse(ClaudeOutputConfig(effort = None, format = None, taskBudget = None))
+      .copy(format = Some(format.toApi))
 
   private def structuredHeaders(format: ClaudeOutputFormat): Seq[(String, String)] =
     defaultHeaders ++ Seq((TestClaudeClient.OutputFormatNameHeader, format.name))

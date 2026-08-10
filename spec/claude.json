@@ -83,6 +83,12 @@
                 { "name": "xhigh" },
                 { "name": "max" }
             ]
+        },
+        "claude_task_budget_type": {
+            "description": "Unit a task budget is denominated in. The API defines exactly one.",
+            "values": [
+                { "name": "tokens" }
+            ]
         }
     },
 
@@ -141,10 +147,18 @@
             ]
         },
         "claude_output_config": {
-            "description": "Output controls. effort tunes thinking depth and token spend; format constrains the response to a JSON schema (replaces the deprecated top-level output_format).",
+            "description": "Output controls. effort tunes thinking depth and token spend; format constrains the response to a JSON schema (replaces the deprecated top-level output_format); task_budget tells the model how much of max_tokens it should plan to spend.",
             "fields": [
                 { "name": "effort", "type": "claude_effort", "required": false },
-                { "name": "format", "type": "claude_api_output_format", "required": false }
+                { "name": "format", "type": "claude_api_output_format", "required": false },
+                { "name": "task_budget", "type": "claude_task_budget", "required": false }
+            ]
+        },
+        "claude_task_budget": {
+            "description": "Advisory token ceiling the model is made aware of while generating. The server injects a countdown marker, so the model paces itself and wraps up gracefully instead of being truncated at max_tokens -- which is an enforced ceiling the model never sees. Requires the task-budgets-2026-03-13 beta header.",
+            "fields": [
+              { "name": "type", "type": "claude_task_budget_type", "default": "tokens" },
+              { "name": "total", "type": "long", "description": "Tokens the model may plan to spend on this turn. Minimum accepted by the API is 20,000; anything lower is rejected." }
             ]
         },
         "claude_api_output_format": {
