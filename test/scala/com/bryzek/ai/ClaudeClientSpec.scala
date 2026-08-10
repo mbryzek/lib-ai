@@ -11,6 +11,7 @@ import com.bryzek.claude.models.{
   ClaudeRole,
   ClaudeSourceType,
   ClaudeStopReason,
+  ClaudeTaskBudgetType,
   ClaudeThinkingType,
   ClaudeTool,
   ClaudeToolChoiceType,
@@ -195,6 +196,122 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       exhausted.swap.toOption.get.toNonEmptyList.head.message must include("stop_reason=refusal")
     }
 
+    "classifies budget exhaustion by both of the shapes it takes, and nothing else" in {
+      // Thinking took the whole ceiling, so there is no text block at all.
+      ClaudeClient.isBudgetExhaustionError(
+        "No text content in response (stop_reason=max_tokens, output_tokens=64000)"
+      ) mustBe true
+      // Thinking left just enough to start the draft, which was then cut off mid-string.
+      ClaudeClient.isBudgetExhaustionError(
+        "Content is not valid JSON: Unexpected end-of-input: was expecting closing quote for a string value"
+      ) mustBe true
+      // Bad JSON that did NOT run out of input is an ordinary content problem the model can correct.
+      ClaudeClient.isBudgetExhaustionError(
+        "Content is not valid JSON: Unrecognized token 'sections'"
+      ) mustBe false
+      // A refusal is a different failure with a different recovery (fall back to the next model).
+      ClaudeClient.isBudgetExhaustionError(
+        "No text content in response (stop_reason=refusal, output_tokens=0)"
+      ) mustBe false
+      // Half a signature is not a signature: a model asked to explain itself can echo either phrase.
+      ClaudeClient.isBudgetExhaustionError("the headline section had No text content to summarize") mustBe false
+      ClaudeClient.isBudgetExhaustionError("Unexpected end-of-input while reading baseline metrics") mustBe false
+    }
+
+    "toClaudeRequest sends a task budget below max_tokens so the model paces itself" in {
+      // The budget is what the model SEES (a countdown it wraps up against); max_tokens is the ceiling it does not.
+      // The gap between them is the headroom that turns a truncation into a graceful finish.
+      val out = AiRequest(messages = Nil, maxTokens = 128000L).toClaudeRequest(ClaudeModel.ClaudeSonnet5)
+      out.outputConfig.flatMap(_.taskBudget).map(_.total) mustBe Some(96000L)
+      out.outputConfig.flatMap(_.taskBudget).map(_.`type`) mustBe Some(ClaudeTaskBudgetType.Tokens)
+      out.maxTokens mustBe 128000L
+
+      Seq(ClaudeModel.ClaudeOpus5, ClaudeModel.ClaudeFable5).foreach { model =>
+        AiRequest(messages = Nil, maxTokens = 128000L)
+          .toClaudeRequest(model)
+          .outputConfig
+          .flatMap(_.taskBudget)
+          .map(_.total) mustBe Some(96000L)
+      }
+    }
+
+    "toClaudeRequest omits the task budget where it would be rejected" in {
+      // Haiku 4.5 does not take task budgets at all.
+      AiRequest(messages = Nil, maxTokens = 128000L)
+        .toClaudeRequest(ClaudeModel.ClaudeHaiku45)
+        .outputConfig
+        .flatMap(_.taskBudget) mustBe None
+
+      // Below the API's 20,000 minimum there is no budget to send -- clamping up to the minimum would hand a small
+      // request a budget larger than its own ceiling.
+      AiRequest(messages = Nil, maxTokens = 8000L)
+        .toClaudeRequest(ClaudeModel.ClaudeSonnet5)
+        .outputConfig
+        .flatMap(_.taskBudget) mustBe None
+
+      // ... and a request with neither effort nor a budget sends no output_config at all.
+      AiRequest(messages = Nil, maxTokens = 8000L)
+        .toClaudeRequest(ClaudeModel.ClaudeSonnet5)
+        .outputConfig mustBe None
+    }
+
+    "recovers from budget exhaustion in-call by stepping effort down once" in {
+      // The whole point of ISS-1717: the caller sees ONE successful answer, not a failed stage that some later
+      // attempt has to recover from after a full generation has already been paid for.
+      val seen = efforts()
+      val client = respondingClient(seen) { req =>
+        if (req.outputConfig.flatMap(_.effort).contains(ClaudeEffort.Medium)) answered else budgetExhausted
+      }
+
+      val result = await(
+        client.chatText(request.copy(effort = Some(ClaudeEffort.High), maxTokens = 128000L), models)
+      )(using timeout)
+
+      result.isValid mustBe true
+      result.toOption.get.content mustBe "the draft"
+      seen.result() mustBe List(Some(ClaudeEffort.High), Some(ClaudeEffort.Medium))
+    }
+
+    "steps effort down once and ONLY once, then surfaces the failure" in {
+      // A second exhaustion is a real failure and must reach the caller: at that point it is the request's
+      // maxTokens that is wrong, not its effort, and quietly walking the ladder to the floor only buys more
+      // full-price generations that fail the same way.
+      val seen = efforts()
+      val client = respondingClient(seen)(_ => budgetExhausted)
+
+      val result = await(
+        client.chatText(request.copy(effort = Some(ClaudeEffort.High), maxTokens = 128000L), models)
+      )(using timeout)
+
+      result.isInvalid mustBe true
+      result.swap.toOption.get.toNonEmptyList.head.message must include("stop_reason=max_tokens")
+      seen.result() mustBe List(Some(ClaudeEffort.High), Some(ClaudeEffort.Medium))
+    }
+
+    "does not retry a budget exhaustion already at the bottom of the effort ladder" in {
+      val seen = efforts()
+      val client = respondingClient(seen)(_ => budgetExhausted)
+
+      val result = await(
+        client.chatText(request.copy(effort = Some(ClaudeEffort.Low), maxTokens = 128000L), models)
+      )(using timeout)
+
+      result.isInvalid mustBe true
+      seen.result() mustBe List(Some(ClaudeEffort.Low))
+    }
+
+    "treats an absent effort as the API's own default of high when stepping down" in {
+      val seen = efforts()
+      val client = respondingClient(seen) { req =>
+        if (req.outputConfig.flatMap(_.effort).contains(ClaudeEffort.Medium)) answered else budgetExhausted
+      }
+
+      val result = await(client.chatText(request.copy(maxTokens = 128000L), models))(using timeout)
+
+      result.isValid mustBe true
+      seen.result() mustBe List(None, Some(ClaudeEffort.Medium))
+    }
+
     "toClaudeRequest omits the thinking field entirely for Fable 5" in {
       // Fable 5 rejects any explicit thinking config except adaptive; omitting runs adaptive.
       AiRequest(messages = Nil).toClaudeRequest(ClaudeModel.ClaudeFable5).thinking mustBe None
@@ -218,8 +335,12 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       out.outputConfig.flatMap(_.format) mustBe None
     }
 
-    "toClaudeRequest omits output_config when no effort provided" in {
-      AiRequest(messages = Nil).toClaudeRequest(ClaudeModel.ClaudeSonnet5).outputConfig mustBe None
+    "toClaudeRequest omits effort from output_config when none is provided" in {
+      // output_config itself still ships -- it carries the task budget, which is derived from maxTokens rather than
+      // asked for, so it is present on a request that named no effort at all.
+      val out = AiRequest(messages = Nil).toClaudeRequest(ClaudeModel.ClaudeSonnet5)
+      out.outputConfig.flatMap(_.effort) mustBe None
+      out.outputConfig.flatMap(_.taskBudget).map(_.total) mustBe Some(22500L)
     }
 
     "parses a response whose first content block is a non-text (thinking) block" in {
@@ -609,6 +730,46 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
   /** A client that always returns the given response verbatim -- used to exercise response-shape handling (e.g. a
     * no-text turn) that the sandbox TestClaudeClient never produces on its own.
     */
+  /** A turn that spent the whole output budget on thinking: `stop_reason=max_tokens` and no text block. */
+  private val budgetExhausted: ClaudeResponse = ClaudeResponse(
+    id = "msg_exhausted",
+    `type` = "message",
+    role = ClaudeRole.Assistant,
+    content = Seq(ClaudeContentBlock(ClaudeContentType.Thinking).copy(thinking = Some("still reasoning"))),
+    model = ClaudeModel.ClaudeSonnet5,
+    stopReason = ClaudeStopReason.MaxTokens,
+    usage = ClaudeUsage(inputTokens = 5000, outputTokens = 128000)
+  )
+
+  private val answered: ClaudeResponse = budgetExhausted.copy(
+    id = "msg_answered",
+    content = Seq(ClaudeClient.textBlock("the draft")),
+    stopReason = ClaudeStopReason.EndTurn,
+    usage = ClaudeUsage(inputTokens = 5000, outputTokens = 4374)
+  )
+
+  /** Records the `effort` of each request a [[respondingClient]] receives, in order. */
+  private def efforts(): scala.collection.mutable.Builder[Option[ClaudeEffort], List[Option[ClaudeEffort]]] =
+    List.newBuilder[Option[ClaudeEffort]]
+
+  /** A client that answers each request from `respond`, recording the effort it was asked for. Synchronized because the
+    * retry/fallback layers run their attempts on the execution context, not the calling thread.
+    */
+  private def respondingClient(
+    seen: scala.collection.mutable.Builder[Option[ClaudeEffort], List[Option[ClaudeEffort]]]
+  )(respond: com.bryzek.claude.models.ClaudeRequest => ClaudeResponse): ClaudeClient = {
+    val recording = new IClient {
+      override def createMessage(
+        body: com.bryzek.claude.models.ClaudeRequest,
+        requestHeaders: Seq[(String, String)]
+      ): scala.concurrent.Future[ClaudeResponse] = {
+        seen.synchronized(seen += body.outputConfig.flatMap(_.effort))
+        scala.concurrent.Future.successful(respond(body))
+      }
+    }
+    ClaudeClient(recording, ClaudeConfig("test-api-key"), NoopClaudeStore)
+  }
+
   private def fixedClient(response: ClaudeResponse): ClaudeClient = {
     val fixed = new IClient {
       override def createMessage(
