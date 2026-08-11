@@ -47,6 +47,34 @@ object ClaudeEnvironment {
   case object Production extends ClaudeEnvironment
 }
 
+/** How long a cache entry written at one of this request's breakpoints stays readable.
+  *
+  * Hand-written rather than generated: the wire values are `5m` and `1h`, and apibuilder's Scala generator names an
+  * enum's case object after its wire value, neither of which is a legal Scala identifier. The wire field is a plain
+  * string ([[com.bryzek.claude.models.ClaudeCacheControl.ttl]]) and this is the type callers choose from.
+  *
+  * Picking one is arithmetic, not taste. A read costs 0.1x input at either TTL; a WRITE costs 1.25x at 5m and 2x at 1h.
+  * So the longer TTL is only cheaper when it converts misses into hits, and it is strictly worse when the prefix would
+  * have been re-sent inside five minutes anyway (paying 2x for a write that 1.25x would have bought) or when it is not
+  * re-sent at all (paying 2x for a write nothing ever reads). Measure the gap between consecutive calls of the same
+  * shape before choosing -- and then measure `cache_read_input_tokens` afterwards to confirm it actually paid.
+  */
+sealed abstract class ClaudeCacheTtl(val wireValue: String)
+
+object ClaudeCacheTtl {
+
+  /** The API's own default, and this library's. Right for calls that repeat back-to-back -- a tool loop's turns, or a
+    * per-club stage whose clubs run one after another.
+    */
+  case object FiveMinutes extends ClaudeCacheTtl("5m")
+
+  /** Right for a repeated call shape whose consecutive uses are minutes apart rather than seconds -- e.g. a per-club
+    * pipeline stage that runs once per club while each club's whole pipeline takes longer than five minutes, so the
+    * shared prefix would otherwise expire between every pair of clubs.
+    */
+  case object OneHour extends ClaudeCacheTtl("1h")
+}
+
 /** A single tool call the model requested (a `tool_use` content block). */
 case class ClaudeToolUse(id: String, name: String, input: JsObject)
 
@@ -69,12 +97,17 @@ case class AiRequest(
   cacheSystem: Boolean = false,
   cacheLastMessage: Boolean = false,
   thinking: ClaudeThinkingType = ClaudeThinkingType.Adaptive,
-  effort: Option[ClaudeEffort] = None
+  effort: Option[ClaudeEffort] = None,
+  /** TTL for every cache breakpoint this request writes -- the ones `cacheSystem`/`cacheLastMessage` place, and the
+    * ones a tool loop places on its own. See [[ClaudeCacheTtl]] for how to choose; it is a cost decision, and the wrong
+    * choice makes caching more expensive rather than merely less effective.
+    */
+  cacheTtl: ClaudeCacheTtl = ClaudeCacheTtl.FiveMinutes
 ) {
   require(!cacheSystem || system.isDefined, "cacheSystem=true requires system to be set")
 
   def toClaudeRequest(model: ClaudeModel): ClaudeRequest = {
-    def ephemeral: Option[ClaudeCacheControl] = Some(ClaudeCacheControl())
+    def ephemeral: Option[ClaudeCacheControl] = ClaudeClient.ephemeralFor(cacheTtl)
     val systemBlocks = system.map { text =>
       Seq(
         ClaudeSystemBlock(
@@ -289,7 +322,14 @@ object ClaudeClient {
   private[claude] def finalizeTextInstruction: ClaudeMessage =
     makeClaudeMessage(ClaudeRole.User, "Write your final answer now, for the person who asked.")
 
-  private val ephemeral: Option[ClaudeCacheControl] = Some(ClaudeCacheControl())
+  /** An ephemeral breakpoint at `ttl`.
+    *
+    * [[ClaudeCacheTtl.FiveMinutes]] sends no `ttl` at all rather than the equivalent `"5m"`, so a caller that has not
+    * asked for the longer TTL produces byte-identical requests to before this field existed. That is worth the branch:
+    * it makes adopting the 1h TTL a per-caller decision with no silent change to anyone else's traffic.
+    */
+  private[claude] def ephemeralFor(ttl: ClaudeCacheTtl): Option[ClaudeCacheControl] =
+    Some(ClaudeCacheControl(ttl = Option.when(ttl != ClaudeCacheTtl.FiveMinutes)(ttl.wireValue)))
 
   /** How many message boundaries carry a rolling cache breakpoint. Two lets a turn read the breakpoint the previous
     * turn wrote while writing its own, so hits accrue as the transcript grows. Together with the one static-prefix
@@ -303,13 +343,18 @@ object ClaudeClient {
     * caching it is always the right call regardless of what the caller asked for on [[AiRequest]]. A prefix shorter
     * than the model's minimum cacheable length simply does not cache -- there is no error and no extra cost.
     */
-  private[claude] def cacheStaticPrefix(request: ClaudeRequest): ClaudeRequest =
+  private[claude] def cacheStaticPrefix(
+    request: ClaudeRequest,
+    ttl: ClaudeCacheTtl = ClaudeCacheTtl.FiveMinutes
+  ): ClaudeRequest = {
+    val ephemeral = ephemeralFor(ttl)
     request.system.filter(_.nonEmpty) match {
       case Some(blocks) =>
         request.copy(system = Some(blocks.init :+ blocks.last.copy(cacheControl = ephemeral)))
       case None =>
         request.copy(tools = request.tools.filter(_.nonEmpty).map(t => t.init :+ t.last.copy(cacheControl = ephemeral)))
     }
+  }
 
   /** Re-applies the rolling conversation breakpoints, tagging the last content block of the newest message and of the
     * message one turn (two messages) earlier -- a turn is always an assistant message plus the user message answering
@@ -317,7 +362,11 @@ object ClaudeClient {
     * stays fixed as the transcript grows rather than accumulating past the API's limit -- a breakpoint is a read point,
     * not part of the cached bytes, so moving one does not invalidate anything already written.
     */
-  private[claude] def cacheConversation(messages: Seq[ClaudeMessage]): Seq[ClaudeMessage] = {
+  private[claude] def cacheConversation(
+    messages: Seq[ClaudeMessage],
+    ttl: ClaudeCacheTtl = ClaudeCacheTtl.FiveMinutes
+  ): Seq[ClaudeMessage] = {
+    val ephemeral = ephemeralFor(ttl)
     val cleared = messages.map(m => m.copy(content = m.content.map(_.copy(cacheControl = None))))
     val breakpoints = Seq.tabulate(ConversationBreakpoints)(i => cleared.size - 1 - (i * 2)).filter(_ >= 0).toSet
     cleared.zipWithIndex.map {
@@ -567,7 +616,7 @@ case class ClaudeClient(
       // `tools` stays on the request and `tool_choice: none` does the forbidding. Dropping the tools would change
       // the very front of the prefix and throw away the tools+system cache on the most expensive turn of the loop.
       val req = base.copy(
-        messages = cacheConversation(messages),
+        messages = cacheConversation(messages, request.cacheTtl),
         toolChoice = Some(ClaudeToolChoice(ClaudeToolChoiceType.None)),
         outputConfig = Some(mergeFormat(base.outputConfig, finalFormat))
       )
@@ -605,7 +654,7 @@ case class ClaudeClient(
         // `outputConfig` is carried through untouched rather than cleared: it also holds the caller's `effort`, and
         // it is only the FORMAT this loop declines to set.
         val req = base.copy(
-          messages = cacheConversation(messages),
+          messages = cacheConversation(messages, request.cacheTtl),
           toolChoice = Some(ClaudeToolChoice(ClaudeToolChoiceType.None)),
           outputConfig = base.outputConfig
         )
@@ -632,8 +681,11 @@ case class ClaudeClient(
   )(implicit ec: ExecutionContext): Future[ValidatedNec[ClaudeError, ClaudeToolLoopResult[T]]] = {
     withEffortStepDown(request) { req =>
       tryModels(models) { model =>
+        // Bound before `loop`'s own `req` shadows the outer one. `withEffortStepDown` only ever copies the request
+        // with a lower effort, so this is the caller's TTL whichever attempt we are on.
+        val ttl = req.cacheTtl
         // Every turn resends tools + system + the whole transcript, so the prefix is cached unconditionally here.
-        val base = cacheStaticPrefix(req.toClaudeRequest(model).copy(tools = Some(tools)))
+        val base = cacheStaticPrefix(req.toClaudeRequest(model).copy(tools = Some(tools)), ttl)
 
         def finalize(
           messages: Seq[ClaudeMessage],
@@ -655,7 +707,7 @@ case class ClaudeClient(
             finalize(messages, invocations, turns)
           } else {
             val req = base.copy(
-              messages = cacheConversation(messages),
+              messages = cacheConversation(messages, ttl),
               toolChoice = Some(ClaudeToolChoice(ClaudeToolChoiceType.Auto)),
               outputConfig = base.outputConfig
             )

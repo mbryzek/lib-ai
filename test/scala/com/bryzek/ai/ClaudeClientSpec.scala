@@ -636,10 +636,59 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
     "cacheConversation clears stale markers rather than accumulating them" in {
       val stale = Seq("a", "b", "c", "d", "e").map { t =>
         val m = ClaudeClient.makeClaudeMessage(ClaudeRole.User, t)
-        m.copy(content = m.content.map(_.copy(cacheControl = Some(com.bryzek.claude.models.ClaudeCacheControl()))))
+        m.copy(content =
+          m.content.map(_.copy(cacheControl = Some(com.bryzek.claude.models.ClaudeCacheControl(ttl = None))))
+        )
       }
       markers(stale) mustBe Seq(0, 1, 2, 3, 4)
       markers(ClaudeClient.cacheConversation(stale)) mustBe Seq(2, 4)
+    }
+
+    // The TTL only ever appears on the wire when a caller asked for the long one. That asymmetry is the point: a
+    // 1h WRITE costs 2x input against 1.25x at 5m, so a request that did not opt in must be byte-identical to what
+    // it sent before the field existed, or adopting it anywhere would quietly reprice everything.
+    "cacheStaticPrefix omits ttl at the default and sends 1h when asked" in {
+      def prefixTtl(ttl: ClaudeCacheTtl): Option[String] = {
+        val base = AiRequest(messages = Nil, system = Some("investigator rules"))
+          .toClaudeRequest(ClaudeModel.ClaudeSonnet5)
+          .copy(tools = Some(Seq(tool)))
+        ClaudeClient.cacheStaticPrefix(base, ttl).system.get.last.cacheControl.flatMap(_.ttl)
+      }
+      prefixTtl(ClaudeCacheTtl.FiveMinutes) mustBe None
+      prefixTtl(ClaudeCacheTtl.OneHour) mustBe Some("1h")
+    }
+
+    "cacheConversation carries the ttl onto every rolling breakpoint" in {
+      val transcript = Seq("a", "b", "c").map(ClaudeClient.makeClaudeMessage(ClaudeRole.User, _))
+      def ttls(ttl: ClaudeCacheTtl): Seq[Option[String]] =
+        ClaudeClient.cacheConversation(transcript, ttl).flatMap(_.content).flatMap(_.cacheControl).map(_.ttl)
+
+      ttls(ClaudeCacheTtl.FiveMinutes) mustBe Seq(None, None)
+      ttls(ClaudeCacheTtl.OneHour) mustBe Seq(Some("1h"), Some("1h"))
+    }
+
+    "toClaudeRequest carries cacheTtl onto the system and last-message breakpoints" in {
+      val r = AiRequest(
+        messages = Seq(ClaudeClient.makeClaudeMessage(ClaudeRole.User, "hello")),
+        system = Some("ctx"),
+        cacheSystem = true,
+        cacheLastMessage = true,
+        cacheTtl = ClaudeCacheTtl.OneHour
+      ).toClaudeRequest(ClaudeModel.ClaudeSonnet5)
+
+      r.system.get.last.cacheControl.flatMap(_.ttl) mustBe Some("1h")
+      r.messages.last.content.last.cacheControl.flatMap(_.ttl) mustBe Some("1h")
+    }
+
+    "AiRequest defaults to the five-minute ttl, so an untouched caller's bytes do not change" in {
+      val r = AiRequest(
+        messages = Seq(ClaudeClient.makeClaudeMessage(ClaudeRole.User, "hello")),
+        system = Some("ctx"),
+        cacheSystem = true
+      ).toClaudeRequest(ClaudeModel.ClaudeSonnet5)
+
+      AiRequest(messages = Nil).cacheTtl mustBe ClaudeCacheTtl.FiveMinutes
+      r.system.get.last.cacheControl.flatMap(_.ttl) mustBe None
     }
 
     "cacheConversation tags the last content block of a multi-block tool-result turn" in {

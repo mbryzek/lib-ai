@@ -44,10 +44,22 @@ package object Factories {
   }
 
   def makeClaudeCacheControl(
-    `type`: com.bryzek.claude.models.ClaudeCacheType = com.bryzek.claude.models.ClaudeCacheType.Ephemeral
+    `type`: com.bryzek.claude.models.ClaudeCacheType = com.bryzek.claude.models.ClaudeCacheType.Ephemeral,
+    ttl: Option[String] = None
   ): com.bryzek.claude.models.ClaudeCacheControl = {
     com.bryzek.claude.models.ClaudeCacheControl(
-      `type` = `type`
+      `type` = `type`,
+      ttl = ttl
+    )
+  }
+
+  def makeClaudeCacheCreation(
+    ephemeral5mInputTokens: Long = 0L,
+    ephemeral1hInputTokens: Long = 0L
+  ): com.bryzek.claude.models.ClaudeCacheCreation = {
+    com.bryzek.claude.models.ClaudeCacheCreation(
+      ephemeral5mInputTokens = ephemeral5mInputTokens,
+      ephemeral1hInputTokens = ephemeral1hInputTokens
     )
   }
 
@@ -241,13 +253,15 @@ package object Factories {
     inputTokens: Long = _root_.scala.util.Random.nextLong().abs,
     outputTokens: Long = _root_.scala.util.Random.nextLong().abs,
     cacheCreationInputTokens: Option[Long] = None,
-    cacheReadInputTokens: Option[Long] = None
+    cacheReadInputTokens: Option[Long] = None,
+    cacheCreation: Option[com.bryzek.claude.models.ClaudeCacheCreation] = None
   ): com.bryzek.claude.models.ClaudeUsage = {
     com.bryzek.claude.models.ClaudeUsage(
       inputTokens = inputTokens,
       outputTokens = outputTokens,
       cacheCreationInputTokens = cacheCreationInputTokens,
-      cacheReadInputTokens = cacheReadInputTokens
+      cacheReadInputTokens = cacheReadInputTokens,
+      cacheCreation = cacheCreation
     )
   }
 

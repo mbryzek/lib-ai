@@ -181,7 +181,15 @@ case class ClaudeApiOutputFormat(
   schema: play.api.libs.json.JsObject
 )
 
-case class ClaudeCacheControl(`type`: ClaudeCacheType = com.bryzek.claude.models.ClaudeCacheType.Ephemeral)
+case class ClaudeCacheControl(
+  `type`: ClaudeCacheType = com.bryzek.claude.models.ClaudeCacheType.Ephemeral,
+  ttl: Option[String]
+)
+
+case class ClaudeCacheCreation(
+  ephemeral5mInputTokens: Long = 0L,
+  ephemeral1hInputTokens: Long = 0L
+)
 
 case class ClaudeContentBlock(
   `type`: ClaudeContentType,
@@ -380,7 +388,8 @@ case class ClaudeUsage(
   inputTokens: Long,
   outputTokens: Long,
   cacheCreationInputTokens: Option[Long],
-  cacheReadInputTokens: Option[Long]
+  cacheReadInputTokens: Option[Long],
+  cacheCreation: Option[ClaudeCacheCreation]
 )
 
 object ClaudeUsage {
@@ -392,7 +401,8 @@ object ClaudeUsage {
       inputTokens = inputTokens,
       outputTokens = outputTokens,
       cacheCreationInputTokens = None,
-      cacheReadInputTokens = None
+      cacheReadInputTokens = None,
+      cacheCreation = None
     )
   }
 }
@@ -603,7 +613,8 @@ package object json {
   implicit def jsonReadsComBryzekClaudeModelsClaudeCacheControl: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeCacheControl] = {
     for {
       `type` <- (JsPath \ "type").readWithDefault[com.bryzek.claude.models.ClaudeCacheType](com.bryzek.claude.models.ClaudeCacheType.Ephemeral)
-    } yield com.bryzek.claude.models.ClaudeCacheControl(`type`)
+      ttl <- (JsPath \ "ttl").readNullable[String]
+    } yield com.bryzek.claude.models.ClaudeCacheControl(`type`, ttl)
   }
 
   implicit def jsonWritesComBryzekClaudeModelsClaudeCacheControl: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeCacheControl] = {
@@ -613,6 +624,25 @@ package object json {
   def jsObjectComBryzekClaudeModelsClaudeCacheControl(obj: com.bryzek.claude.models.ClaudeCacheControl): play.api.libs.json.JsObject = {
     play.api.libs.json.Json.obj(
       "type" -> play.api.libs.json.JsString(obj.`type`.toString)
+    ) ++
+      obj.ttl.map { x => play.api.libs.json.Json.obj("ttl" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
+  }
+
+  implicit def jsonReadsComBryzekClaudeModelsClaudeCacheCreation: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeCacheCreation] = {
+    for {
+      ephemeral5mInputTokens <- (JsPath \ "ephemeral_5m_input_tokens").readWithDefault[Long](0L)
+      ephemeral1hInputTokens <- (JsPath \ "ephemeral_1h_input_tokens").readWithDefault[Long](0L)
+    } yield com.bryzek.claude.models.ClaudeCacheCreation(ephemeral5mInputTokens, ephemeral1hInputTokens)
+  }
+
+  implicit def jsonWritesComBryzekClaudeModelsClaudeCacheCreation: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeCacheCreation] = {
+    (obj: com.bryzek.claude.models.ClaudeCacheCreation) => jsObjectComBryzekClaudeModelsClaudeCacheCreation(obj)
+  }
+
+  def jsObjectComBryzekClaudeModelsClaudeCacheCreation(obj: com.bryzek.claude.models.ClaudeCacheCreation): play.api.libs.json.JsObject = {
+    play.api.libs.json.Json.obj(
+      "ephemeral_5m_input_tokens" -> play.api.libs.json.JsNumber(obj.ephemeral5mInputTokens),
+      "ephemeral_1h_input_tokens" -> play.api.libs.json.JsNumber(obj.ephemeral1hInputTokens)
     )
   }
 
@@ -910,7 +940,8 @@ package object json {
       outputTokens <- (JsPath \ "output_tokens").read[Long]
       cacheCreationInputTokens <- (JsPath \ "cache_creation_input_tokens").readNullable[Long]
       cacheReadInputTokens <- (JsPath \ "cache_read_input_tokens").readNullable[Long]
-    } yield com.bryzek.claude.models.ClaudeUsage(inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens)
+      cacheCreation <- (JsPath \ "cache_creation").readNullable[com.bryzek.claude.models.ClaudeCacheCreation]
+    } yield com.bryzek.claude.models.ClaudeUsage(inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens, cacheCreation)
   }
 
   implicit def jsonWritesComBryzekClaudeModelsClaudeUsage: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeUsage] = {
@@ -923,7 +954,8 @@ package object json {
       "output_tokens" -> play.api.libs.json.JsNumber(obj.outputTokens)
     ) ++
       obj.cacheCreationInputTokens.map { x => play.api.libs.json.Json.obj("cache_creation_input_tokens" -> play.api.libs.json.JsNumber(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.cacheReadInputTokens.map { x => play.api.libs.json.Json.obj("cache_read_input_tokens" -> play.api.libs.json.JsNumber(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
+      obj.cacheReadInputTokens.map { x => play.api.libs.json.Json.obj("cache_read_input_tokens" -> play.api.libs.json.JsNumber(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
+      obj.cacheCreation.map { x => play.api.libs.json.Json.obj("cache_creation" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeCacheCreation(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
   }
 
   implicit def jsonReadsComBryzekClaudeModelsMessage: play.api.libs.json.Reads[com.bryzek.claude.models.Message] = {
