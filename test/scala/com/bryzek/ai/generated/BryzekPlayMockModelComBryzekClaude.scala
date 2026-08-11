@@ -7,8 +7,13 @@
 package com.bryzek.claude.mock.models
 
 import com.bryzek.claude.models.*
+import _root_.org.joda.time.DateTime
 
 package object Factories {
+  def makeClaudeBatchProcessingStatus(): com.bryzek.claude.models.ClaudeBatchProcessingStatus = _root_.scala.util.Random.shuffle(com.bryzek.claude.models.ClaudeBatchProcessingStatus.all).head
+
+  def makeClaudeBatchResultType(): com.bryzek.claude.models.ClaudeBatchResultType = _root_.scala.util.Random.shuffle(com.bryzek.claude.models.ClaudeBatchResultType.all).head
+
   def makeClaudeCacheType(): com.bryzek.claude.models.ClaudeCacheType = _root_.scala.util.Random.shuffle(com.bryzek.claude.models.ClaudeCacheType.all).head
 
   def makeClaudeContentType(): com.bryzek.claude.models.ClaudeContentType = _root_.scala.util.Random.shuffle(com.bryzek.claude.models.ClaudeContentType.all).head
@@ -22,6 +27,8 @@ package object Factories {
   def makeClaudeOutputFormatType(): com.bryzek.claude.models.ClaudeOutputFormatType = _root_.scala.util.Random.shuffle(com.bryzek.claude.models.ClaudeOutputFormatType.all).head
 
   def makeClaudeRole(): com.bryzek.claude.models.ClaudeRole = _root_.scala.util.Random.shuffle(com.bryzek.claude.models.ClaudeRole.all).head
+
+  def makeClaudeServiceTier(): com.bryzek.claude.models.ClaudeServiceTier = _root_.scala.util.Random.shuffle(com.bryzek.claude.models.ClaudeServiceTier.all).head
 
   def makeClaudeSourceType(): com.bryzek.claude.models.ClaudeSourceType = _root_.scala.util.Random.shuffle(com.bryzek.claude.models.ClaudeSourceType.all).head
 
@@ -40,6 +47,88 @@ package object Factories {
     com.bryzek.claude.models.ClaudeApiOutputFormat(
       `type` = `type`,
       schema = schema
+    )
+  }
+
+  def makeClaudeBatch(
+    id: String = "random-id-" + _root_.java.util.UUID.randomUUID().toString,
+    `type`: String = "message_batch",
+    processingStatus: com.bryzek.claude.models.ClaudeBatchProcessingStatus = makeClaudeBatchProcessingStatus(),
+    requestCounts: com.bryzek.claude.models.ClaudeBatchRequestCounts = makeClaudeBatchRequestCounts(),
+    createdAt: org.joda.time.DateTime = _root_.org.joda.time.DateTime.now,
+    expiresAt: org.joda.time.DateTime = _root_.org.joda.time.DateTime.now,
+    endedAt: Option[org.joda.time.DateTime] = None,
+    archivedAt: Option[org.joda.time.DateTime] = None,
+    cancelInitiatedAt: Option[org.joda.time.DateTime] = None,
+    resultsUrl: Option[String] = None
+  ): com.bryzek.claude.models.ClaudeBatch = {
+    com.bryzek.claude.models.ClaudeBatch(
+      id = id,
+      `type` = `type`,
+      processingStatus = processingStatus,
+      requestCounts = requestCounts,
+      createdAt = createdAt,
+      expiresAt = expiresAt,
+      endedAt = endedAt,
+      archivedAt = archivedAt,
+      cancelInitiatedAt = cancelInitiatedAt,
+      resultsUrl = resultsUrl
+    )
+  }
+
+  def makeClaudeBatchForm(
+    requests: Seq[com.bryzek.claude.models.ClaudeBatchRequestItem] = Nil
+  ): com.bryzek.claude.models.ClaudeBatchForm = {
+    com.bryzek.claude.models.ClaudeBatchForm(
+      requests = requests
+    )
+  }
+
+  def makeClaudeBatchRequestCounts(
+    processing: Long = _root_.scala.util.Random.nextLong().abs,
+    succeeded: Long = _root_.scala.util.Random.nextLong().abs,
+    errored: Long = _root_.scala.util.Random.nextLong().abs,
+    canceled: Long = _root_.scala.util.Random.nextLong().abs,
+    expired: Long = _root_.scala.util.Random.nextLong().abs
+  ): com.bryzek.claude.models.ClaudeBatchRequestCounts = {
+    com.bryzek.claude.models.ClaudeBatchRequestCounts(
+      processing = processing,
+      succeeded = succeeded,
+      errored = errored,
+      canceled = canceled,
+      expired = expired
+    )
+  }
+
+  def makeClaudeBatchRequestItem(
+    customId: String = "random-custom_id-" + _root_.java.util.UUID.randomUUID().toString,
+    params: com.bryzek.claude.models.ClaudeRequest = makeClaudeRequest()
+  ): com.bryzek.claude.models.ClaudeBatchRequestItem = {
+    com.bryzek.claude.models.ClaudeBatchRequestItem(
+      customId = customId,
+      params = params
+    )
+  }
+
+  def makeClaudeBatchResult(
+    customId: String = "random-custom_id-" + _root_.java.util.UUID.randomUUID().toString,
+    result: com.bryzek.claude.models.ClaudeBatchResultDetail = makeClaudeBatchResultDetail()
+  ): com.bryzek.claude.models.ClaudeBatchResult = {
+    com.bryzek.claude.models.ClaudeBatchResult(
+      customId = customId,
+      result = result
+    )
+  }
+
+  def makeClaudeBatchResultDetail(
+    `type`: com.bryzek.claude.models.ClaudeBatchResultType = makeClaudeBatchResultType(),
+    message: Option[com.bryzek.claude.models.ClaudeResponse] = None,
+    error: Option[com.bryzek.claude.models.ClaudeErrorResponse] = None
+  ): com.bryzek.claude.models.ClaudeBatchResultDetail = {
+    com.bryzek.claude.models.ClaudeBatchResultDetail(
+      `type` = `type`,
+      message = message,
+      error = error
     )
   }
 
@@ -254,14 +343,16 @@ package object Factories {
     outputTokens: Long = _root_.scala.util.Random.nextLong().abs,
     cacheCreationInputTokens: Option[Long] = None,
     cacheReadInputTokens: Option[Long] = None,
-    cacheCreation: Option[com.bryzek.claude.models.ClaudeCacheCreation] = None
+    cacheCreation: Option[com.bryzek.claude.models.ClaudeCacheCreation] = None,
+    serviceTier: Option[com.bryzek.claude.models.ClaudeServiceTier] = None
   ): com.bryzek.claude.models.ClaudeUsage = {
     com.bryzek.claude.models.ClaudeUsage(
       inputTokens = inputTokens,
       outputTokens = outputTokens,
       cacheCreationInputTokens = cacheCreationInputTokens,
       cacheReadInputTokens = cacheReadInputTokens,
-      cacheCreation = cacheCreation
+      cacheCreation = cacheCreation,
+      serviceTier = serviceTier
     )
   }
 

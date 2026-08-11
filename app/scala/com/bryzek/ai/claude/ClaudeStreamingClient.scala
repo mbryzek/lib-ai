@@ -1,8 +1,8 @@
 package com.bryzek.ai.claude
 
-import com.bryzek.claude.client.IClient
+import com.bryzek.claude.client.{Client, IClient}
 import com.bryzek.claude.models.json.*
-import com.bryzek.claude.models.{ClaudeRequest, ClaudeResponse}
+import com.bryzek.claude.models.{ClaudeBatch, ClaudeBatchForm, ClaudeRequest, ClaudeResponse}
 import org.apache.pekko.stream.Materializer
 import org.apache.pekko.stream.scaladsl.Framing
 import org.apache.pekko.util.ByteString
@@ -42,6 +42,23 @@ object ClaudeStreamingClient {
 
   /** Cap on how much of a non-2xx body is read before it is turned into an error message. */
   val MaxErrorBodyBytes: Int = 8 * 1024
+
+  /** Wall clock for one batch operation. Generous compared with an ordinary API call because creating a batch UPLOADS
+    * every request in it -- the API's own ceiling is 256 MB -- and none of the three batch operations generates
+    * anything, so a slow one is a slow transfer rather than a model still thinking.
+    */
+  val BatchTimeout: FiniteDuration = FiniteDuration(10, MINUTES)
+
+  /** Ceiling on a results body held in memory at once.
+    *
+    * The results of a batch are read whole: they are a JSONL body with no pagination and no partial read, so this
+    * implementation materializes every line. That is exactly right at the size a fan-out across clubs produces (tens of
+    * requests, a few MB) and would be wrong at the API's own limit of 100,000 requests -- which is why the cap fails
+    * loudly and names itself, rather than being discovered as an OutOfMemoryError on the day somebody batches a
+    * backfill. Fetching results is idempotent and the body stays retrievable for 29 days, so nothing is lost by failing
+    * here; a caller that genuinely needs more has to stream, which is a different method than this one.
+    */
+  val MaxResultsBytes: Long = 64L * 1024 * 1024
 
   private val Newline = ByteString("\n")
 
@@ -98,9 +115,59 @@ class ClaudeStreamingClient(
   requestTimeout: FiniteDuration = ClaudeStreamingClient.RequestTimeout,
   idleTimeout: FiniteDuration = ClaudeStreamingClient.IdleTimeout
 )(implicit ec: ExecutionContext, mat: Materializer)
-  extends IClient {
+  extends IClient
+  with ClaudeBatchResults {
 
   import ClaudeStreamingClient.*
+
+  /** The three JSON batch operations are delegated to the generated client rather than hand-written here. Only
+    * `createMessage` needs this class's streaming transport -- a batch operation returns a small JSON document the
+    * moment it is asked, so there is nothing to stream and no idle-timeout question to answer. Delegating keeps the
+    * hand-written surface down to the one thing apibuilder cannot express, which is [[fetchBatchResults]].
+    */
+  private val batchDelegate: IClient = new Client(ws, baseUrl, defaultTimeout = BatchTimeout)
+
+  override def createClaudeBatch(
+    body: ClaudeBatchForm,
+    requestHeaders: Seq[(String, String)] = Nil
+  ): Future[ClaudeBatch] = batchDelegate.createClaudeBatch(body, requestHeaders)
+
+  override def getClaudeBatchById(id: String, requestHeaders: Seq[(String, String)] = Nil): Future[ClaudeBatch] =
+    batchDelegate.getClaudeBatchById(id, requestHeaders)
+
+  override def cancelClaudeBatchById(id: String, requestHeaders: Seq[(String, String)] = Nil): Future[ClaudeBatch] =
+    batchDelegate.cancelClaudeBatchById(id, requestHeaders)
+
+  /** `results_url` is preferred over the path this client could build itself, because it is what the API says to follow
+    * and it is free to point somewhere else (a signed object store, say) without this being a breaking change. The
+    * canonical path is the fallback for a batch that has ended but whose url we were not given.
+    */
+  override def fetchBatchResults(batch: ClaudeBatch, requestHeaders: Seq[(String, String)] = Nil): Future[Seq[String]] =
+    ws.url(batch.resultsUrl.getOrElse(s"$baseUrl/v1/messages/batches/${batch.id}/results"))
+      .withRequestTimeout(BatchTimeout)
+      .addHttpHeaders(requestHeaders*)
+      .withMethod("GET")
+      .stream()
+      .flatMap { response =>
+        if (response.status / 100 == 2) collectLines(response) else raise(response)
+      }
+
+  private def collectLines(response: WSResponse): Future[Seq[String]] =
+    response.bodyAsSource
+      .idleTimeout(idleTimeout)
+      .via(Framing.delimiter(Newline, MaxLineBytes, allowTruncation = true))
+      .runFold((Vector.empty[String], 0L)) { case ((lines, bytes), line) =>
+        val total = bytes + line.length
+        // Not an IOException: that is the retryable-transport channel, and a body that is too big is too big on
+        // every attempt. Failing here rather than retrying it three times is the whole point.
+        if (total > MaxResultsBytes) {
+          throw new IllegalStateException(
+            s"Batch results exceed ${MaxResultsBytes} bytes; this client reads them whole (see MaxResultsBytes)"
+          )
+        }
+        (lines :+ line.utf8String, total)
+      }
+      .map(_._1)
 
   override def createMessage(
     body: ClaudeRequest,
@@ -140,7 +207,7 @@ class ClaudeStreamingClient(
         }
       }
 
-  private def raise(response: WSResponse): Future[ClaudeResponse] =
+  private def raise[T](response: WSResponse): Future[T] =
     response.bodyAsSource
       .idleTimeout(idleTimeout)
       .runFold(ByteString.empty)((acc, b) => if (acc.length >= MaxErrorBodyBytes) acc else acc ++ b)

@@ -6,6 +6,35 @@
 
 package com.bryzek.claude.models
 
+sealed trait ClaudeBatchProcessingStatus extends _root_.scala.Product with _root_.scala.Serializable
+
+object ClaudeBatchProcessingStatus {
+  case object InProgress extends ClaudeBatchProcessingStatus { override def toString: String = "in_progress" }
+  case object Canceling extends ClaudeBatchProcessingStatus { override def toString: String = "canceling" }
+  case object Ended extends ClaudeBatchProcessingStatus { override def toString: String = "ended" }
+  final case class UNDEFINED(description: String) extends ClaudeBatchProcessingStatus { override def toString: String = description }
+
+  val all: scala.List[ClaudeBatchProcessingStatus] = scala.List(InProgress, Canceling, Ended)
+  private val byName: Map[String, ClaudeBatchProcessingStatus] = all.map(x => x.toString.toLowerCase -> x).toMap
+  def apply(value: String): ClaudeBatchProcessingStatus = fromString(value).getOrElse(UNDEFINED(value))
+  def fromString(value: String): _root_.scala.Option[ClaudeBatchProcessingStatus] = byName.get(value.toLowerCase)
+}
+
+sealed trait ClaudeBatchResultType extends _root_.scala.Product with _root_.scala.Serializable
+
+object ClaudeBatchResultType {
+  case object Succeeded extends ClaudeBatchResultType { override def toString: String = "succeeded" }
+  case object Errored extends ClaudeBatchResultType { override def toString: String = "errored" }
+  case object Canceled extends ClaudeBatchResultType { override def toString: String = "canceled" }
+  case object Expired extends ClaudeBatchResultType { override def toString: String = "expired" }
+  final case class UNDEFINED(description: String) extends ClaudeBatchResultType { override def toString: String = description }
+
+  val all: scala.List[ClaudeBatchResultType] = scala.List(Succeeded, Errored, Canceled, Expired)
+  private val byName: Map[String, ClaudeBatchResultType] = all.map(x => x.toString.toLowerCase -> x).toMap
+  def apply(value: String): ClaudeBatchResultType = fromString(value).getOrElse(UNDEFINED(value))
+  def fromString(value: String): _root_.scala.Option[ClaudeBatchResultType] = byName.get(value.toLowerCase)
+}
+
 sealed trait ClaudeCacheType extends _root_.scala.Product with _root_.scala.Serializable
 
 object ClaudeCacheType {
@@ -108,6 +137,20 @@ object ClaudeRole {
   def fromString(value: String): _root_.scala.Option[ClaudeRole] = byName.get(value.toLowerCase)
 }
 
+sealed trait ClaudeServiceTier extends _root_.scala.Product with _root_.scala.Serializable
+
+object ClaudeServiceTier {
+  case object Standard extends ClaudeServiceTier { override def toString: String = "standard" }
+  case object Priority extends ClaudeServiceTier { override def toString: String = "priority" }
+  case object Batch extends ClaudeServiceTier { override def toString: String = "batch" }
+  final case class UNDEFINED(description: String) extends ClaudeServiceTier { override def toString: String = description }
+
+  val all: scala.List[ClaudeServiceTier] = scala.List(Standard, Priority, Batch)
+  private val byName: Map[String, ClaudeServiceTier] = all.map(x => x.toString.toLowerCase -> x).toMap
+  def apply(value: String): ClaudeServiceTier = fromString(value).getOrElse(UNDEFINED(value))
+  def fromString(value: String): _root_.scala.Option[ClaudeServiceTier] = byName.get(value.toLowerCase)
+}
+
 sealed trait ClaudeSourceType extends _root_.scala.Product with _root_.scala.Serializable
 
 object ClaudeSourceType {
@@ -180,6 +223,77 @@ case class ClaudeApiOutputFormat(
   `type`: ClaudeOutputFormatType = com.bryzek.claude.models.ClaudeOutputFormatType.JsonSchema,
   schema: play.api.libs.json.JsObject
 )
+
+case class ClaudeBatch(
+  id: String,
+  `type`: String = "message_batch",
+  processingStatus: ClaudeBatchProcessingStatus,
+  requestCounts: ClaudeBatchRequestCounts,
+  createdAt: org.joda.time.DateTime,
+  expiresAt: org.joda.time.DateTime,
+  endedAt: Option[org.joda.time.DateTime],
+  archivedAt: Option[org.joda.time.DateTime],
+  cancelInitiatedAt: Option[org.joda.time.DateTime],
+  resultsUrl: Option[String]
+)
+
+object ClaudeBatch {
+  def apply(
+    id: String,
+    processingStatus: ClaudeBatchProcessingStatus,
+    requestCounts: ClaudeBatchRequestCounts,
+    createdAt: org.joda.time.DateTime,
+    expiresAt: org.joda.time.DateTime
+  ): com.bryzek.claude.models.ClaudeBatch = {
+    com.bryzek.claude.models.ClaudeBatch(
+      id = id,
+      processingStatus = processingStatus,
+      requestCounts = requestCounts,
+      createdAt = createdAt,
+      expiresAt = expiresAt,
+      endedAt = None,
+      archivedAt = None,
+      cancelInitiatedAt = None,
+      resultsUrl = None
+    )
+  }
+}
+
+case class ClaudeBatchForm(requests: Seq[ClaudeBatchRequestItem])
+
+case class ClaudeBatchRequestCounts(
+  processing: Long,
+  succeeded: Long,
+  errored: Long,
+  canceled: Long,
+  expired: Long
+)
+
+case class ClaudeBatchRequestItem(
+  customId: String,
+  params: ClaudeRequest
+)
+
+case class ClaudeBatchResult(
+  customId: String,
+  result: ClaudeBatchResultDetail
+)
+
+case class ClaudeBatchResultDetail(
+  `type`: ClaudeBatchResultType,
+  message: Option[ClaudeResponse],
+  error: Option[ClaudeErrorResponse]
+)
+
+object ClaudeBatchResultDetail {
+  def apply(`type`: ClaudeBatchResultType): com.bryzek.claude.models.ClaudeBatchResultDetail = {
+    com.bryzek.claude.models.ClaudeBatchResultDetail(
+      `type` = `type`,
+      message = None,
+      error = None
+    )
+  }
+}
 
 case class ClaudeCacheControl(
   `type`: ClaudeCacheType = com.bryzek.claude.models.ClaudeCacheType.Ephemeral,
@@ -389,7 +503,8 @@ case class ClaudeUsage(
   outputTokens: Long,
   cacheCreationInputTokens: Option[Long],
   cacheReadInputTokens: Option[Long],
-  cacheCreation: Option[ClaudeCacheCreation]
+  cacheCreation: Option[ClaudeCacheCreation],
+  serviceTier: Option[ClaudeServiceTier]
 )
 
 object ClaudeUsage {
@@ -402,7 +517,8 @@ object ClaudeUsage {
       outputTokens = outputTokens,
       cacheCreationInputTokens = None,
       cacheReadInputTokens = None,
-      cacheCreation = None
+      cacheCreation = None,
+      serviceTier = None
     )
   }
 }
@@ -411,6 +527,43 @@ case class Message(placeholder: Option[String])
 
 package object json {
   import play.api.libs.json.*
+
+  implicit val jsonReadsJodaDateTime: play.api.libs.json.Reads[_root_.org.joda.time.DateTime] = {
+    JsPath.read[String].map(_root_.org.joda.time.format.ISODateTimeFormat.dateTimeParser.parseDateTime)
+  }
+  implicit val jsonWritesJodaDateTime: play.api.libs.json.Writes[_root_.org.joda.time.DateTime] = (x: _root_.org.joda.time.DateTime) => {
+    play.api.libs.json.JsString(_root_.org.joda.time.format.ISODateTimeFormat.dateTime.print(x))
+  }
+
+  implicit val jsonReadsComBryzekClaudeModelsClaudeBatchProcessingStatus: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeBatchProcessingStatus] = new play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeBatchProcessingStatus] {
+    def reads(js: play.api.libs.json.JsValue): play.api.libs.json.JsResult[com.bryzek.claude.models.ClaudeBatchProcessingStatus] = {
+      js.validate[String] match {
+        case play.api.libs.json.JsSuccess(v, _) => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeBatchProcessingStatus(v))
+        case err: play.api.libs.json.JsError => err
+      }
+    }
+  }
+
+  implicit def jsonWritesComBryzekClaudeModelsClaudeBatchProcessingStatus: play.api.libs.json.Writes[ClaudeBatchProcessingStatus] = {
+    (obj: com.bryzek.claude.models.ClaudeBatchProcessingStatus) => {
+      play.api.libs.json.JsString(obj.toString)
+    }
+  }
+
+  implicit val jsonReadsComBryzekClaudeModelsClaudeBatchResultType: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeBatchResultType] = new play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeBatchResultType] {
+    def reads(js: play.api.libs.json.JsValue): play.api.libs.json.JsResult[com.bryzek.claude.models.ClaudeBatchResultType] = {
+      js.validate[String] match {
+        case play.api.libs.json.JsSuccess(v, _) => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeBatchResultType(v))
+        case err: play.api.libs.json.JsError => err
+      }
+    }
+  }
+
+  implicit def jsonWritesComBryzekClaudeModelsClaudeBatchResultType: play.api.libs.json.Writes[ClaudeBatchResultType] = {
+    (obj: com.bryzek.claude.models.ClaudeBatchResultType) => {
+      play.api.libs.json.JsString(obj.toString)
+    }
+  }
 
   implicit val jsonReadsComBryzekClaudeModelsClaudeCacheType: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeCacheType] = new play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeCacheType] {
     def reads(js: play.api.libs.json.JsValue): play.api.libs.json.JsResult[com.bryzek.claude.models.ClaudeCacheType] = {
@@ -517,6 +670,21 @@ package object json {
     }
   }
 
+  implicit val jsonReadsComBryzekClaudeModelsClaudeServiceTier: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeServiceTier] = new play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeServiceTier] {
+    def reads(js: play.api.libs.json.JsValue): play.api.libs.json.JsResult[com.bryzek.claude.models.ClaudeServiceTier] = {
+      js.validate[String] match {
+        case play.api.libs.json.JsSuccess(v, _) => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeServiceTier(v))
+        case err: play.api.libs.json.JsError => err
+      }
+    }
+  }
+
+  implicit def jsonWritesComBryzekClaudeModelsClaudeServiceTier: play.api.libs.json.Writes[ClaudeServiceTier] = {
+    (obj: com.bryzek.claude.models.ClaudeServiceTier) => {
+      play.api.libs.json.JsString(obj.toString)
+    }
+  }
+
   implicit val jsonReadsComBryzekClaudeModelsClaudeSourceType: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeSourceType] = new play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeSourceType] {
     def reads(js: play.api.libs.json.JsValue): play.api.libs.json.JsResult[com.bryzek.claude.models.ClaudeSourceType] = {
       js.validate[String] match {
@@ -608,6 +776,136 @@ package object json {
       "type" -> play.api.libs.json.JsString(obj.`type`.toString),
       "schema" -> obj.schema
     )
+  }
+
+  implicit def jsonReadsComBryzekClaudeModelsClaudeBatch: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeBatch] = {
+    for {
+      id <- (JsPath \ "id").read[String]
+      `type` <- (JsPath \ "type").readWithDefault[String]("message_batch")
+      processingStatus <- (JsPath \ "processing_status").read[com.bryzek.claude.models.ClaudeBatchProcessingStatus]
+      requestCounts <- (JsPath \ "request_counts").read[com.bryzek.claude.models.ClaudeBatchRequestCounts]
+      createdAt <- (JsPath \ "created_at").read[_root_.org.joda.time.DateTime]
+      expiresAt <- (JsPath \ "expires_at").read[_root_.org.joda.time.DateTime]
+      endedAt <- (JsPath \ "ended_at").readNullable[_root_.org.joda.time.DateTime]
+      archivedAt <- (JsPath \ "archived_at").readNullable[_root_.org.joda.time.DateTime]
+      cancelInitiatedAt <- (JsPath \ "cancel_initiated_at").readNullable[_root_.org.joda.time.DateTime]
+      resultsUrl <- (JsPath \ "results_url").readNullable[String]
+    } yield com.bryzek.claude.models.ClaudeBatch(id, `type`, processingStatus, requestCounts, createdAt, expiresAt, endedAt, archivedAt, cancelInitiatedAt, resultsUrl)
+  }
+
+  implicit def jsonWritesComBryzekClaudeModelsClaudeBatch: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeBatch] = {
+    (obj: com.bryzek.claude.models.ClaudeBatch) => jsObjectComBryzekClaudeModelsClaudeBatch(obj)
+  }
+
+  def jsObjectComBryzekClaudeModelsClaudeBatch(obj: com.bryzek.claude.models.ClaudeBatch): play.api.libs.json.JsObject = {
+    play.api.libs.json.Json.obj(
+      "id" -> play.api.libs.json.JsString(obj.id),
+      "type" -> play.api.libs.json.JsString(obj.`type`),
+      "processing_status" -> play.api.libs.json.JsString(obj.processingStatus.toString),
+      "request_counts" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeBatchRequestCounts(obj.requestCounts),
+      "created_at" -> play.api.libs.json.JsString(_root_.org.joda.time.format.ISODateTimeFormat.dateTime.print(obj.createdAt)),
+      "expires_at" -> play.api.libs.json.JsString(_root_.org.joda.time.format.ISODateTimeFormat.dateTime.print(obj.expiresAt))
+    ) ++
+      obj.endedAt.map { x => play.api.libs.json.Json.obj("ended_at" -> play.api.libs.json.JsString(_root_.org.joda.time.format.ISODateTimeFormat.dateTime.print(x))) }.getOrElse(play.api.libs.json.JsObject.empty) ++
+      obj.archivedAt.map { x => play.api.libs.json.Json.obj("archived_at" -> play.api.libs.json.JsString(_root_.org.joda.time.format.ISODateTimeFormat.dateTime.print(x))) }.getOrElse(play.api.libs.json.JsObject.empty) ++
+      obj.cancelInitiatedAt.map { x => play.api.libs.json.Json.obj("cancel_initiated_at" -> play.api.libs.json.JsString(_root_.org.joda.time.format.ISODateTimeFormat.dateTime.print(x))) }.getOrElse(play.api.libs.json.JsObject.empty) ++
+      obj.resultsUrl.map { x => play.api.libs.json.Json.obj("results_url" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
+  }
+
+  implicit def jsonReadsComBryzekClaudeModelsClaudeBatchForm: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeBatchForm] = {
+    for {
+      requests <- (JsPath \ "requests").read[Seq[com.bryzek.claude.models.ClaudeBatchRequestItem]]
+    } yield com.bryzek.claude.models.ClaudeBatchForm(requests)
+  }
+
+  implicit def jsonWritesComBryzekClaudeModelsClaudeBatchForm: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeBatchForm] = {
+    (obj: com.bryzek.claude.models.ClaudeBatchForm) => jsObjectComBryzekClaudeModelsClaudeBatchForm(obj)
+  }
+
+  def jsObjectComBryzekClaudeModelsClaudeBatchForm(obj: com.bryzek.claude.models.ClaudeBatchForm): play.api.libs.json.JsObject = {
+    play.api.libs.json.Json.obj(
+      "requests" -> play.api.libs.json.Json.toJson(obj.requests)
+    )
+  }
+
+  implicit def jsonReadsComBryzekClaudeModelsClaudeBatchRequestCounts: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeBatchRequestCounts] = {
+    for {
+      processing <- (JsPath \ "processing").read[Long]
+      succeeded <- (JsPath \ "succeeded").read[Long]
+      errored <- (JsPath \ "errored").read[Long]
+      canceled <- (JsPath \ "canceled").read[Long]
+      expired <- (JsPath \ "expired").read[Long]
+    } yield com.bryzek.claude.models.ClaudeBatchRequestCounts(processing, succeeded, errored, canceled, expired)
+  }
+
+  implicit def jsonWritesComBryzekClaudeModelsClaudeBatchRequestCounts: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeBatchRequestCounts] = {
+    (obj: com.bryzek.claude.models.ClaudeBatchRequestCounts) => jsObjectComBryzekClaudeModelsClaudeBatchRequestCounts(obj)
+  }
+
+  def jsObjectComBryzekClaudeModelsClaudeBatchRequestCounts(obj: com.bryzek.claude.models.ClaudeBatchRequestCounts): play.api.libs.json.JsObject = {
+    play.api.libs.json.Json.obj(
+      "processing" -> play.api.libs.json.JsNumber(obj.processing),
+      "succeeded" -> play.api.libs.json.JsNumber(obj.succeeded),
+      "errored" -> play.api.libs.json.JsNumber(obj.errored),
+      "canceled" -> play.api.libs.json.JsNumber(obj.canceled),
+      "expired" -> play.api.libs.json.JsNumber(obj.expired)
+    )
+  }
+
+  implicit def jsonReadsComBryzekClaudeModelsClaudeBatchRequestItem: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeBatchRequestItem] = {
+    for {
+      customId <- (JsPath \ "custom_id").read[String]
+      params <- (JsPath \ "params").read[com.bryzek.claude.models.ClaudeRequest]
+    } yield com.bryzek.claude.models.ClaudeBatchRequestItem(customId, params)
+  }
+
+  implicit def jsonWritesComBryzekClaudeModelsClaudeBatchRequestItem: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeBatchRequestItem] = {
+    (obj: com.bryzek.claude.models.ClaudeBatchRequestItem) => jsObjectComBryzekClaudeModelsClaudeBatchRequestItem(obj)
+  }
+
+  def jsObjectComBryzekClaudeModelsClaudeBatchRequestItem(obj: com.bryzek.claude.models.ClaudeBatchRequestItem): play.api.libs.json.JsObject = {
+    play.api.libs.json.Json.obj(
+      "custom_id" -> play.api.libs.json.JsString(obj.customId),
+      "params" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeRequest(obj.params)
+    )
+  }
+
+  implicit def jsonReadsComBryzekClaudeModelsClaudeBatchResult: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeBatchResult] = {
+    for {
+      customId <- (JsPath \ "custom_id").read[String]
+      result <- (JsPath \ "result").read[com.bryzek.claude.models.ClaudeBatchResultDetail]
+    } yield com.bryzek.claude.models.ClaudeBatchResult(customId, result)
+  }
+
+  implicit def jsonWritesComBryzekClaudeModelsClaudeBatchResult: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeBatchResult] = {
+    (obj: com.bryzek.claude.models.ClaudeBatchResult) => jsObjectComBryzekClaudeModelsClaudeBatchResult(obj)
+  }
+
+  def jsObjectComBryzekClaudeModelsClaudeBatchResult(obj: com.bryzek.claude.models.ClaudeBatchResult): play.api.libs.json.JsObject = {
+    play.api.libs.json.Json.obj(
+      "custom_id" -> play.api.libs.json.JsString(obj.customId),
+      "result" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeBatchResultDetail(obj.result)
+    )
+  }
+
+  implicit def jsonReadsComBryzekClaudeModelsClaudeBatchResultDetail: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeBatchResultDetail] = {
+    for {
+      `type` <- (JsPath \ "type").read[com.bryzek.claude.models.ClaudeBatchResultType]
+      message <- (JsPath \ "message").readNullable[com.bryzek.claude.models.ClaudeResponse]
+      error <- (JsPath \ "error").readNullable[com.bryzek.claude.models.ClaudeErrorResponse]
+    } yield com.bryzek.claude.models.ClaudeBatchResultDetail(`type`, message, error)
+  }
+
+  implicit def jsonWritesComBryzekClaudeModelsClaudeBatchResultDetail: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeBatchResultDetail] = {
+    (obj: com.bryzek.claude.models.ClaudeBatchResultDetail) => jsObjectComBryzekClaudeModelsClaudeBatchResultDetail(obj)
+  }
+
+  def jsObjectComBryzekClaudeModelsClaudeBatchResultDetail(obj: com.bryzek.claude.models.ClaudeBatchResultDetail): play.api.libs.json.JsObject = {
+    play.api.libs.json.Json.obj(
+      "type" -> play.api.libs.json.JsString(obj.`type`.toString)
+    ) ++
+      obj.message.map { x => play.api.libs.json.Json.obj("message" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeResponse(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
+      obj.error.map { x => play.api.libs.json.Json.obj("error" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeErrorResponse(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
   }
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeCacheControl: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeCacheControl] = {
@@ -941,7 +1239,8 @@ package object json {
       cacheCreationInputTokens <- (JsPath \ "cache_creation_input_tokens").readNullable[Long]
       cacheReadInputTokens <- (JsPath \ "cache_read_input_tokens").readNullable[Long]
       cacheCreation <- (JsPath \ "cache_creation").readNullable[com.bryzek.claude.models.ClaudeCacheCreation]
-    } yield com.bryzek.claude.models.ClaudeUsage(inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens, cacheCreation)
+      serviceTier <- (JsPath \ "service_tier").readNullable[com.bryzek.claude.models.ClaudeServiceTier]
+    } yield com.bryzek.claude.models.ClaudeUsage(inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens, cacheCreation, serviceTier)
   }
 
   implicit def jsonWritesComBryzekClaudeModelsClaudeUsage: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeUsage] = {
@@ -955,7 +1254,8 @@ package object json {
     ) ++
       obj.cacheCreationInputTokens.map { x => play.api.libs.json.Json.obj("cache_creation_input_tokens" -> play.api.libs.json.JsNumber(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
       obj.cacheReadInputTokens.map { x => play.api.libs.json.Json.obj("cache_read_input_tokens" -> play.api.libs.json.JsNumber(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.cacheCreation.map { x => play.api.libs.json.Json.obj("cache_creation" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeCacheCreation(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
+      obj.cacheCreation.map { x => play.api.libs.json.Json.obj("cache_creation" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeCacheCreation(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
+      obj.serviceTier.map { x => play.api.libs.json.Json.obj("service_tier" -> play.api.libs.json.JsString(x.toString)) }.getOrElse(play.api.libs.json.JsObject.empty)
   }
 
   implicit def jsonReadsComBryzekClaudeModelsMessage: play.api.libs.json.Reads[com.bryzek.claude.models.Message] = {
@@ -970,6 +1270,71 @@ package object json {
 
   def jsObjectComBryzekClaudeModelsMessage(obj: com.bryzek.claude.models.Message): play.api.libs.json.JsObject = {
     obj.placeholder.map { x => play.api.libs.json.Json.obj("placeholder" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
+  }
+}
+
+sealed trait KnownClaudeBatchProcessingStatus extends _root_.scala.Product with _root_.scala.Serializable {
+  def toClaudeBatchProcessingStatus: _root_.com.bryzek.claude.models.ClaudeBatchProcessingStatus
+}
+
+object KnownClaudeBatchProcessingStatus {
+  case object InProgress extends KnownClaudeBatchProcessingStatus {
+    override def toString: String = _root_.com.bryzek.claude.models.ClaudeBatchProcessingStatus.InProgress.toString
+    override def toClaudeBatchProcessingStatus: _root_.com.bryzek.claude.models.ClaudeBatchProcessingStatus = _root_.com.bryzek.claude.models.ClaudeBatchProcessingStatus.InProgress
+  }
+  case object Canceling extends KnownClaudeBatchProcessingStatus {
+    override def toString: String = _root_.com.bryzek.claude.models.ClaudeBatchProcessingStatus.Canceling.toString
+    override def toClaudeBatchProcessingStatus: _root_.com.bryzek.claude.models.ClaudeBatchProcessingStatus = _root_.com.bryzek.claude.models.ClaudeBatchProcessingStatus.Canceling
+  }
+  case object Ended extends KnownClaudeBatchProcessingStatus {
+    override def toString: String = _root_.com.bryzek.claude.models.ClaudeBatchProcessingStatus.Ended.toString
+    override def toClaudeBatchProcessingStatus: _root_.com.bryzek.claude.models.ClaudeBatchProcessingStatus = _root_.com.bryzek.claude.models.ClaudeBatchProcessingStatus.Ended
+  }
+
+  val all: scala.List[KnownClaudeBatchProcessingStatus] = scala.List(InProgress, Canceling, Ended)
+
+  def validate(value: _root_.com.bryzek.claude.models.ClaudeBatchProcessingStatus): _root_.cats.data.ValidatedNec[String, KnownClaudeBatchProcessingStatus] = {
+    value match {
+    case _root_.com.bryzek.claude.models.ClaudeBatchProcessingStatus.InProgress => _root_.cats.data.Validated.validNec(KnownClaudeBatchProcessingStatus.InProgress)
+    case _root_.com.bryzek.claude.models.ClaudeBatchProcessingStatus.Canceling => _root_.cats.data.Validated.validNec(KnownClaudeBatchProcessingStatus.Canceling)
+    case _root_.com.bryzek.claude.models.ClaudeBatchProcessingStatus.Ended => _root_.cats.data.Validated.validNec(KnownClaudeBatchProcessingStatus.Ended)
+    case _root_.com.bryzek.claude.models.ClaudeBatchProcessingStatus.UNDEFINED(desc) => _root_.cats.data.Validated.invalidNec(s"Invalid value '${desc}' for ClaudeBatchProcessingStatus")
+    }
+  }
+}
+
+sealed trait KnownClaudeBatchResultType extends _root_.scala.Product with _root_.scala.Serializable {
+  def toClaudeBatchResultType: _root_.com.bryzek.claude.models.ClaudeBatchResultType
+}
+
+object KnownClaudeBatchResultType {
+  case object Succeeded extends KnownClaudeBatchResultType {
+    override def toString: String = _root_.com.bryzek.claude.models.ClaudeBatchResultType.Succeeded.toString
+    override def toClaudeBatchResultType: _root_.com.bryzek.claude.models.ClaudeBatchResultType = _root_.com.bryzek.claude.models.ClaudeBatchResultType.Succeeded
+  }
+  case object Errored extends KnownClaudeBatchResultType {
+    override def toString: String = _root_.com.bryzek.claude.models.ClaudeBatchResultType.Errored.toString
+    override def toClaudeBatchResultType: _root_.com.bryzek.claude.models.ClaudeBatchResultType = _root_.com.bryzek.claude.models.ClaudeBatchResultType.Errored
+  }
+  case object Canceled extends KnownClaudeBatchResultType {
+    override def toString: String = _root_.com.bryzek.claude.models.ClaudeBatchResultType.Canceled.toString
+    override def toClaudeBatchResultType: _root_.com.bryzek.claude.models.ClaudeBatchResultType = _root_.com.bryzek.claude.models.ClaudeBatchResultType.Canceled
+  }
+  case object Expired extends KnownClaudeBatchResultType {
+    override def toString: String = _root_.com.bryzek.claude.models.ClaudeBatchResultType.Expired.toString
+    override def toClaudeBatchResultType: _root_.com.bryzek.claude.models.ClaudeBatchResultType = _root_.com.bryzek.claude.models.ClaudeBatchResultType.Expired
+  }
+
+  val all: scala.List[KnownClaudeBatchResultType] = scala.List(Succeeded, Errored, Canceled, Expired)
+
+  def validate(value: _root_.com.bryzek.claude.models.ClaudeBatchResultType): _root_.cats.data.ValidatedNec[String, KnownClaudeBatchResultType] = {
+    value match {
+    case _root_.com.bryzek.claude.models.ClaudeBatchResultType.Succeeded => _root_.cats.data.Validated.validNec(KnownClaudeBatchResultType.Succeeded)
+    case _root_.com.bryzek.claude.models.ClaudeBatchResultType.Errored => _root_.cats.data.Validated.validNec(KnownClaudeBatchResultType.Errored)
+    case _root_.com.bryzek.claude.models.ClaudeBatchResultType.Canceled => _root_.cats.data.Validated.validNec(KnownClaudeBatchResultType.Canceled)
+    case _root_.com.bryzek.claude.models.ClaudeBatchResultType.Expired => _root_.cats.data.Validated.validNec(KnownClaudeBatchResultType.Expired)
+    case _root_.com.bryzek.claude.models.ClaudeBatchResultType.UNDEFINED(desc) => _root_.cats.data.Validated.invalidNec(s"Invalid value '${desc}' for ClaudeBatchResultType")
+    }
   }
 }
 
@@ -1203,6 +1568,36 @@ object KnownClaudeRole {
   }
 }
 
+sealed trait KnownClaudeServiceTier extends _root_.scala.Product with _root_.scala.Serializable {
+  def toClaudeServiceTier: _root_.com.bryzek.claude.models.ClaudeServiceTier
+}
+
+object KnownClaudeServiceTier {
+  case object Standard extends KnownClaudeServiceTier {
+    override def toString: String = _root_.com.bryzek.claude.models.ClaudeServiceTier.Standard.toString
+    override def toClaudeServiceTier: _root_.com.bryzek.claude.models.ClaudeServiceTier = _root_.com.bryzek.claude.models.ClaudeServiceTier.Standard
+  }
+  case object Priority extends KnownClaudeServiceTier {
+    override def toString: String = _root_.com.bryzek.claude.models.ClaudeServiceTier.Priority.toString
+    override def toClaudeServiceTier: _root_.com.bryzek.claude.models.ClaudeServiceTier = _root_.com.bryzek.claude.models.ClaudeServiceTier.Priority
+  }
+  case object Batch extends KnownClaudeServiceTier {
+    override def toString: String = _root_.com.bryzek.claude.models.ClaudeServiceTier.Batch.toString
+    override def toClaudeServiceTier: _root_.com.bryzek.claude.models.ClaudeServiceTier = _root_.com.bryzek.claude.models.ClaudeServiceTier.Batch
+  }
+
+  val all: scala.List[KnownClaudeServiceTier] = scala.List(Standard, Priority, Batch)
+
+  def validate(value: _root_.com.bryzek.claude.models.ClaudeServiceTier): _root_.cats.data.ValidatedNec[String, KnownClaudeServiceTier] = {
+    value match {
+    case _root_.com.bryzek.claude.models.ClaudeServiceTier.Standard => _root_.cats.data.Validated.validNec(KnownClaudeServiceTier.Standard)
+    case _root_.com.bryzek.claude.models.ClaudeServiceTier.Priority => _root_.cats.data.Validated.validNec(KnownClaudeServiceTier.Priority)
+    case _root_.com.bryzek.claude.models.ClaudeServiceTier.Batch => _root_.cats.data.Validated.validNec(KnownClaudeServiceTier.Batch)
+    case _root_.com.bryzek.claude.models.ClaudeServiceTier.UNDEFINED(desc) => _root_.cats.data.Validated.invalidNec(s"Invalid value '${desc}' for ClaudeServiceTier")
+    }
+  }
+}
+
 sealed trait KnownClaudeSourceType extends _root_.scala.Product with _root_.scala.Serializable {
   def toClaudeSourceType: _root_.com.bryzek.claude.models.ClaudeSourceType
 }
@@ -1345,6 +1740,44 @@ object KnownClaudeToolChoiceType {
 
 package object Bindables {
 
+  private val claudeBatchProcessingStatus: generated.binders.Bindable[com.bryzek.claude.models.ClaudeBatchProcessingStatus] = new generated.binders.Bindable[com.bryzek.claude.models.ClaudeBatchProcessingStatus] {
+    override def fromString(value: String): com.bryzek.claude.models.ClaudeBatchProcessingStatus = com.bryzek.claude.models.ClaudeBatchProcessingStatus.fromString(value).getOrElse(com.bryzek.claude.models.ClaudeBatchProcessingStatus(value))
+    override def toString(value: com.bryzek.claude.models.ClaudeBatchProcessingStatus): String = value.toString
+    override def example: com.bryzek.claude.models.ClaudeBatchProcessingStatus = com.bryzek.claude.models.ClaudeBatchProcessingStatus.InProgress
+    override def validValues: Seq[com.bryzek.claude.models.ClaudeBatchProcessingStatus] = com.bryzek.claude.models.ClaudeBatchProcessingStatus.all
+    override def bind(key: String, value: String): Either[String, com.bryzek.claude.models.ClaudeBatchProcessingStatus] = {
+      com.bryzek.claude.models.ClaudeBatchProcessingStatus.fromString(value) match {
+        case Some(v) => Right(v)
+        case None =>
+          com.bryzek.claude.models.KnownClaudeBatchProcessingStatus.validate(com.bryzek.claude.models.ClaudeBatchProcessingStatus(value)).fold(
+            errors => Left(errors.head),
+            _ => Left(errorMessage(key, value))
+          )
+      }
+    }
+  }
+  implicit def pathBindableClaudeBatchProcessingStatus: _root_.play.api.mvc.PathBindable[com.bryzek.claude.models.ClaudeBatchProcessingStatus] = generated.binders.BasePathBindable(claudeBatchProcessingStatus)
+  implicit def queryStringBindableClaudeBatchProcessingStatus: _root_.play.api.mvc.QueryStringBindable[com.bryzek.claude.models.ClaudeBatchProcessingStatus] = generated.binders.BaseQueryStringBindable(claudeBatchProcessingStatus)
+
+  private val claudeBatchResultType: generated.binders.Bindable[com.bryzek.claude.models.ClaudeBatchResultType] = new generated.binders.Bindable[com.bryzek.claude.models.ClaudeBatchResultType] {
+    override def fromString(value: String): com.bryzek.claude.models.ClaudeBatchResultType = com.bryzek.claude.models.ClaudeBatchResultType.fromString(value).getOrElse(com.bryzek.claude.models.ClaudeBatchResultType(value))
+    override def toString(value: com.bryzek.claude.models.ClaudeBatchResultType): String = value.toString
+    override def example: com.bryzek.claude.models.ClaudeBatchResultType = com.bryzek.claude.models.ClaudeBatchResultType.Succeeded
+    override def validValues: Seq[com.bryzek.claude.models.ClaudeBatchResultType] = com.bryzek.claude.models.ClaudeBatchResultType.all
+    override def bind(key: String, value: String): Either[String, com.bryzek.claude.models.ClaudeBatchResultType] = {
+      com.bryzek.claude.models.ClaudeBatchResultType.fromString(value) match {
+        case Some(v) => Right(v)
+        case None =>
+          com.bryzek.claude.models.KnownClaudeBatchResultType.validate(com.bryzek.claude.models.ClaudeBatchResultType(value)).fold(
+            errors => Left(errors.head),
+            _ => Left(errorMessage(key, value))
+          )
+      }
+    }
+  }
+  implicit def pathBindableClaudeBatchResultType: _root_.play.api.mvc.PathBindable[com.bryzek.claude.models.ClaudeBatchResultType] = generated.binders.BasePathBindable(claudeBatchResultType)
+  implicit def queryStringBindableClaudeBatchResultType: _root_.play.api.mvc.QueryStringBindable[com.bryzek.claude.models.ClaudeBatchResultType] = generated.binders.BaseQueryStringBindable(claudeBatchResultType)
+
   private val claudeCacheType: generated.binders.Bindable[com.bryzek.claude.models.ClaudeCacheType] = new generated.binders.Bindable[com.bryzek.claude.models.ClaudeCacheType] {
     override def fromString(value: String): com.bryzek.claude.models.ClaudeCacheType = com.bryzek.claude.models.ClaudeCacheType.fromString(value).getOrElse(com.bryzek.claude.models.ClaudeCacheType(value))
     override def toString(value: com.bryzek.claude.models.ClaudeCacheType): String = value.toString
@@ -1477,6 +1910,25 @@ package object Bindables {
   }
   implicit def pathBindableClaudeRole: _root_.play.api.mvc.PathBindable[com.bryzek.claude.models.ClaudeRole] = generated.binders.BasePathBindable(claudeRole)
   implicit def queryStringBindableClaudeRole: _root_.play.api.mvc.QueryStringBindable[com.bryzek.claude.models.ClaudeRole] = generated.binders.BaseQueryStringBindable(claudeRole)
+
+  private val claudeServiceTier: generated.binders.Bindable[com.bryzek.claude.models.ClaudeServiceTier] = new generated.binders.Bindable[com.bryzek.claude.models.ClaudeServiceTier] {
+    override def fromString(value: String): com.bryzek.claude.models.ClaudeServiceTier = com.bryzek.claude.models.ClaudeServiceTier.fromString(value).getOrElse(com.bryzek.claude.models.ClaudeServiceTier(value))
+    override def toString(value: com.bryzek.claude.models.ClaudeServiceTier): String = value.toString
+    override def example: com.bryzek.claude.models.ClaudeServiceTier = com.bryzek.claude.models.ClaudeServiceTier.Standard
+    override def validValues: Seq[com.bryzek.claude.models.ClaudeServiceTier] = com.bryzek.claude.models.ClaudeServiceTier.all
+    override def bind(key: String, value: String): Either[String, com.bryzek.claude.models.ClaudeServiceTier] = {
+      com.bryzek.claude.models.ClaudeServiceTier.fromString(value) match {
+        case Some(v) => Right(v)
+        case None =>
+          com.bryzek.claude.models.KnownClaudeServiceTier.validate(com.bryzek.claude.models.ClaudeServiceTier(value)).fold(
+            errors => Left(errors.head),
+            _ => Left(errorMessage(key, value))
+          )
+      }
+    }
+  }
+  implicit def pathBindableClaudeServiceTier: _root_.play.api.mvc.PathBindable[com.bryzek.claude.models.ClaudeServiceTier] = generated.binders.BasePathBindable(claudeServiceTier)
+  implicit def queryStringBindableClaudeServiceTier: _root_.play.api.mvc.QueryStringBindable[com.bryzek.claude.models.ClaudeServiceTier] = generated.binders.BaseQueryStringBindable(claudeServiceTier)
 
   private val claudeSourceType: generated.binders.Bindable[com.bryzek.claude.models.ClaudeSourceType] = new generated.binders.Bindable[com.bryzek.claude.models.ClaudeSourceType] {
     override def fromString(value: String): com.bryzek.claude.models.ClaudeSourceType = com.bryzek.claude.models.ClaudeSourceType.fromString(value).getOrElse(com.bryzek.claude.models.ClaudeSourceType(value))
