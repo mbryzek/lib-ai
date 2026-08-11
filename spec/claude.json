@@ -112,7 +112,8 @@
         },
         "claude_cache_control": {
             "fields": [
-                { "name": "type", "type": "claude_cache_type", "default": "ephemeral" }
+                { "name": "type", "type": "claude_cache_type", "default": "ephemeral" },
+                { "name": "ttl", "type": "string", "required": false, "description": "How long an entry written at this breakpoint stays readable: \"5m\" or \"1h\". Omitted means the API default of 5 minutes. A string rather than an enum because apibuilder's Scala generator names the case object after the wire value, and neither value is a legal Scala identifier; the type-safe choice lives on AiRequest.cacheTtl instead, which is the surface callers actually use." }
             ]
         },
         "claude_source": {
@@ -209,7 +210,15 @@
                 { "name": "input_tokens", "type": "long" },
                 { "name": "output_tokens", "type": "long" },
                 { "name": "cache_creation_input_tokens", "type": "long", "required": false },
-                { "name": "cache_read_input_tokens", "type": "long", "required": false }
+                { "name": "cache_read_input_tokens", "type": "long", "required": false },
+                { "name": "cache_creation", "type": "claude_cache_creation", "required": false }
+            ]
+        },
+        "claude_cache_creation": {
+            "description": "cache_creation_input_tokens split by the TTL each write was made at. Without this split a 1h write (2x input) is indistinguishable from a 5m one (1.25x) and any cost rollup over the total under-reports it -- which is exactly the direction that would hide a longer TTL that stopped paying for itself.",
+            "fields": [
+                { "name": "ephemeral_5m_input_tokens", "type": "long", "default": 0 },
+                { "name": "ephemeral_1h_input_tokens", "type": "long", "default": 0 }
             ]
         },
         "claude_error_response": {
