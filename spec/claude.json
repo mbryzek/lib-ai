@@ -89,6 +89,31 @@
             "values": [
                 { "name": "tokens" }
             ]
+        },
+        "claude_service_tier": {
+            "description": "Which tier actually served a request, as reported on every response (verified against api.anthropic.com 2026-08-11: a plain call reports `standard`, a batched one reports `batch`). Load-bearing for cost: a batch reports RAW, undiscounted token counts, so anything pricing a response off token counts alone over-reports a batched call by 2x.",
+            "values": [
+                { "name": "standard" },
+                { "name": "priority" },
+                { "name": "batch" }
+            ]
+        },
+        "claude_batch_processing_status": {
+            "description": "Lifecycle of a whole batch. `ended` means every request reached a terminal state -- succeeded, errored, canceled or expired -- NOT that they all succeeded.",
+            "values": [
+                { "name": "in_progress" },
+                { "name": "canceling" },
+                { "name": "ended" }
+            ]
+        },
+        "claude_batch_result_type": {
+            "description": "Terminal state of ONE request inside a batch. Every one of the four is reachable on a batch that ended, so a caller reconciling results has to handle all of them: `expired` in particular is what a request that never ran within 24 hours comes back as.",
+            "values": [
+                { "name": "succeeded" },
+                { "name": "errored" },
+                { "name": "canceled" },
+                { "name": "expired" }
+            ]
         }
     },
 
@@ -211,7 +236,8 @@
                 { "name": "output_tokens", "type": "long" },
                 { "name": "cache_creation_input_tokens", "type": "long", "required": false },
                 { "name": "cache_read_input_tokens", "type": "long", "required": false },
-                { "name": "cache_creation", "type": "claude_cache_creation", "required": false }
+                { "name": "cache_creation", "type": "claude_cache_creation", "required": false },
+                { "name": "service_tier", "type": "claude_service_tier", "required": false, "description": "Tier that served this request. Optional only because a response recorded before this field existed does not carry one; the live API sets it on every response. Anything computing cost MUST read it -- see claude_service_tier." }
             ]
         },
         "claude_cache_creation": {
@@ -224,6 +250,59 @@
         "claude_error_response": {
             "fields": [
                 { "name": "error", "type": "claude_error" }
+            ]
+        },
+        "claude_batch_form": {
+            "description": "Body of a batch submission. The API caps a batch at 100,000 requests or 256 MB, whichever comes first.",
+            "fields": [
+                { "name": "requests", "type": "[claude_batch_request_item]" }
+            ]
+        },
+        "claude_batch_request_item": {
+            "description": "One request in a batch. `custom_id` is the ONLY way a result is matched back to its caller: results are returned in ARBITRARY order (verified 2026-08-11 -- a batch submitted a, b, c came back c, b, a), so never key by position. `params` is a full Messages request, minus the two things a batch rejects: `fallbacks` and fast mode.",
+            "fields": [
+                { "name": "custom_id", "type": "string" },
+                { "name": "params", "type": "claude_request" }
+            ]
+        },
+        "claude_batch_request_counts": {
+            "description": "How the batch's requests are distributed across terminal states. While processing_status is in_progress these move; once it is ended, `processing` is 0 and the rest sum to the batch size.",
+            "fields": [
+                { "name": "processing", "type": "long" },
+                { "name": "succeeded", "type": "long" },
+                { "name": "errored", "type": "long" },
+                { "name": "canceled", "type": "long" },
+                { "name": "expired", "type": "long" }
+            ]
+        },
+        "claude_batch": {
+            "description": "A submitted batch. `results_url` is null until processing_status is `ended`; asking for results before then is an error, not an empty list.",
+            "fields": [
+                { "name": "id", "type": "string" },
+                { "name": "type", "type": "string", "default": "message_batch" },
+                { "name": "processing_status", "type": "claude_batch_processing_status" },
+                { "name": "request_counts", "type": "claude_batch_request_counts" },
+                { "name": "created_at", "type": "date-time-iso8601" },
+                { "name": "expires_at", "type": "date-time-iso8601", "description": "24 hours after creation. Anything still processing at this point comes back as an `expired` result -- the hard ceiling on batch latency." },
+                { "name": "ended_at", "type": "date-time-iso8601", "required": false },
+                { "name": "archived_at", "type": "date-time-iso8601", "required": false },
+                { "name": "cancel_initiated_at", "type": "date-time-iso8601", "required": false },
+                { "name": "results_url", "type": "string", "required": false }
+            ]
+        },
+        "claude_batch_result": {
+            "description": "One line of the JSONL results body -- see claude_batch_result_detail for why this is not fetched through the generated client.",
+            "fields": [
+                { "name": "custom_id", "type": "string" },
+                { "name": "result", "type": "claude_batch_result_detail" }
+            ]
+        },
+        "claude_batch_result_detail": {
+            "description": "Outcome of one request. A flat model discriminated on `type` rather than a union, for the reason documented on claude_content_block. Populated by type: succeeded -> message; errored -> error; canceled and expired populate NEITHER, so a caller that reads `message.get` on anything but `succeeded` will throw on the two states that mean the batch ran out of time or was called off.",
+            "fields": [
+                { "name": "type", "type": "claude_batch_result_type" },
+                { "name": "message", "type": "claude_response", "required": false },
+                { "name": "error", "type": "claude_error_response", "required": false }
             ]
         },
         "claude_error": {
@@ -250,6 +329,49 @@
                         "400": { "type": "claude_error_response" },
                         "401": { "type": "claude_error_response" },
                         "403": { "type": "claude_error_response" },
+                        "429": { "type": "claude_error_response" },
+                        "500": { "type": "claude_error_response" }
+                    }
+                }
+            ]
+        },
+        "claude_batch": {
+            "path": "/v1/messages/batches",
+            "description": "The Message Batches API: the same Messages surface at 50% of the token price, run asynchronously. Three of its four operations are ordinary JSON and generated here. The fourth -- GET /v1/messages/batches/:id/results, which carries the actual payload -- returns `application/x-jsonl` rather than JSON, which apibuilder has no response type for, so it is fetched by hand (see ClaudeBatchResults in lib-ai) and its lines parsed as claude_batch_result.",
+            "operations": [
+                {
+                    "method": "post",
+                    "body": "claude_batch_form",
+                    "responses": {
+                        "200": { "type": "claude_batch" },
+                        "400": { "type": "claude_error_response" },
+                        "401": { "type": "claude_error_response" },
+                        "403": { "type": "claude_error_response" },
+                        "429": { "type": "claude_error_response" },
+                        "500": { "type": "claude_error_response" }
+                    }
+                },
+                {
+                    "method": "get",
+                    "path": "/:id",
+                    "responses": {
+                        "200": { "type": "claude_batch" },
+                        "401": { "type": "claude_error_response" },
+                        "403": { "type": "claude_error_response" },
+                        "404": { "type": "claude_error_response" },
+                        "429": { "type": "claude_error_response" },
+                        "500": { "type": "claude_error_response" }
+                    }
+                },
+                {
+                    "method": "post",
+                    "path": "/:id/cancel",
+                    "description": "Best-effort cancellation. Requests already in flight are allowed to finish, so a canceled batch generally ends with a mix of `succeeded` and `canceled` results rather than all `canceled`.",
+                    "responses": {
+                        "200": { "type": "claude_batch" },
+                        "401": { "type": "claude_error_response" },
+                        "403": { "type": "claude_error_response" },
+                        "404": { "type": "claude_error_response" },
                         "429": { "type": "claude_error_response" },
                         "500": { "type": "claude_error_response" }
                     }

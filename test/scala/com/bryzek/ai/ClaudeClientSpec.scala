@@ -170,7 +170,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
           usage = ClaudeUsage(inputTokens = 10, outputTokens = 0)
         )
       }
-      val perModel = new IClient {
+      val perModel = new MessageOnlyClient {
         override def createMessage(
           body: com.bryzek.claude.models.ClaudeRequest,
           requestHeaders: Seq[(String, String)]
@@ -804,10 +804,36 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
   /** A client that answers each request from `respond`, recording the effort it was asked for. Synchronized because the
     * retry/fallback layers run their attempts on the execution context, not the calling thread.
     */
+  /** An [[IClient]] that only answers messages.
+    *
+    * The Message Batches operations live on the same generated client but have nothing to do with these tests, so they
+    * are stubbed here to throw. Loudly rather than returning a plausible empty batch: a double that quietly answers a
+    * call the test did not intend to make is how a test passes while measuring nothing.
+    */
+  private abstract class MessageOnlyClient extends IClient {
+    private def unused[T](operation: String): scala.concurrent.Future[T] =
+      scala.concurrent.Future.failed(new UnsupportedOperationException(s"$operation is not part of this test double"))
+
+    override def createClaudeBatch(
+      body: com.bryzek.claude.models.ClaudeBatchForm,
+      requestHeaders: Seq[(String, String)]
+    ): scala.concurrent.Future[com.bryzek.claude.models.ClaudeBatch] = unused("createClaudeBatch")
+
+    override def getClaudeBatchById(
+      id: String,
+      requestHeaders: Seq[(String, String)]
+    ): scala.concurrent.Future[com.bryzek.claude.models.ClaudeBatch] = unused("getClaudeBatchById")
+
+    override def cancelClaudeBatchById(
+      id: String,
+      requestHeaders: Seq[(String, String)]
+    ): scala.concurrent.Future[com.bryzek.claude.models.ClaudeBatch] = unused("cancelClaudeBatchById")
+  }
+
   private def respondingClient(
     seen: scala.collection.mutable.Builder[Option[ClaudeEffort], List[Option[ClaudeEffort]]]
   )(respond: com.bryzek.claude.models.ClaudeRequest => ClaudeResponse): ClaudeClient = {
-    val recording = new IClient {
+    val recording = new MessageOnlyClient {
       override def createMessage(
         body: com.bryzek.claude.models.ClaudeRequest,
         requestHeaders: Seq[(String, String)]
@@ -820,7 +846,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
   }
 
   private def fixedClient(response: ClaudeResponse): ClaudeClient = {
-    val fixed = new IClient {
+    val fixed = new MessageOnlyClient {
       override def createMessage(
         body: com.bryzek.claude.models.ClaudeRequest,
         requestHeaders: Seq[(String, String)]
@@ -831,7 +857,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
 
   private def flakyClient(failure: Int => Option[Throwable])(calls: AtomicInteger): ClaudeClient = {
     val delegate = new TestClaudeClient()
-    val flaky = new IClient {
+    val flaky = new MessageOnlyClient {
       override def createMessage(
         body: com.bryzek.claude.models.ClaudeRequest,
         requestHeaders: Seq[(String, String)]

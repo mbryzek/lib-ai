@@ -7,18 +7,23 @@ import com.bryzek.claude.response.models.*
 import com.bryzek.claude.response.models.json.*
 import com.bryzek.claude.client.IClient
 import com.bryzek.claude.models.*
+import com.bryzek.claude.models.json.*
+import org.joda.time.DateTime
 import play.api.libs.json.{JsValue, Json}
 
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Singleton
 import scala.concurrent.Future
 import scala.concurrent.ExecutionContext.Implicits.global
+import scala.util.{Failure, Success, Try}
 
 object TestClaudeClient {
   val OutputFormatNameHeader: String = "X-Output-Format"
 }
 
 @Singleton
-class TestClaudeClient extends IClient {
+class TestClaudeClient extends IClient with ClaudeBatchResults {
 
   private def getHeader(requestHeaders: Seq[(String, String)], name: String): Option[String] = {
     requestHeaders.find(_._1.toLowerCase.trim == name.toLowerCase.trim).map(_._2).toList.distinct match {
@@ -71,7 +76,11 @@ class TestClaudeClient extends IClient {
     )
   }
 
-  private def response(content: Seq[ClaudeContentBlock], stopReason: ClaudeStopReason): ClaudeResponse = {
+  private def response(
+    content: Seq[ClaudeContentBlock],
+    stopReason: ClaudeStopReason,
+    serviceTier: ClaudeServiceTier = ClaudeServiceTier.Standard
+  ): ClaudeResponse = {
     ClaudeResponse(
       id = "test-response-id",
       `type` = "message",
@@ -79,7 +88,7 @@ class TestClaudeClient extends IClient {
       content = content,
       model = ClaudeModel.ClaudeSonnet5,
       stopReason = stopReason,
-      usage = ClaudeUsage(inputTokens = 10, outputTokens = 20)
+      usage = ClaudeUsage(inputTokens = 10, outputTokens = 20).copy(serviceTier = Some(serviceTier))
     )
   }
 
@@ -106,6 +115,103 @@ class TestClaudeClient extends IClient {
       }
       response(Seq(ClaudeClient.textBlock(responseText)), ClaudeStopReason.EndTurn)
     }
+  }
+
+  // --- Message Batches -------------------------------------------------------------------------------------------
+  //
+  // An in-memory stand-in so a caller's submit / poll / reconcile path can be exercised without a live API. Batches
+  // complete the moment they are created: the point of the double is the RECONCILIATION -- results keyed by custom id,
+  // arriving out of order, some of them failed -- not the waiting, which a caller's own poller tests should drive by
+  // constructing the batch states they care about.
+
+  private val batches = new ConcurrentHashMap[String, (ClaudeBatch, Seq[String])]()
+  private val batchCounter = new AtomicInteger(0)
+
+  override def createClaudeBatch(
+    body: ClaudeBatchForm,
+    @scala.annotation.nowarn("msg=unused") requestHeaders: Seq[(String, String)] = Nil
+  ): Future[ClaudeBatch] = Future {
+    val id = s"msgbatch_test_${batchCounter.incrementAndGet()}"
+    val details = body.requests.map { item =>
+      item.customId -> (Try(batchResponse(item.params)) match {
+        case Success(r) => ClaudeBatchResultDetail(ClaudeBatchResultType.Succeeded).copy(message = Some(r))
+        case Failure(e) =>
+          ClaudeBatchResultDetail(ClaudeBatchResultType.Errored)
+            .copy(error = Some(ClaudeErrorResponse(error = ClaudeError(message = e.getMessage))))
+      })
+    }
+    val succeeded = details.count(_._2.`type` == ClaudeBatchResultType.Succeeded)
+    val now = DateTime.now()
+    val batch = ClaudeBatch(
+      id = id,
+      processingStatus = ClaudeBatchProcessingStatus.Ended,
+      requestCounts = ClaudeBatchRequestCounts(
+        processing = 0,
+        succeeded = succeeded.toLong,
+        errored = (details.size - succeeded).toLong,
+        canceled = 0,
+        expired = 0
+      ),
+      createdAt = now,
+      expiresAt = now.plusHours(24)
+    ).copy(
+      endedAt = Some(now),
+      resultsUrl = Some(s"https://api.anthropic.com/v1/messages/batches/$id/results")
+    )
+    // Reversed on purpose. The real API returns results in arbitrary order (verified 2026-08-11: a batch submitted
+    // a, b, c came back c, b, a), so a double that preserved submission order would let a caller key results by
+    // position, pass every test, and mismatch every club in production.
+    val lines = details.reverse.map { case (customId, detail) =>
+      Json.stringify(Json.toJson(ClaudeBatchResult(customId = customId, result = detail)))
+    }
+    batches.put(id, (batch, lines))
+    batch
+  }
+
+  override def getClaudeBatchById(
+    id: String,
+    @scala.annotation.nowarn("msg=unused") requestHeaders: Seq[(String, String)] = Nil
+  ): Future[ClaudeBatch] = lookup(id).map(_._1)
+
+  override def cancelClaudeBatchById(
+    id: String,
+    @scala.annotation.nowarn("msg=unused") requestHeaders: Seq[(String, String)] = Nil
+  ): Future[ClaudeBatch] = lookup(id).map { case (batch, lines) =>
+    val canceling = batch.copy(cancelInitiatedAt = Some(DateTime.now()))
+    batches.put(id, (canceling, lines))
+    canceling
+  }
+
+  override def fetchBatchResults(
+    batch: ClaudeBatch,
+    @scala.annotation.nowarn("msg=unused") requestHeaders: Seq[(String, String)] = Nil
+  ): Future[Seq[String]] = lookup(batch.id).map(_._2)
+
+  private def lookup(id: String): Future[(ClaudeBatch, Seq[String])] =
+    Option(batches.get(id)) match {
+      case Some(found) => Future.successful(found)
+      case None => Future.failed(new IllegalArgumentException(s"No such batch '$id'"))
+    }
+
+  /** The response a batched request produces. Its output format is discovered from `output_config.format` rather than
+    * from the `X-Output-Format` header [[createMessage]] uses, because a batch carries no per-request headers -- which
+    * is also closer to how the real API decides.
+    */
+  private def batchResponse(body: ClaudeRequest): ClaudeResponse = {
+    require(body.messages.nonEmpty, "messages: at least one message is required")
+    require(
+      body.messages.lastOption.forall(_.role != ClaudeRole.Assistant),
+      "Request must not end with an assistant message (assistant-turn prefill is rejected by the Claude API)"
+    )
+    val responseText = body.outputConfig.flatMap(_.format).map(_.schema) match {
+      case None => "This is a test plain text response."
+      case Some(schema) =>
+        val format = ClaudeOutputFormats.all
+          .find(_.toApi.schema == schema)
+          .getOrElse(sys.error("Could not identify json schema from output_config.format"))
+        Json.prettyPrint(postClaudeRequest(body, expectValid(toTestResponseType(format))))
+    }
+    response(Seq(ClaudeClient.textBlock(responseText)), ClaudeStopReason.EndTurn, ClaudeServiceTier.Batch)
   }
 
   private def toTestResponseType(f: ClaudeOutputFormat): ValidatedNec[String, TestResponseFormat] = {

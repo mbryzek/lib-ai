@@ -6,24 +6,36 @@ import cats.implicits.*
 import com.bryzek.claude.response.models.*
 import com.bryzek.claude.response.models.json.*
 import com.bryzek.claude.client.IClient
-import generated.errors.{ApiException, ClaudeErrorResponseResponse}
+import generated.errors.ClaudeErrorResponseResponse
 import com.bryzek.claude.models.*
 import com.google.inject.ImplementedBy
 import play.api.libs.json.*
 
-import java.io.IOException
-import java.net.UnknownHostException
-import java.nio.channels.ClosedByInterruptException
 import java.util.UUID
-import java.util.concurrent.{Executors, ThreadFactory, TimeUnit, TimeoutException}
-import javax.net.ssl.SSLException
 import javax.inject.Inject
-import scala.concurrent.duration.{FiniteDuration, MILLISECONDS}
-import scala.concurrent.{ExecutionContext, Future, Promise}
+import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
-import scala.util.{Failure, Random, Success, Try}
+import scala.util.Try
 
-case class ClaudeConfig(key: String, anthropicVersion: String, betaHeaders: Seq[String] = Seq.empty)
+case class ClaudeConfig(key: String, anthropicVersion: String, betaHeaders: Seq[String] = Seq.empty) {
+
+  /** Authentication and version headers, which every call to the API carries whether it is a message or a batch.
+    *
+    * `Content-Type` is deliberately NOT here. The generated client sets it on every operation that has a body, and the
+    * batch operations go through the generated client, so putting it here would send the header twice. The live API
+    * tolerated that when it was tried on 2026-08-11 (HTTP 200), which is exactly the kind of tolerance not to build on
+    * -- [[ClaudeClient]] adds it explicitly for its own hand-written transport instead.
+    */
+  def headers: Seq[(String, String)] =
+    Seq(
+      "x-api-key" -> key,
+      "anthropic-version" -> anthropicVersion
+    ) ++ (betaHeaders.toList match {
+      case Nil => Nil
+      case all => Seq("anthropic-beta" -> all.mkString(","))
+    })
+}
+
 object ClaudeConfig {
   private val Version = "2023-06-01"
   private val StructuredOutputsBeta = "structured-outputs-2025-11-13"
@@ -253,30 +265,8 @@ class ClaudeClientFactoryImpl @Inject() (
 
 object ClaudeClient {
 
-  /** Total HTTP attempts per model before falling back / failing (initial call + retries). */
-  private val MaxHttpAttempts = 3
-
   /** This many consecutive fully-failed tool turns aborts the loop rather than looping into more failures. */
   private val MaxConsecutiveFailedTurns = 3
-
-  private val scheduler = Executors.newSingleThreadScheduledExecutor(new ThreadFactory {
-    override def newThread(r: Runnable): Thread = {
-      val t = new Thread(r, "claude-retry-scheduler")
-      t.setDaemon(true)
-      t
-    }
-  })
-
-  /** Non-blocking delay (no Thread.sleep) used to space out retries. */
-  private def delay(d: FiniteDuration): Future[Unit] = {
-    val p = Promise[Unit]()
-    scheduler.schedule(
-      new Runnable { override def run(): Unit = p.success(()) },
-      d.toMillis,
-      TimeUnit.MILLISECONDS
-    )
-    p.future
-  }
 
   def textBlock(text: String): ClaudeContentBlock =
     ClaudeContentBlock(ClaudeContentType.Text).copy(text = Some(text))
@@ -459,16 +449,8 @@ case class ClaudeClient(
 ) {
   import ClaudeClient.*
 
-  private val defaultHeaders: Seq[(String, String)] = {
-    Seq(
-      "x-api-key" -> config.key,
-      "Content-Type" -> "application/json",
-      "anthropic-version" -> config.anthropicVersion
-    ) ++ (config.betaHeaders.toList match {
-      case Nil => Nil
-      case all => Seq("anthropic-beta" -> all.mkString(","))
-    })
-  }
+  private val defaultHeaders: Seq[(String, String)] =
+    config.headers :+ ("Content-Type" -> "application/json")
 
   private def randomId(prefix: String): String = {
     prefix + "-" + UUID.randomUUID().toString.replaceAll("-", "")
@@ -848,66 +830,6 @@ case class ClaudeClient(
   private def isRefusal(errors: NonEmptyChain[ClaudeError]): Boolean =
     errors.exists(e => ClaudeClient.isRefusalError(e.message))
 
-  /** Retry the given HTTP attempt, honoring `Retry-After` on 429 and using jittered backoff on 5xx and transient
-    * transport failures (read/request timeouts, connection resets). Non-retryable failures (or exhausted attempts)
-    * propagate the original exception.
-    *
-    * Every request gets the same [[ClaudeClient.MaxHttpAttempts]], regardless of its size. ISS-1229 briefly traded
-    * attempts away on large requests, because a non-streaming attempt had to be given a bigger and bigger slice of a
-    * fixed wall-clock envelope to have any chance of finishing. Streaming makes that trade backwards: a failing
-    * streaming attempt fails on [[ClaudeStreamingClient.IdleTimeout]] in minutes rather than burning its whole ceiling,
-    * so a large request can afford its retries as easily as a small one -- and, being large, has more to lose by not
-    * having them.
-    */
-  private def withRetries(attempt: => Future[ClaudeResponse])(implicit
-    ec: ExecutionContext
-  ): Future[ClaudeResponse] = {
-    def loop(n: Int): Future[ClaudeResponse] =
-      attempt.recoverWith {
-        case NonFatal(e) if n < MaxHttpAttempts =>
-          retryDelay(e) match {
-            case Some(d) => delay(d).flatMap(_ => loop(n + 1))
-            case None => Future.failed(e)
-          }
-      }
-    loop(1)
-  }
-
-  private def retryDelay(e: Throwable): Option[FiniteDuration] = e match {
-    case r: ClaudeErrorResponseResponse =>
-      r.response.status match {
-        case 429 => Some(retryAfter(r.response.header("Retry-After")))
-        case s if s >= 500 => Some(jitter())
-        case _ => None
-      }
-    // The streaming transport reports statuses through its own exception rather than a WSResponse (a streamed
-    // response has no materialized body to hand back), so it gets the same status-driven decision.
-    case s: ClaudeStreamException =>
-      s.status match {
-        case 429 => Some(retryAfter(s.retryAfter))
-        case c if c >= 500 => Some(jitter())
-        case _ => None
-      }
-    case a: ApiException if a.response.status >= 500 => Some(jitter())
-    // AsyncHttpClient surfaces read/request timeouts as j.u.c.TimeoutException and dropped connections as
-    // IOException; both are transient transport failures, not API rejections. Known-permanent IOException
-    // subtypes (TLS/config, DNS, thread interrupt) fail fast instead of burning retries -- an exclusion
-    // list, because the transient drops we do want to retry surface as bare IOException (e.g. AHC's
-    // "Remotely closed") with no dedicated subtype to allow-list.
-    case _: SSLException | _: UnknownHostException | _: ClosedByInterruptException => None
-    case _: TimeoutException => Some(jitter())
-    case _: IOException => Some(jitter())
-    case _ => None
-  }
-
-  private def retryAfter(header: Option[String]): FiniteDuration =
-    header
-      .flatMap(h => Try(h.trim.toLong).toOption)
-      .map(s => FiniteDuration(s, TimeUnit.SECONDS))
-      .getOrElse(jitter())
-
-  private def jitter(): FiniteDuration = FiniteDuration(500L + Random.nextInt(500), MILLISECONDS)
-
   /** Low-level send: journals the request, performs the retrying HTTP call, and returns the raw envelope. It does NOT
     * store the response — the audit outcome is recorded once, by [[sendAndStore]], on the fully content-parsed result
     * the caller actually receives (so a schema-parse failure is recorded as an error, not a success).
@@ -922,7 +844,8 @@ case class ClaudeClient(
   ): Future[(ClaudeRequestMetadata, ValidatedNec[ClaudeError, ClaudeResponse])] = {
     val rm = ClaudeRequestMetadata(client, randomId("req"), request, context, feature)
     store.storeRequest(rm)
-    withRetries(client.createMessage(request, headers))
+    ClaudeRetries
+      .withRetries(client.createMessage(request, headers))
       .map(response => (rm, response.validNec))
       .recover {
         case r: ClaudeErrorResponseResponse => (rm, errorFrom(rm, r).invalidNec)
@@ -1001,48 +924,15 @@ case class ClaudeClient(
   }
 
   /** Concatenates the text of all `text` content blocks, skipping thinking / tool_use / tool_result blocks. */
-  private def textContent(response: ClaudeResponse): String =
-    response.content.flatMap(b => if (b.`type` == ClaudeContentType.Text) b.text else None).mkString("\n")
+  private def textContent(response: ClaudeResponse): String = ClaudeContent.text(response)
 
   private def parseText[T](rm: ClaudeRequestMetadata, response: ClaudeResponse)(implicit
     reads: Reads[T]
-  ): ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]] = {
-    textContent(response) match {
-      case content if content.nonEmpty => parseContent[T](rm, response, content)
-      case _ => noTextError(rm, response).invalidNec
-    }
-  }
+  ): ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]] =
+    ClaudeContent.parse[T](rm.error, response).map(value => ClaudeResponseMetadata(rm, response, value))
 
-  /** A response with no `text` content block -- almost always `stop_reason=max_tokens` where extended thinking consumed
-    * the whole output budget before any answer was emitted, but also a refusal or a pure-thinking turn. Names
-    * `stop_reason` + `output_tokens` in the message so the failure is self-diagnosing on the run page and in the
-    * persisted audit error, instead of an opaque "no content".
-    */
   private def noTextError(rm: ClaudeRequestMetadata, response: ClaudeResponse): ClaudeError =
-    rm.error(
-      s"No text content in response (stop_reason=${response.stopReason}, output_tokens=${response.usage.outputTokens})"
-    )
-
-  private def parseContent[T](rm: ClaudeRequestMetadata, response: ClaudeResponse, content: String)(implicit
-    reads: Reads[T]
-  ): ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]] = {
-    def parseError(msg: String) = {
-      rm.error(msg, raw = Some(textContent(response))).invalidNec
-    }
-
-    // With structured outputs, Claude returns clean JSON without markdown delimiters
-    Try(Json.parse(content.trim)) match {
-      case Failure(ex) => parseError(s"Content is not valid JSON: ${ex.getMessage}")
-      case Success(js) =>
-        js.validate[T] match {
-          case JsSuccess(value, _) => ClaudeResponseMetadata(rm, response, value).validNec
-          case JsError(errors) => {
-            val messages = errors.flatMap(e => e._2.map(m => s"${e._1}: ${m.message}"))
-            parseError(s"Content is not valid: ${messages.mkString(", ")}")
-          }
-        }
-    }
-  }
+    ClaudeContent.noTextError(rm.error, response)
 }
 
 object ClaudeOutputFormats {
