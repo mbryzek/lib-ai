@@ -283,10 +283,14 @@ object ClaudeClient {
       )
     )
 
+  /** A `tool_result` answering one custom tool call. `content` is a raw json field because the wire type varies by
+    * block type (see the spec's note on it); a caller-executed tool answers with a STRING, which is what this writes
+    * and what the API expects here.
+    */
   def toolResultBlock(toolUseId: String, output: ClaudeToolOutput): ClaudeContentBlock =
     ClaudeContentBlock(ClaudeContentType.ToolResult).copy(
       toolUseId = Some(toolUseId),
-      content = Some(output.content),
+      content = Some(JsString(output.content)),
       isError = if (output.isError) Some(true) else None
     )
 
@@ -365,6 +369,31 @@ object ClaudeClient {
       case (m, _) => m
     }
   }
+
+  /** How many times a `pause_turn` is resumed before [[ClaudeClient.send]] gives up.
+    *
+    * `pause_turn` is not a failure and not a refusal: it is the API saying its own server-tool sampling loop hit its
+    * iteration limit with the turn unfinished, and that resending the transcript continues it from there. So the cap
+    * here is not a retry budget for something going wrong — each resume is real progress on a turn doing real work — it
+    * is only a bound on a model that keeps searching forever. Four covers the depth a research-shaped question reaches;
+    * a turn that has not converged by then has a prompt problem, not a budget problem, and one more round would only
+    * spend more on the same non-answer.
+    */
+  private[claude] val MaxPauseTurnResumes = 4
+
+  /** Continues a `pause_turn` turn: the same request with the paused assistant turn appended.
+    *
+    * NOTHING else is appended — in particular no "continue" user turn. The API resumes on recognizing the trailing
+    * `server_tool_use` block, and a user turn after it both breaks that recognition and injects an instruction the
+    * caller never wrote into the middle of the model's own reasoning. The paused content must also go back VERBATIM:
+    * its `server_tool_use` blocks and each search result's `encrypted_content` are how the API restores what it already
+    * fetched instead of paying to fetch it again.
+    *
+    * A trailing assistant turn is otherwise a prefill, which these models reject — this is the sanctioned exception,
+    * and it is why this builds a resume rather than reusing an ordinary message append.
+    */
+  private[claude] def resume(request: ClaudeRequest, paused: ClaudeResponse): ClaudeRequest =
+    request.copy(messages = request.messages :+ ClaudeMessage(ClaudeRole.Assistant, paused.content))
 
   def toolUses(response: ClaudeResponse): Seq[ClaudeToolUse] =
     response.content.collect {
@@ -833,12 +862,18 @@ case class ClaudeClient(
   /** Low-level send: journals the request, performs the retrying HTTP call, and returns the raw envelope. It does NOT
     * store the response — the audit outcome is recorded once, by [[sendAndStore]], on the fully content-parsed result
     * the caller actually receives (so a schema-parse failure is recorded as an error, not a success).
+    *
+    * A `pause_turn` turn is resumed here rather than by any caller (see [[resume]]). This is the one place every path
+    * through this client funnels through, so putting it anywhere else would mean every entry point — `chatText`,
+    * `chatCompletion`, both tool loops — needing its own copy of the same loop, and the first one written without it
+    * silently truncating.
     */
   private def send(
     request: ClaudeRequest,
     headers: Seq[(String, String)],
     context: Option[String],
-    feature: Option[String]
+    feature: Option[String],
+    resumesRemaining: Int = MaxPauseTurnResumes
   )(implicit
     ec: ExecutionContext
   ): Future[(ClaudeRequestMetadata, ValidatedNec[ClaudeError, ClaudeResponse])] = {
@@ -851,7 +886,28 @@ case class ClaudeClient(
         case r: ClaudeErrorResponseResponse => (rm, errorFrom(rm, r).invalidNec)
         case NonFatal(e) => (rm, rm.error(e.getMessage).invalidNec)
       }
+      .flatMap {
+        case (_, Valid(paused)) if paused.stopReason == ClaudeStopReason.PauseTurn && resumesRemaining > 0 =>
+          send(resume(request, paused), headers, context, feature, resumesRemaining - 1)
+        case (meta, Valid(paused)) if paused.stopReason == ClaudeStopReason.PauseTurn =>
+          Future.successful((meta, pauseTurnExhaustedError(meta).invalidNec))
+        case settled => Future.successful(settled)
+      }
   }
+
+  /** The error a turn still paused after [[MaxPauseTurnResumes]] resumes becomes.
+    *
+    * Deliberately an error rather than the paused response. A paused turn stopped MID-THOUGHT: it carries whatever
+    * prose the model had written before the server-tool loop hit its iteration limit, which reads as a complete answer
+    * and is not one. Returning it would hand callers a silently truncated result — a wrong answer presented as a right
+    * one — where an error is at worst a retry. Same reasoning as [[ClaudeContent.noTextError]], and it names the cap it
+    * hit so the failure says what to change.
+    */
+  private def pauseTurnExhaustedError(rm: ClaudeRequestMetadata): ClaudeError =
+    rm.error(
+      s"Response still ${ClaudeStopReason.PauseTurn} after $MaxPauseTurnResumes resumes; " +
+        "the server-tool loop did not converge (consider a max_uses cap on the server tools)"
+    )
 
   /** Parses a non-2xx body into a [[ClaudeError]]; a malformed body (e.g. an HTML error page from a proxy) throws
     * inside the generated wrapper, so fall back to the status rather than letting it escape the Validated channel.
