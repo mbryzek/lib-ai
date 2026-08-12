@@ -7,13 +7,13 @@ import com.bryzek.claude.models.{
   ClaudeEffort,
   ClaudeMediaType,
   ClaudeModel,
+  ClaudeRequest,
   ClaudeResponse,
   ClaudeRole,
   ClaudeSourceType,
   ClaudeStopReason,
   ClaudeTaskBudgetType,
   ClaudeThinkingType,
-  ClaudeTool,
   ClaudeToolChoiceType,
   ClaudeUsage
 }
@@ -474,7 +474,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
 
   "runToolLoop" should {
     val models = Seq(ClaudeModel.ClaudeSonnet5)
-    val tool = ClaudeTool(
+    val tool = ClaudeTools.custom(
       name = "get_metric",
       description = "Return a metric",
       inputSchema = Json.obj("type" -> "object", "properties" -> Json.obj(), "additionalProperties" -> false)
@@ -534,7 +534,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
 
   "runToolLoopText" should {
     val models = Seq(ClaudeModel.ClaudeSonnet5)
-    val tool = ClaudeTool(
+    val tool = ClaudeTools.custom(
       name = "get_metric",
       description = "Return a metric",
       inputSchema = Json.obj("type" -> "object", "properties" -> Json.obj(), "additionalProperties" -> false)
@@ -582,7 +582,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
 
   "tool-loop prompt caching" should {
     val ephemeral = Some(com.bryzek.claude.models.ClaudeCacheType.Ephemeral)
-    val tool = ClaudeTool(
+    val tool = ClaudeTools.custom(
       name = "get_metric",
       description = "Return a metric",
       inputSchema = Json.obj("type" -> "object", "properties" -> Json.obj(), "additionalProperties" -> false)
@@ -702,6 +702,90 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       val out = ClaudeClient.cacheConversation(Seq(results))
       out.last.content.init.flatMap(_.cacheControl) mustBe Nil
       out.last.content.last.cacheControl.map(_.`type`) mustBe ephemeral
+    }
+  }
+
+  /** `pause_turn` is what a server tool (web search / web fetch) produces when the API's own sampling loop hits its
+    * iteration limit with the turn unfinished. It arrives as an ordinary HTTP 200 carrying whatever prose the model had
+    * written so far, so a client that does not resume returns a truncated answer that reads like a complete one — the
+    * failure these tests exist to pin.
+    */
+  "pause_turn" should {
+    val models = Seq(ClaudeModel.ClaudeSonnet5)
+    val request = AiRequest(
+      messages = Seq(ClaudeClient.makeClaudeMessage(ClaudeRole.User, "What shipped this week? Search the web."))
+    )
+
+    /** A paused turn: a server-tool call plus the partial prose written before the loop ran out of iterations. The
+      * trailing `server_tool_use` block is what the API recognizes on the resend to continue the turn.
+      */
+    def paused(text: String): ClaudeResponse = ClaudeResponse(
+      id = "msg_paused",
+      `type` = "message",
+      role = ClaudeRole.Assistant,
+      content = Seq(
+        ClaudeClient.textBlock(text),
+        ClaudeContentBlock(ClaudeContentType.ServerToolUse)
+          .copy(id = Some("srvtoolu_1"), name = Some("web_search"), input = Some(Json.obj("query" -> "what shipped")))
+      ),
+      model = ClaudeModel.ClaudeSonnet5,
+      stopReason = ClaudeStopReason.PauseTurn,
+      usage = ClaudeUsage(inputTokens = 5000, outputTokens = 2000)
+    )
+
+    "resumes a paused turn and returns the finished answer" in {
+      val sent = scriptedClient(paused("I searched and found"), answered)
+      val result = await(sent.client.chatText(request, models))(using timeout)
+
+      result.isValid mustBe true
+      // The answer is the RESUMED turn's, not the partial prose the paused turn carried.
+      result.toOption.get.content mustBe "the draft"
+      sent.requests.size mustBe 2
+    }
+
+    "resends the paused assistant content verbatim, with no extra user turn" in {
+      val pausedTurn = paused("I searched and found")
+      val sent = scriptedClient(pausedTurn, answered)
+      await(sent.client.chatText(request, models))(using timeout)
+
+      val resumed = sent.requests(1)
+      // Exactly one message appended: the paused assistant turn. A "continue" user turn would both break the
+      // API's recognition of the trailing server_tool_use block and inject an instruction the caller never wrote.
+      resumed.messages.size mustBe sent.requests.head.messages.size + 1
+      resumed.messages.last.role mustBe ClaudeRole.Assistant
+      // Verbatim: the server_tool_use block (and, on a real turn, each result's encrypted_content) is how the API
+      // restores what it already fetched instead of paying to fetch it again.
+      resumed.messages.last.content mustBe pausedTurn.content
+    }
+
+    "resumes repeatedly while the turn keeps pausing" in {
+      val sent = scriptedClient(paused("first"), paused("second"), paused("third"), answered)
+      val result = await(sent.client.chatText(request, models))(using timeout)
+
+      result.isValid mustBe true
+      result.toOption.get.content mustBe "the draft"
+      sent.requests.size mustBe 4
+    }
+
+    "fails loudly rather than returning a truncated answer when the turn never converges" in {
+      // Every turn pauses. The partial prose would parse as a perfectly good answer, which is exactly why
+      // returning it is the wrong outcome -- a wrong answer presented as a right one.
+      val sent = scriptedClient(Seq.fill(ClaudeClient.MaxPauseTurnResumes + 5)(paused("partial thought"))*)
+      val result = await(sent.client.chatText(request, models))(using timeout)
+
+      result.isInvalid mustBe true
+      val message = result.swap.toOption.get.toNonEmptyList.head.message
+      message must include("pause_turn")
+      // Bounded: the initial request plus exactly the capped number of resumes, not an unbounded spend.
+      sent.requests.size mustBe ClaudeClient.MaxPauseTurnResumes + 1
+    }
+
+    "leaves a turn that never pauses untouched" in {
+      val sent = scriptedClient(answered)
+      val result = await(sent.client.chatText(request, models))(using timeout)
+
+      result.isValid mustBe true
+      sent.requests.size mustBe 1
     }
   }
 
@@ -843,6 +927,31 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       }
     }
     ClaudeClient(recording, ClaudeConfig("test-api-key"), NoopClaudeStore)
+  }
+
+  /** A [[scriptedClient]] and the requests it received, in order — so a test can assert on what was RESENT, which for a
+    * resume is the whole behavior under test.
+    */
+  private case class Scripted(client: ClaudeClient, recorded: scala.collection.mutable.Buffer[ClaudeRequest]) {
+    def requests: Seq[ClaudeRequest] = recorded.synchronized(recorded.toList)
+  }
+
+  /** A client that answers each successive call with the next scripted response, then repeats the last one. Repeating
+    * rather than failing keeps a test that under-counts its script from dying with an index error that says nothing
+    * about the behavior; the request count assertions are what pin the call count.
+    */
+  private def scriptedClient(responses: ClaudeResponse*): Scripted = {
+    val recorded = scala.collection.mutable.Buffer.empty[ClaudeRequest]
+    val scripted = new MessageOnlyClient {
+      override def createMessage(
+        body: com.bryzek.claude.models.ClaudeRequest,
+        requestHeaders: Seq[(String, String)]
+      ): scala.concurrent.Future[ClaudeResponse] = {
+        val index = recorded.synchronized { recorded += body; recorded.size - 1 }
+        scala.concurrent.Future.successful(responses(math.min(index, responses.size - 1)))
+      }
+    }
+    Scripted(ClaudeClient(scripted, ClaudeConfig("test-api-key"), NoopClaudeStore), recorded)
   }
 
   private def fixedClient(response: ClaudeResponse): ClaudeClient = {

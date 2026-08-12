@@ -40,6 +40,8 @@ package object Factories {
 
   def makeClaudeToolChoiceType(): com.bryzek.claude.models.ClaudeToolChoiceType = _root_.scala.util.Random.shuffle(com.bryzek.claude.models.ClaudeToolChoiceType.all).head
 
+  def makeClaudeToolType(): com.bryzek.claude.models.ClaudeToolType = _root_.scala.util.Random.shuffle(com.bryzek.claude.models.ClaudeToolType.all).head
+
   def makeClaudeApiOutputFormat(
     `type`: com.bryzek.claude.models.ClaudeOutputFormatType = com.bryzek.claude.models.ClaudeOutputFormatType.JsonSchema,
     schema: play.api.libs.json.JsObject = _root_.play.api.libs.json.Json.obj()
@@ -152,6 +154,14 @@ package object Factories {
     )
   }
 
+  def makeClaudeCitationsConfig(
+    enabled: Boolean = _root_.scala.util.Random.nextBoolean()
+  ): com.bryzek.claude.models.ClaudeCitationsConfig = {
+    com.bryzek.claude.models.ClaudeCitationsConfig(
+      enabled = enabled
+    )
+  }
+
   def makeClaudeContentBlock(
     `type`: com.bryzek.claude.models.ClaudeContentType = makeClaudeContentType(),
     text: Option[String] = None,
@@ -159,7 +169,7 @@ package object Factories {
     name: Option[String] = None,
     input: Option[play.api.libs.json.JsObject] = None,
     toolUseId: Option[String] = None,
-    content: Option[String] = None,
+    content: Option[play.api.libs.json.JsValue] = None,
     isError: Option[Boolean] = None,
     thinking: Option[String] = None,
     signature: Option[String] = None,
@@ -268,6 +278,26 @@ package object Factories {
     )
   }
 
+  def makeClaudeServerToolError(
+    `type`: String = "random-type-" + _root_.java.util.UUID.randomUUID().toString,
+    errorCode: String = "random-error_code-" + _root_.java.util.UUID.randomUUID().toString
+  ): com.bryzek.claude.models.ClaudeServerToolError = {
+    com.bryzek.claude.models.ClaudeServerToolError(
+      `type` = `type`,
+      errorCode = errorCode
+    )
+  }
+
+  def makeClaudeServerToolUsage(
+    webSearchRequests: Long = 0L,
+    webFetchRequests: Long = 0L
+  ): com.bryzek.claude.models.ClaudeServerToolUsage = {
+    com.bryzek.claude.models.ClaudeServerToolUsage(
+      webSearchRequests = webSearchRequests,
+      webFetchRequests = webFetchRequests
+    )
+  }
+
   def makeClaudeSource(
     `type`: com.bryzek.claude.models.ClaudeSourceType = makeClaudeSourceType(),
     mediaType: com.bryzek.claude.models.ClaudeMediaType = makeClaudeMediaType(),
@@ -312,16 +342,28 @@ package object Factories {
 
   def makeClaudeTool(
     name: String = "random-name-" + _root_.java.util.UUID.randomUUID().toString,
-    description: String = "random-description-" + _root_.java.util.UUID.randomUUID().toString,
-    inputSchema: play.api.libs.json.JsObject = _root_.play.api.libs.json.Json.obj(),
+    `type`: Option[com.bryzek.claude.models.ClaudeToolType] = None,
+    description: Option[String] = None,
+    inputSchema: Option[play.api.libs.json.JsObject] = None,
     strict: Option[Boolean] = None,
+    maxUses: Option[Long] = None,
+    allowedDomains: Option[Seq[String]] = None,
+    blockedDomains: Option[Seq[String]] = None,
+    citations: Option[com.bryzek.claude.models.ClaudeCitationsConfig] = None,
+    maxContentTokens: Option[Long] = None,
     cacheControl: Option[com.bryzek.claude.models.ClaudeCacheControl] = None
   ): com.bryzek.claude.models.ClaudeTool = {
     com.bryzek.claude.models.ClaudeTool(
       name = name,
+      `type` = `type`,
       description = description,
       inputSchema = inputSchema,
       strict = strict,
+      maxUses = maxUses,
+      allowedDomains = allowedDomains,
+      blockedDomains = blockedDomains,
+      citations = citations,
+      maxContentTokens = maxContentTokens,
       cacheControl = cacheControl
     )
   }
@@ -344,6 +386,7 @@ package object Factories {
     cacheCreationInputTokens: Option[Long] = None,
     cacheReadInputTokens: Option[Long] = None,
     cacheCreation: Option[com.bryzek.claude.models.ClaudeCacheCreation] = None,
+    serverToolUse: Option[com.bryzek.claude.models.ClaudeServerToolUsage] = None,
     serviceTier: Option[com.bryzek.claude.models.ClaudeServiceTier] = None
   ): com.bryzek.claude.models.ClaudeUsage = {
     com.bryzek.claude.models.ClaudeUsage(
@@ -352,7 +395,38 @@ package object Factories {
       cacheCreationInputTokens = cacheCreationInputTokens,
       cacheReadInputTokens = cacheReadInputTokens,
       cacheCreation = cacheCreation,
+      serverToolUse = serverToolUse,
       serviceTier = serviceTier
+    )
+  }
+
+  def makeClaudeWebFetchResult(
+    `type`: String = "web_fetch_result",
+    url: String = "random-url-" + _root_.java.util.UUID.randomUUID().toString,
+    retrievedAt: Option[String] = None,
+    content: Option[play.api.libs.json.JsValue] = None
+  ): com.bryzek.claude.models.ClaudeWebFetchResult = {
+    com.bryzek.claude.models.ClaudeWebFetchResult(
+      `type` = `type`,
+      url = url,
+      retrievedAt = retrievedAt,
+      content = content
+    )
+  }
+
+  def makeClaudeWebSearchResult(
+    `type`: String = "web_search_result",
+    title: String = "random-title-" + _root_.java.util.UUID.randomUUID().toString,
+    url: String = "random-url-" + _root_.java.util.UUID.randomUUID().toString,
+    pageAge: Option[String] = None,
+    encryptedContent: Option[String] = None
+  ): com.bryzek.claude.models.ClaudeWebSearchResult = {
+    com.bryzek.claude.models.ClaudeWebSearchResult(
+      `type` = `type`,
+      title = title,
+      url = url,
+      pageAge = pageAge,
+      encryptedContent = encryptedContent
     )
   }
 

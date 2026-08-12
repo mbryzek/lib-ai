@@ -25,7 +25,18 @@
                 { "name": "thinking" },
                 { "name": "redacted_thinking" },
                 { "name": "image" },
-                { "name": "document" }
+                { "name": "document" },
+                { "name": "server_tool_use" },
+                { "name": "web_search_tool_result" },
+                { "name": "web_fetch_tool_result" },
+                { "name": "code_execution_tool_result" }
+            ]
+        },
+        "claude_tool_type": {
+            "description": "Discriminator on a tool definition. ABSENT means a caller-executed custom tool -- the only kind that existed before server tools, and the shape every existing caller still sends byte-for-byte. Every value here is an Anthropic-hosted SERVER tool: it runs on Anthropic's infrastructure inside the same request, so there is no tool_use block to answer and no execute callback, and the results come back as content blocks on the same response. The date suffix is the tool VERSION and is part of the wire value; `_20260209` is the dynamic-filtering generation, supported on claude-opus-5 and claude-sonnet-5 (both already in claude_model).",
+            "values": [
+                { "name": "web_search_20260209" },
+                { "name": "web_fetch_20260209" }
             ]
         },
         "claude_source_type": {
@@ -48,7 +59,8 @@
                 { "name": "max_tokens" },
                 { "name": "stop_sequence" },
                 { "name": "tool_use" },
-                { "name": "refusal" }
+                { "name": "refusal" },
+                { "name": "pause_turn" }
             ]
         },
         "claude_output_format_type": {
@@ -156,13 +168,50 @@
             ]
         },
         "claude_tool": {
-            "description": "A tool the model may call. input_schema is the JSON schema for the tool's arguments; strict guarantees the model's input validates against it.",
+            "description": "A tool the model may call. A single flat model spanning both kinds of tool (discriminated on `type`) rather than a union, for the reason documented on claude_content_block. `type` absent is a CUSTOM tool -- executed by the caller, requiring name + description + input_schema, answered with a tool_result block; that is the only kind that existed before server tools and its wire bytes are unchanged. `type` present is an Anthropic-hosted SERVER tool, which takes name + type and its own options and nothing else.\n\nThe two field sets are mutually exclusive on the wire and the API enforces it rather than ignoring the extras: a web_search_20260209 tool carrying a `description` is rejected with `tools.0.web_search_20260209.description: Extra inputs are not permitted` (verified against api.anthropic.com 2026-08-12). That is why description and input_schema are optional here and why callers should build tools through ClaudeTools in lib-ai rather than by hand -- those constructors are what make the two shapes unmixable.\n\nPopulated by kind: custom -> name, description, input_schema, strict; web_search_20260209 -> name, type, max_uses, allowed_domains/blocked_domains; web_fetch_20260209 -> name, type, max_uses, allowed_domains/blocked_domains, citations, max_content_tokens.",
             "fields": [
-                { "name": "name", "type": "string" },
-                { "name": "description", "type": "string" },
-                { "name": "input_schema", "type": "object" },
+                { "name": "name", "type": "string", "description": "Custom: the name the model calls. Server: the fixed name the API defines for that tool -- `web_search` and `web_fetch` respectively. Sending anything else is rejected." },
+                { "name": "type", "type": "claude_tool_type", "required": false, "description": "Absent for a custom tool. See claude_tool_type." },
+                { "name": "description", "type": "string", "required": false, "description": "Custom tools only. What the tool does and when to call it -- the model picks tools from this, so be prescriptive about WHEN, not just what. Rejected on a server tool." },
+                { "name": "input_schema", "type": "object", "required": false, "description": "Custom tools only. JSON schema for the tool's arguments. Rejected on a server tool, which has a schema the API already knows." },
                 { "name": "strict", "type": "boolean", "required": false },
+                { "name": "max_uses", "type": "long", "required": false, "description": "Server tools only. Cap on how many times the model may invoke this tool within one request. Exceeding it does NOT fail the request: the tool result block comes back with an error object naming `max_uses_exceeded` -- see claude_server_tool_error." },
+                { "name": "allowed_domains", "type": "[string]", "required": false, "description": "Server tools only. Restricts the tool to these domains. Mutually exclusive with blocked_domains." },
+                { "name": "blocked_domains", "type": "[string]", "required": false, "description": "Server tools only. Excludes these domains. Mutually exclusive with allowed_domains." },
+                { "name": "citations", "type": "claude_citations_config", "required": false, "description": "web_fetch only. Whether fetched content is cited in the answer." },
+                { "name": "max_content_tokens", "type": "long", "required": false, "description": "web_fetch only. Truncates fetched page content to this many tokens before it enters the context window -- the lever for a fetch of an unbounded page not eating the whole budget." },
                 { "name": "cache_control", "type": "claude_cache_control", "required": false }
+            ]
+        },
+        "claude_citations_config": {
+            "fields": [
+                { "name": "enabled", "type": "boolean" }
+            ]
+        },
+        "claude_web_search_result": {
+            "description": "One hit inside a web_search_tool_result block's content array. `encrypted_content` is opaque and must be echoed back verbatim when the block is replayed on a later turn -- it is how the API restores the fetched page without re-fetching it.",
+            "fields": [
+                { "name": "type", "type": "string", "default": "web_search_result" },
+                { "name": "title", "type": "string" },
+                { "name": "url", "type": "string" },
+                { "name": "page_age", "type": "string", "required": false },
+                { "name": "encrypted_content", "type": "string", "required": false }
+            ]
+        },
+        "claude_web_fetch_result": {
+            "description": "The content of a web_fetch_tool_result block -- a single object, NOT a list (unlike web search). `content` is the fetched page as a `document` content block; it is left as raw json here because its shape is the Files/document surface rather than anything this client constructs.",
+            "fields": [
+                { "name": "type", "type": "string", "default": "web_fetch_result" },
+                { "name": "url", "type": "string" },
+                { "name": "retrieved_at", "type": "string", "required": false },
+                { "name": "content", "type": "json", "required": false }
+            ]
+        },
+        "claude_server_tool_error": {
+            "description": "A server tool that FAILED. This is the trap the whole decoding surface exists for: the request is an ordinary HTTP 200, the block is an ordinary web_search_tool_result / web_fetch_tool_result, and only its `content` differs -- a single error OBJECT where a success carries a list (web search) or a result object (web fetch). Anything that reaches into content positionally throws on exactly the cases that matter: max_uses_exceeded, a blocked domain, an unavailable page. Decode through ClaudeServerToolResults in lib-ai, which returns the error rather than throwing on it.",
+            "fields": [
+                { "name": "type", "type": "string", "description": "`web_search_tool_result_error` or `web_fetch_tool_result_error`." },
+                { "name": "error_code", "type": "string", "description": "e.g. `max_uses_exceeded`, `too_many_requests`, `unavailable`, `invalid_input`. An open set -- treat an unrecognized code as a failure, not as an impossibility." }
             ]
         },
         "claude_tool_choice": {
@@ -201,7 +250,7 @@
             ]
         },
         "claude_content_block": {
-            "description": "One content block on a message or response. A single flat model spanning all block types (discriminated on type) rather than a union, because a spec that has both a union and error-response mustParse handling hits a known bryzek-generator ambiguous-implicit compile error. Wire JSON is identical to the union form; only the populated fields differ by type: text -> text; tool_use -> id, name, input; tool_result -> tool_use_id, content, is_error; thinking -> thinking, signature; redacted_thinking -> data; image -> source; document -> source. Retain every field verbatim when echoing assistant content back, or the API rejects the modified block.",
+            "description": "One content block on a message or response. A single flat model spanning all block types (discriminated on type) rather than a union, because a spec that has both a union and error-response mustParse handling hits a known bryzek-generator ambiguous-implicit compile error. Wire JSON is identical to the union form; only the populated fields differ by type: text -> text; tool_use -> id, name, input; tool_result -> tool_use_id, content, is_error; thinking -> thinking, signature; redacted_thinking -> data; image -> source; document -> source; server_tool_use -> id, name, input; web_search_tool_result / web_fetch_tool_result / code_execution_tool_result -> tool_use_id, content. Retain every field verbatim when echoing assistant content back, or the API rejects the modified block.",
             "fields": [
                 { "name": "type", "type": "claude_content_type" },
                 { "name": "text", "type": "string", "required": false },
@@ -209,7 +258,7 @@
                 { "name": "name", "type": "string", "required": false },
                 { "name": "input", "type": "object", "required": false },
                 { "name": "tool_use_id", "type": "string", "required": false },
-                { "name": "content", "type": "string", "required": false },
+                { "name": "content", "type": "json", "required": false, "description": "Raw json rather than a string because the wire type genuinely varies by block type and the API sends all three shapes: a STRING on a tool_result this client writes, an ARRAY of claude_web_search_result on a web_search_tool_result, and an OBJECT on a web_fetch_tool_result (claude_web_fetch_result), a code_execution_tool_result, or ANY server tool result that errored (claude_server_tool_error). Typed as string -- as it was before server tools -- the readNullable[String] fails and the WHOLE response is unparseable the moment a search runs, not just the one block. Write it with ClaudeClient.toolResultBlock and read it with ClaudeServerToolResults; do not reach into it positionally." },
                 { "name": "is_error", "type": "boolean", "required": false },
                 { "name": "thinking", "type": "string", "required": false },
                 { "name": "signature", "type": "string", "required": false },
@@ -237,6 +286,7 @@
                 { "name": "cache_creation_input_tokens", "type": "long", "required": false },
                 { "name": "cache_read_input_tokens", "type": "long", "required": false },
                 { "name": "cache_creation", "type": "claude_cache_creation", "required": false },
+                { "name": "server_tool_use", "type": "claude_server_tool_usage", "required": false, "description": "How many times each Anthropic-hosted tool ran. Load-bearing for cost in the same way service_tier is: web search is billed PER REQUEST ($10 per 1,000) on top of tokens, so anything pricing a response off token counts alone under-reports every request that searched." },
                 { "name": "service_tier", "type": "claude_service_tier", "required": false, "description": "Tier that served this request. Optional only because a response recorded before this field existed does not carry one; the live API sets it on every response. Anything computing cost MUST read it -- see claude_service_tier." }
             ]
         },
@@ -245,6 +295,13 @@
             "fields": [
                 { "name": "ephemeral_5m_input_tokens", "type": "long", "default": 0 },
                 { "name": "ephemeral_1h_input_tokens", "type": "long", "default": 0 }
+            ]
+        },
+        "claude_server_tool_usage": {
+            "description": "Per-tool invocation counts on one response. Defaulted to 0 rather than optional: a response that ran no server tool omits the field entirely, and `0 searches` is the honest reading of that, not `unknown`.",
+            "fields": [
+                { "name": "web_search_requests", "type": "long", "default": 0 },
+                { "name": "web_fetch_requests", "type": "long", "default": 0 }
             ]
         },
         "claude_error_response": {
