@@ -48,8 +48,14 @@ lazy val root = project
     // reported as slow.
     testOptions ++= Seq(
       Tests.Argument("-oDF"),
-      Tests.Argument(TestFrameworks.ScalaTest, "-u", (target.value / "test-reports").getAbsolutePath),
+      Tests.Argument(TestFrameworks.ScalaTest, "-u", (target.value / "test-reports").getAbsolutePath)
     ),
+    // ISS-2173: the Play plugin sets `Test / fork := true`, and a forked JVM inherits none of
+    // `SBT_OPTS` -- left unset its max heap is a QUARTER OF PHYSICAL RAM, which is 16G on the 64G
+    // laptop and 6G on the 24G mini. Without this pin the CI heap measurement behind
+    // `ci/build.sh`'s `# ci-needs: heap:4G` would be a fact about whichever machine happened to run
+    // it rather than about this suite. platform and acumen pin theirs for the same reason.
+    Test / javaOptions += "-Xmx4g",
     scalacOptions ++= allScalacOptions,
     libraryDependencies ++= Seq(
       ws,
@@ -57,6 +63,6 @@ lazy val root = project
       "com.google.inject" % "guice" % "5.1.0",
       "org.playframework" %% "play-json" % "3.0.6",
       "org.typelevel" %% "cats-core" % "2.13.0",
-      "org.scalatestplus.play" %% "scalatestplus-play" % "7.0.2" % Test,
-    ),
+      "org.scalatestplus.play" %% "scalatestplus-play" % "7.0.2" % Test
+    )
   )
