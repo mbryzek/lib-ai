@@ -115,6 +115,42 @@ class ClaudeStreamingClientSpec extends AnyWordSpec with Matchers with GuiceOneA
       }
     }
 
+    "carry Anthropic's own request id off a failed response, named as theirs" in {
+      // Every production message goes through this transport, so this is where the provider's id has to be picked
+      // up -- an error that omitted it here would omit it from essentially every real API failure (ISS-2542). It is
+      // the ONLY id in the message that can be looked up in Anthropic's logs; the correlation id ClaudeClient adds
+      // on top of this cannot.
+      val body = """{"type":"error","error":{"type":"invalid_request_error","message":"bad model"}}"""
+      withServer(_ => Results.BadRequest(body).withHeaders("request-id" -> "req_011CSprovider")) { (client, _) =>
+        val e = intercept[ClaudeStreamException](await(client.createMessage(request))(using timeout))
+        e.providerRequestId mustBe Some("req_011CSprovider")
+        e.getMessage must include("[anthropic request-id: req_011CSprovider]")
+      }
+    }
+
+    "carry Anthropic's request id off a mid-stream error event too" in {
+      // A 200 that fails partway through still carries the header, and it is the same incident to Anthropic.
+      val failed = sse("""{"type":"error","error":{"type":"overloaded_error","message":"busy"}}""")
+      withServer(_ =>
+        Results.Ok
+          .chunked(Source.single(ByteString(failed)))
+          .as("text/event-stream")
+          .withHeaders("request-id" -> "req_011CSmidstream")
+      ) { (client, _) =>
+        val e = intercept[ClaudeStreamException](await(client.createMessage(request))(using timeout))
+        e.getMessage must include("[anthropic request-id: req_011CSmidstream]")
+      }
+    }
+
+    "say nothing about a provider request id when the response carried none" in {
+      val body = """{"type":"error","error":{"type":"invalid_request_error","message":"bad model"}}"""
+      withServer(_ => Results.BadRequest(body)) { (client, _) =>
+        val e = intercept[ClaudeStreamException](await(client.createMessage(request))(using timeout))
+        e.providerRequestId mustBe None
+        e.getMessage must not include ("anthropic request-id")
+      }
+    }
+
     "keep 529 legible to the model-fallback check" in {
       withServer(_ =>
         Results.Status(529)("""{"type":"error","error":{"type":"overloaded_error","message":"busy"}}""")

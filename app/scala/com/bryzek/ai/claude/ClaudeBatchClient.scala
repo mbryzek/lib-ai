@@ -290,12 +290,14 @@ case class ClaudeBatchClient(
 
   /** A non-2xx body parsed into a [[ClaudeError]]; a malformed body (an HTML error page from a proxy, say) throws
     * inside the generated wrapper, so fall back to the status rather than letting it escape the Validated channel.
+    *
+    * Names Anthropic's own `request-id` when the response carried one -- a batch operation has no per-request
+    * correlation id of this library's own (the handle is `custom_id`), so it is the only id there is to quote.
     */
   private def toError[T]: PartialFunction[Throwable, ValidatedNec[ClaudeError, T]] = {
     case r: ClaudeErrorResponseResponse =>
-      Try(r.claudeErrorResponse.error)
-        .getOrElse(ClaudeError(message = s"HTTP ${r.response.status}: ${r.getMessage}"))
-        .invalidNec
+      val message = Try(r.claudeErrorResponse.error.message).getOrElse(s"HTTP ${r.response.status}: ${r.getMessage}")
+      ClaudeError(message = message + ClaudeErrorLabels.providerSuffix(r.response.headers)).invalidNec
     case a: ApiException => ClaudeError(message = a.getMessage).invalidNec
     case NonFatal(e) => ClaudeError(message = e.getMessage).invalidNec
   }

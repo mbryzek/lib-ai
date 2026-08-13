@@ -22,8 +22,12 @@ object TestClaudeClient {
   val OutputFormatNameHeader: String = "X-Output-Format"
 }
 
+/** Answers every request in-process. [[SimulatedClaudeClient]] is what makes its failures say so: this client raises
+  * ordinary-looking errors (an unknown output format, a rejected request shape) that are indistinguishable from a
+  * provider failure once they are read out of a CI log, which is what happened in ISS-2522.
+  */
 @Singleton
-class TestClaudeClient extends IClient with ClaudeBatchResults {
+class TestClaudeClient extends IClient with ClaudeBatchResults with SimulatedClaudeClient {
 
   private def getHeader(requestHeaders: Seq[(String, String)], name: String): Option[String] = {
     requestHeaders.find(_._1.toLowerCase.trim == name.toLowerCase.trim).map(_._2).toList.distinct match {

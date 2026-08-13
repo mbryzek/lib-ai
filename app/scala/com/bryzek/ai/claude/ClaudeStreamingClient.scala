@@ -199,7 +199,14 @@ class ClaudeStreamingClient(
         acc.outcome match {
           case ClaudeStreamOutcome.Completed(r) => Future.successful(r)
           case ClaudeStreamOutcome.Failed(Some(status), message) =>
-            Future.failed(ClaudeStreamException(status, message, response.header("Retry-After")))
+            Future.failed(
+              ClaudeStreamException(
+                status,
+                message,
+                response.header("Retry-After"),
+                ClaudeErrorLabels.providerId(response.headers)
+              )
+            )
           // No status means the stream itself broke its contract -- truncated, or malformed. Raised as an
           // IOException so it lands in the same transient-transport bucket as a dropped connection and is retried.
           case ClaudeStreamOutcome.Failed(None, message) =>
@@ -213,7 +220,12 @@ class ClaudeStreamingClient(
       .runFold(ByteString.empty)((acc, b) => if (acc.length >= MaxErrorBodyBytes) acc else acc ++ b)
       .flatMap { body =>
         Future.failed(
-          ClaudeStreamException(response.status, describeError(body.utf8String), response.header("Retry-After"))
+          ClaudeStreamException(
+            response.status,
+            describeError(body.utf8String),
+            response.header("Retry-After"),
+            ClaudeErrorLabels.providerId(response.headers)
+          )
         )
       }
 }

@@ -11,9 +11,19 @@ import scala.util.{Failure, Success, Try}
   * the non-streaming transport: the message embeds `status <n>` in the shape
   * [[ClaudeClient.isOverloadedError]]/[[ClaudeClient.isModelNotFoundError]] already match, and `retryAfter` carries the
   * 429 header verbatim.
+  *
+  * `providerRequestId` is Anthropic's own `request-id` header. This is where it matters most: every production message
+  * goes through the streaming transport, so an error that omitted it here would omit it from essentially every real API
+  * failure the system sees.
   */
-final case class ClaudeStreamException(status: Int, body: String, retryAfter: Option[String] = None)
-  extends RuntimeException(s"POST /v1/messages failed with status $status: $body")
+final case class ClaudeStreamException(
+  status: Int,
+  body: String,
+  retryAfter: Option[String] = None,
+  providerRequestId: Option[String] = None
+) extends RuntimeException(
+    s"POST /v1/messages failed with status $status: $body" + ClaudeErrorLabels.providerSuffix(providerRequestId)
+  )
 
 /** How a stream ended. `Failed(status)` is an error the API reported and whose HTTP status is known; `Failed(None)` is
   * a stream that broke its own contract (truncated, unparseable), which the transport raises as an IOException because

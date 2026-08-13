@@ -18,8 +18,10 @@ import com.bryzek.claude.models.{
   ClaudeUsage
 }
 import com.bryzek.claude.models.json.*
-import com.bryzek.claude.response.models.{RecommendationResponse, SingleInsightResponse}
+import com.bryzek.claude.response.models.{CommentsResponse, RecommendationResponse, SingleInsightResponse}
 import com.bryzek.claude.response.models.json.*
+import generated.errors.ClaudeErrorResponseResponse
+import generated.mock.MockWSResponse
 import helpers.FutureHelpers
 import play.api.libs.json.Json
 import org.apache.pekko.util.Timeout
@@ -855,6 +857,95 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       result.isInvalid mustBe true
       calls.get mustBe 3
     }
+  }
+
+  /** Which id a failure carries, and whether it reached the API at all.
+    *
+    * ISS-2522 was triaged as a spec making a live API call it was built to make none of, at cost, on whichever runner
+    * picked the build up. It was a TestClaudeClient failure that never opened a socket. What made the two
+    * indistinguishable was the label: `[Request ID: req-<uuid>]`, minted here, attached identically either way, and the
+    * same shape Anthropic's own ids take (ISS-2542).
+    */
+  "error labelling" should {
+    val models = Seq(ClaudeModel.ClaudeSonnet5)
+    val request = AiRequest(messages = Seq(ClaudeClient.makeClaudeMessage(ClaudeRole.User, "Sending a test message")))
+
+    "say when a failure never left the process" in {
+      // The ISS-2522 failure verbatim: an output format absent from ClaudeOutputFormats.all, which TestClaudeClient
+      // rejects before anything is sent.
+      val unregistered = ClaudeOutputFormats.create("not_a_registered_format", Json.obj(), Nil)
+
+      val result = await(
+        testClient.chatCompletion[CommentsResponse](request, unregistered, models)
+      )(using timeout)
+
+      result.isInvalid mustBe true
+      val message = result.swap.toOption.get.toNonEmptyList.head.message
+      message must include("Could not identify json schema")
+      message must include("simulated client, no API call")
+      message must include(s"[lib-ai request ${ClaudeErrorLabels.LocalIdPrefix}-")
+      // The two halves of the resemblance that misdirected the triage.
+      message must not include ("Request ID")
+      message must not include ("[req-")
+    }
+
+    "keep the provider's id and this library's own apart on a real API failure" in {
+      // MessageOnlyClient doubles stand in for the transport rather than for the API being absent -- they exist to
+      // reproduce what Anthropic does -- so they are deliberately not marked simulated, and this is what a genuine
+      // provider failure reads like.
+      val result = await(
+        erroringClient(400, "bad model", Map("request-id" -> Seq("req_011CSprovider"))).chatText(request, models)
+      )(using timeout)
+
+      result.isInvalid mustBe true
+      val message = result.swap.toOption.get.toNonEmptyList.head.message
+      message must include("bad model")
+      // Theirs: the only id in the message their logs can be searched by.
+      message must include("[anthropic request-id: req_011CSprovider]")
+      // Ours: the only id the claude.requests audit row can be searched by. It used to be dropped entirely on this
+      // path, which left a real provider failure as the one error joinable to nothing.
+      message must include(s"[lib-ai request ${ClaudeErrorLabels.LocalIdPrefix}-")
+      message must not include ("simulated client")
+    }
+
+    "say nothing about a provider id when the response carried none" in {
+      val result = await(erroringClient(400, "bad model", Map.empty).chatText(request, models))(using timeout)
+
+      val message = result.swap.toOption.get.toNonEmptyList.head.message
+      message must include("bad model")
+      message must not include ("anthropic request-id")
+    }
+
+    "read the provider header whatever case it arrives in" in {
+      // HTTP header names are case-insensitive and this one is quoted lowercase by Anthropic's docs and uppercased
+      // by some proxies. Missing it would silently drop the only id that leads anywhere.
+      ClaudeErrorLabels.providerId(Map("request-id" -> Seq("req_1"))) mustBe Some("req_1")
+      ClaudeErrorLabels.providerId(Map("Request-Id" -> Seq("req_1"))) mustBe Some("req_1")
+      ClaudeErrorLabels.providerId(Map("REQUEST-ID" -> Seq(" req_1 "))) mustBe Some("req_1")
+      ClaudeErrorLabels.providerId(Map("retry-after" -> Seq("42"))) mustBe None
+      ClaudeErrorLabels.providerId(Map("request-id" -> Seq("  "))) mustBe None
+      ClaudeErrorLabels.providerSuffix(None) mustBe ""
+    }
+  }
+
+  /** A client that fails the way the generated (non-streaming) client reports a non-2xx: the raw WSResponse wrapped in
+    * a ClaudeErrorResponseResponse, response headers included.
+    */
+  private def erroringClient(status: Int, message: String, headers: Map[String, Seq[String]]): ClaudeClient = {
+    val response = MockWSResponse(
+      uri = MockWSResponse.DefaultURI,
+      status = status,
+      body = Json.stringify(Json.obj("error" -> Json.obj("message" -> message))),
+      headers = headers
+    )
+    val failing = new MessageOnlyClient {
+      override def createMessage(
+        body: com.bryzek.claude.models.ClaudeRequest,
+        requestHeaders: Seq[(String, String)]
+      ): scala.concurrent.Future[ClaudeResponse] =
+        scala.concurrent.Future.failed(ClaudeErrorResponseResponse(response))
+    }
+    ClaudeClient(failing, ClaudeConfig("test-api-key"), NoopClaudeStore)
   }
 
   /** A client whose nth call (1-based) fails with `failure(n)` when defined, delegating to the sandbox TestClaudeClient

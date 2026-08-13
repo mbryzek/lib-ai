@@ -206,8 +206,26 @@ object AiRequest {
   }
 }
 
+/** Marker for an [[IClient]] that stands in for the API being ABSENT -- [[TestClaudeClient]], and any double a consumer
+  * configures for a non-production environment. A failure raised by one then SAYS that no request was made, which is
+  * the single most useful fact about it and the one ISS-2522 spent an hour establishing by hand.
+  *
+  * Not for a stub that stands in for the TRANSPORT in order to reproduce what Anthropic does -- a scripted 429, a
+  * refusal, a dropped connection. Those are rehearsing a provider failure, and labelling one "no API call" would say
+  * the opposite of what the test means.
+  *
+  * Opt-in on purpose. An unmarked client reads exactly as it does today, whereas inferring "simulated" from any client
+  * this library did not recognize would eventually describe a real API failure as one that never happened -- the same
+  * confusion pointing the other way, and worse, because it would suppress a real incident rather than invent one.
+  */
+trait SimulatedClaudeClient
+
 case class ClaudeRequestMetadata(
   client: IClient,
+  // Correlation id minted by this library before the request is sent -- NOT Anthropic's. It is the id a
+  // ClaudeStore persists (platform's `claude.requests.id`), so it joins a failure to its audit row; it can
+  // never be looked up in Anthropic's logs. See ClaudeErrorLabels for why it is prefixed `libai` and for what
+  // reading it as a provider id cost (ISS-2542).
   id: String,
   request: ClaudeRequest,
   context: Option[String] = None,
@@ -219,8 +237,13 @@ case class ClaudeRequestMetadata(
 ) {
   val start: Long = System.currentTimeMillis()
 
+  /** Whether the client answering this request is an in-process double, and so whether the failure below is one that
+    * never left the process.
+    */
+  private val simulated: Boolean = client.isInstanceOf[SimulatedClaudeClient]
+
   def error(msg: String, raw: Option[String] = None): ClaudeError =
-    ClaudeError(message = s"$msg [Request ID: $id]", raw = raw)
+    ClaudeError(message = s"$msg ${ClaudeErrorLabels.local(id, simulated)}", raw = raw)
 }
 
 case class ClaudeResponseMetadata[T](request: ClaudeRequestMetadata, response: ClaudeResponse, content: T) {
@@ -877,7 +900,7 @@ case class ClaudeClient(
   )(implicit
     ec: ExecutionContext
   ): Future[(ClaudeRequestMetadata, ValidatedNec[ClaudeError, ClaudeResponse])] = {
-    val rm = ClaudeRequestMetadata(client, randomId("req"), request, context, feature)
+    val rm = ClaudeRequestMetadata(client, randomId(ClaudeErrorLabels.LocalIdPrefix), request, context, feature)
     store.storeRequest(rm)
     ClaudeRetries
       .withRetries(client.createMessage(request, headers))
@@ -911,9 +934,15 @@ case class ClaudeClient(
 
   /** Parses a non-2xx body into a [[ClaudeError]]; a malformed body (e.g. an HTML error page from a proxy) throws
     * inside the generated wrapper, so fall back to the status rather than letting it escape the Validated channel.
+    *
+    * Carries BOTH ids: Anthropic's `request-id` header, which is the handle for their logs, and this library's own
+    * correlation id, which is the handle for the audit row. The API's own message used to be returned verbatim and so
+    * carried neither, leaving a real provider failure as the one error that could not be joined to anything.
     */
-  private def errorFrom(rm: ClaudeRequestMetadata, r: ClaudeErrorResponseResponse): ClaudeError =
-    Try(r.claudeErrorResponse.error).getOrElse(rm.error(s"HTTP ${r.response.status}: ${r.getMessage}"))
+  private def errorFrom(rm: ClaudeRequestMetadata, r: ClaudeErrorResponseResponse): ClaudeError = {
+    val message = Try(r.claudeErrorResponse.error.message).getOrElse(s"HTTP ${r.response.status}: ${r.getMessage}")
+    rm.error(message + ClaudeErrorLabels.providerSuffix(r.response.headers))
+  }
 
   private def sendAndStore[T](
     request: ClaudeRequest,
