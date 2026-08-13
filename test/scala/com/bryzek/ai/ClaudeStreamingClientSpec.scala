@@ -12,7 +12,8 @@ import play.api.libs.ws.WSClient
 import play.api.mvc.{Request, Result, Results}
 import play.api.routing.Router
 import play.api.routing.sird.*
-import play.core.server.Server
+import play.api.Mode
+import play.core.server.{Server, ServerConfig}
 
 import java.io.IOException
 import java.util.concurrent.TimeoutException
@@ -47,6 +48,24 @@ class ClaudeStreamingClientSpec extends AnyWordSpec with Matchers with GuiceOneA
     """{"type":"message_stop"}"""
   )
 
+  /** Binds the harness server to loopback SPECIFICALLY, and dials it by address rather than by the name `localhost`.
+    *
+    * Both halves are load-bearing on a shared runner and neither is style (ISS-2625). Play's default is the WILDCARD
+    * address, and on macOS a wildcard listener does not own its port: `SO_REUSEADDR` -- which the server socket sets --
+    * lets any other process on the box bind `127.0.0.1:<that same port>` AFTERWARDS, and the kernel then routes every
+    * connection to `localhost:<port>` to the more specific binding, i.e. to the stranger. The test's own server keeps
+    * listening and never sees the request. That is exactly what broke `main` at 4f2decbc: a mid-stream case asserting
+    * on a header came back `POST /v1/messages failed with status 404: ` -- an empty-bodied 404, which no Play server
+    * produces, because a Play 404 renders an HTML page. It was somebody else's server answering.
+    *
+    * A loopback-specific bind closes it in both directions, measured on a runner: an identical bind is REFUSED
+    * (`SO_REUSEADDR` does not permit two listeners on one exact address, that would need `SO_REUSEPORT`), and a
+    * wildcard bind by a stranger still loses the routing to us. Dialing `127.0.0.1` rather than `localhost` also drops
+    * the `::1`-vs-`127.0.0.1` resolution ambiguity, so the address connected to is the address bound.
+    */
+  private val LoopbackConfig: ServerConfig =
+    ServerConfig(port = Some(0), address = "127.0.0.1", mode = Mode.Test)
+
   /** Runs `f` against a local server that answers `POST /v1/messages` with `handler`, capturing the request body the
     * client actually sent so a test can assert on it.
     */
@@ -54,7 +73,7 @@ class ClaudeStreamingClientSpec extends AnyWordSpec with Matchers with GuiceOneA
     handler: Request[JsValue] => Result
   )(f: (ClaudeStreamingClient, AtomicReference[JsObject]) => Unit): Unit = {
     val sent = new AtomicReference[JsObject](Json.obj())
-    Server.withRouterFromComponents() { components =>
+    Server.withRouterFromComponents(LoopbackConfig) { components =>
       { case POST(p"/v1/messages") =>
         components.defaultActionBuilder(components.playBodyParsers.tolerantJson) { req =>
           sent.set(req.body.as[JsObject])
@@ -66,7 +85,7 @@ class ClaudeStreamingClientSpec extends AnyWordSpec with Matchers with GuiceOneA
       f(
         new ClaudeStreamingClient(
           ws,
-          baseUrl = s"http://localhost:${port.value}",
+          baseUrl = s"http://127.0.0.1:${port.value}",
           requestTimeout = FiniteDuration(20, SECONDS),
           idleTimeout = FiniteDuration(750, MILLISECONDS)
         ),
