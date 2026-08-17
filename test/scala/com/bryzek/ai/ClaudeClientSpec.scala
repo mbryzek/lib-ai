@@ -580,6 +580,104 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       result.toOption.get.turns mustBe 0
       result.toOption.get.invocations mustBe empty
     }
+
+    // The finalize turn is a whole round trip, and on a question the model answers without calling a tool it is half
+    // the wall clock the caller waits through (ISS-3311). These pin the CALL COUNT, which is the claim -- the answer
+    // text was already correct when it was being generated twice.
+    "answer from the turn the model stopped on, paying for no finalize turn" in {
+      val sent = scriptedClient(answered)
+      val result = await(
+        sent.client.runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 25) { _ =>
+          sys.error("the model never asked for a tool")
+        }
+      )(using timeout)
+
+      result.isValid mustBe true
+      result.toOption.get.value mustBe "the draft"
+      result.toOption.get.turns mustBe 0
+      result.toOption.get.invocations mustBe empty
+      result.toOption.get.model mustBe ClaudeModel.ClaudeSonnet5
+      // One call, not two: the answer came back on the turn that stopped, so there was nothing left to ask for.
+      sent.requests.size mustBe 1
+    }
+
+    "still finalize when the model stopped for a reason other than end_turn" in {
+      // A truncated turn carries prose that reads as an answer and is not one, so it must not be taken as the
+      // answer -- the finalize turn is what either recovers it or produces the error.
+      val truncated = answered.copy(
+        content = Seq(ClaudeClient.textBlock("Last month your sessions were ru")),
+        stopReason = ClaudeStopReason.MaxTokens
+      )
+      val sent = scriptedClient(truncated, answered)
+      val result = await(
+        sent.client.runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 25) { _ =>
+          sys.error("the model never asked for a tool")
+        }
+      )(using timeout)
+
+      result.isValid mustBe true
+      result.toOption.get.value mustBe "the draft"
+      sent.requests.size mustBe 2
+      sent.requests.last.toolChoice.map(_.`type`) mustBe Some(ClaudeToolChoiceType.None)
+    }
+
+    "still finalize when the turn that stopped carried no text at all" in {
+      // `end_turn` with the whole budget spent on thinking. `noTextError` stays the guard for an empty completion,
+      // so this must reach the finalize turn rather than returning an empty-string answer.
+      val thinkingOnly = answered.copy(
+        content = Seq(ClaudeContentBlock(ClaudeContentType.Thinking).copy(thinking = Some("still reasoning")))
+      )
+      val sent = scriptedClient(thinkingOnly, answered)
+      val result = await(
+        sent.client.runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 25) { _ =>
+          sys.error("the model never asked for a tool")
+        }
+      )(using timeout)
+
+      result.isValid mustBe true
+      result.toOption.get.value mustBe "the draft"
+      sent.requests.size mustBe 2
+    }
+
+    "surface an empty completion as an error rather than an empty answer" in {
+      val thinkingOnly = answered.copy(
+        content = Seq(ClaudeContentBlock(ClaudeContentType.Thinking).copy(thinking = Some("still reasoning")))
+      )
+      val sent = scriptedClient(thinkingOnly, thinkingOnly)
+      val result = await(
+        sent.client.runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 25) { _ =>
+          sys.error("the model never asked for a tool")
+        }
+      )(using timeout)
+
+      result.isInvalid mustBe true
+      result.swap.toOption.get.toNonEmptyList.head.message must include("No text content")
+    }
+
+    "runToolLoop keeps its finalize turn: prose is not the parseable object its callers need" in {
+      val prose = answered.copy(content = Seq(ClaudeClient.textBlock("Here is what I found, in prose.")))
+      val structured = answered.copy(
+        content = Seq(
+          ClaudeClient.textBlock(Json.stringify(Json.obj("steps" -> Json.arr(), "insight" -> "You are doing amazing")))
+        )
+      )
+      val sent = scriptedClient(prose, structured)
+      val result = await(
+        sent.client.runToolLoop[SingleInsightResponse](
+          request,
+          tools = Seq(tool),
+          models = models,
+          maxCalls = 25,
+          finalFormat = ClaudeOutputFormats.SingleInsight
+        ) { _ =>
+          sys.error("the model never asked for a tool")
+        }
+      )(using timeout)
+
+      result.isValid mustBe true
+      result.toOption.get.value.insight mustBe "You are doing amazing"
+      sent.requests.size mustBe 2
+    }
   }
 
   "tool-loop prompt caching" should {

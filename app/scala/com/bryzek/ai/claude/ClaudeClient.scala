@@ -97,8 +97,10 @@ case class ClaudeToolOutput(content: String, isError: Boolean = false)
 case class ClaudeToolInvocation(use: ClaudeToolUse, output: ClaudeToolOutput)
 
 /** Outcome of [[ClaudeClient.runToolLoop]]: the parsed final answer, the full tool transcript, and `model` -- the model
-  * the FINAL (structured-answer) turn resolved to after any fallback, so a caller can record which model actually
-  * produced the answer (the tool-call turns may differ only under fallback).
+  * of the turn that PRODUCED the answer, after any fallback, so a caller can record which model actually wrote what it
+  * is showing (the tool-call turns may differ only under fallback). That is the finalize turn for a structured loop,
+  * and for [[ClaudeClient.runToolLoopText]] it is whichever turn carried the answer -- the finalize turn, or the turn
+  * the model stopped on when that already answered.
   */
 case class ClaudeToolLoopResult[T](value: T, invocations: Seq[ClaudeToolInvocation], turns: Int, model: ClaudeModel)
 
@@ -672,6 +674,17 @@ case class ClaudeClient(
     * The tradeoff is real and belongs to the caller: a text answer cannot be validated, so anything that has to PARSE
     * the result -- the insight pipeline's findings, a judgment, a classification -- must keep using [[runToolLoop]].
     * This is for answers a person reads.
+    *
+    * A turn that stops with `end_turn` and text in it IS the answer, so this loop takes it and does not run a finalize
+    * turn at all (`answerFrom` below). That is the difference between the two loops stated the other way round:
+    * [[runToolLoop]]'s finalize turn exists to re-emit the same answer as a schema-shaped object, and a text caller has
+    * nothing left to convert -- [[finalizeTextInstruction]] attaches no schema and imposes no format, because the rules
+    * the answer follows live in the caller's system prompt, which the response being discarded already had. On a
+    * question the model answers without calling a tool that halved the wall clock (ISS-3311).
+    *
+    * Every other stop reason still finalizes: `max_tokens` carries a truncated answer, `refusal` and a pure-thinking
+    * turn carry no text at all, and the finalize turn is the retry that either recovers or produces the error
+    * `noTextError` is there to raise.
     */
   def runToolLoopText(
     request: AiRequest,
@@ -683,24 +696,37 @@ case class ClaudeClient(
   )(execute: ClaudeToolUse => Future[ClaudeToolOutput])(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, ClaudeToolLoopResult[String]]] =
-    runLoop[String](request, tools, models, maxCalls, finalizeTextInstruction, context, feature)(execute) {
-      (base, messages) =>
-        // `outputConfig` is carried through untouched rather than cleared: it also holds the caller's `effort`, and
-        // it is only the FORMAT this loop declines to set.
-        val req = base.copy(
-          messages = cacheConversation(messages, request.cacheTtl),
-          toolChoice = Some(ClaudeToolChoice(ClaudeToolChoiceType.None)),
-          outputConfig = base.outputConfig
-        )
-        sendAndStore[String](req, defaultHeaders, context, feature) { (rm, resp) =>
-          val text = textContent(resp)
-          if (text.nonEmpty) ClaudeResponseMetadata(rm, resp, text).validNec else noTextError(rm, resp).invalidNec
-        }
+    runLoop[String](
+      request,
+      tools,
+      models,
+      maxCalls,
+      finalizeTextInstruction,
+      context,
+      feature,
+      answerFrom =
+        resp => Option.when(resp.stopReason == ClaudeStopReason.EndTurn)(textContent(resp)).filter(_.nonEmpty)
+    )(execute) { (base, messages) =>
+      // `outputConfig` is carried through untouched rather than cleared: it also holds the caller's `effort`, and
+      // it is only the FORMAT this loop declines to set.
+      val req = base.copy(
+        messages = cacheConversation(messages, request.cacheTtl),
+        toolChoice = Some(ClaudeToolChoice(ClaudeToolChoiceType.None)),
+        outputConfig = base.outputConfig
+      )
+      sendAndStore[String](req, defaultHeaders, context, feature) { (rm, resp) =>
+        val text = textContent(resp)
+        if (text.nonEmpty) ClaudeResponseMetadata(rm, resp, text).validNec else noTextError(rm, resp).invalidNec
+      }
     }
 
   /** The tool loop itself, shared by [[runToolLoop]] and [[runToolLoopText]], which differ only in how the last turn
     * asks for the answer. `finalizeTurn` receives the cached base request and the transcript to answer from; the
     * `finalizeWith` message is the trailing user turn appended when the model stops calling tools on its own.
+    *
+    * `answerFrom` is asked, of the turn the model stopped on, whether that turn ALREADY carries the answer -- in which
+    * case the loop returns it and pays for no finalize turn. It defaults to "no": a structured caller's answer never
+    * comes for free, because the turn that stopped is prose and the finalize turn is what makes it parse.
     */
   private def runLoop[T](
     request: AiRequest,
@@ -709,7 +735,8 @@ case class ClaudeClient(
     maxCalls: Int,
     finalizeWith: ClaudeMessage,
     context: Option[String],
-    feature: Option[String]
+    feature: Option[String],
+    answerFrom: ClaudeResponse => Option[T] = (_: ClaudeResponse) => None
   )(execute: ClaudeToolUse => Future[ClaudeToolOutput])(
     finalizeTurn: (ClaudeRequest, Seq[ClaudeMessage]) => Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]]
   )(implicit ec: ExecutionContext): Future[ValidatedNec[ClaudeError, ClaudeToolLoopResult[T]]] = {
@@ -775,13 +802,22 @@ case class ClaudeClient(
                     }
                   }
                 } else {
-                  // Model stopped asking for tools; force the final answer. The finalize request must end in a
-                  // user turn — a trailing assistant turn is an assistant prefill, which modern models reject
-                  // with a 400 — so echo the model's turn and add an explicit user instruction.
-                  val done = messages :+
-                    ClaudeMessage(ClaudeRole.Assistant, rm.response.content) :+
-                    finalizeWith
-                  finalize(done, invocations, turns)
+                  answerFrom(rm.response) match {
+                    // The turn the model stopped on is itself the answer, so there is nothing left to ask for and
+                    // a whole round trip is not spent re-asking for it.
+                    case Some(answer) =>
+                      Future.successful(
+                        ClaudeToolLoopResult(answer, invocations, turns, rm.response.model).validNec
+                      )
+                    // Model stopped asking for tools; force the final answer. The finalize request must end in a
+                    // user turn — a trailing assistant turn is an assistant prefill, which modern models reject
+                    // with a 400 — so echo the model's turn and add an explicit user instruction.
+                    case None =>
+                      val done = messages :+
+                        ClaudeMessage(ClaudeRole.Assistant, rm.response.content) :+
+                        finalizeWith
+                      finalize(done, invocations, turns)
+                  }
                 }
             }
           }
