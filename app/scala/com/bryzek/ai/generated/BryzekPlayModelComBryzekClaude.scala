@@ -607,8 +607,13 @@ case class Message(placeholder: Option[String])
 package object json {
   import play.api.libs.json.*
 
-  implicit val jsonReadsJodaDateTime: play.api.libs.json.Reads[_root_.org.joda.time.DateTime] = {
-    JsPath.read[String].map(_root_.org.joda.time.format.ISODateTimeFormat.dateTimeParser.parseDateTime)
+  implicit val jsonReadsJodaDateTime: play.api.libs.json.Reads[_root_.org.joda.time.DateTime] = { (js: play.api.libs.json.JsValue) =>
+    js.validate[String].flatMap { value =>
+      _root_.scala.util.Try(_root_.org.joda.time.format.ISODateTimeFormat.dateTimeParser.parseDateTime(value)) match {
+        case _root_.scala.util.Success(parsed) => play.api.libs.json.JsSuccess(parsed)
+        case _root_.scala.util.Failure(_) => play.api.libs.json.JsError("error.expected.date.isoformat")
+      }
+    }
   }
   implicit val jsonWritesJodaDateTime: play.api.libs.json.Writes[_root_.org.joda.time.DateTime] = (x: _root_.org.joda.time.DateTime) => {
     play.api.libs.json.JsString(_root_.org.joda.time.format.ISODateTimeFormat.dateTime.print(x))
