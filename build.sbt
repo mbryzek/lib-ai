@@ -4,6 +4,8 @@ version := "0.1.90"
 
 ThisBuild / javacOptions ++= Seq("-source", "17", "-target", "17")
 
+// The published groupId. Do not remove: nothing else sets it, and without it the
+// artifact publishes under a default groupId that no consumer resolves (lib-util 0.0.34).
 ThisBuild / organization := "com.bryzek"
 ThisBuild / homepage := Some(url("https://github.com/mbryzek/lib-ai"))
 ThisBuild / licenses := Seq("MIT" -> url("https://github.com/mbryzek/lib-ai/blob/main/LICENSE"))
@@ -17,18 +19,26 @@ ThisBuild / scmInfo := Some(
 ThisBuild / publishTo := sonatypePublishToBundle.value
 ThisBuild / sonatypeCredentialHost := "central.sonatype.com"
 ThisBuild / sonatypeRepository := "https://central.sonatype.com/api/v1/publisher"
-ThisBuild / publishMavenStyle := true
 
 ThisBuild / scalaVersion := "3.8.4"
 
+// `-feature` is what makes a `-Werror` failure name the construct, the file and the line.
+// Without it the compiler says only "there was 1 feature warning; re-run with -feature",
+// and the `ci` log is the only artifact that run leaves -- nobody can re-run it
+// interactively. Order below is the two general flags, then the `-W` set alphabetically,
+// so a new option has one obvious place to go.
 lazy val allScalacOptions = Seq(
+  "-feature",
   "-Werror",
-  "-Wunused:locals",
-  "-Wunused:params",
   "-Wimplausible-patterns",
   "-Wunused:imports",
-  "-Wunused:privates",
   "-Wunused:linted",
+  "-Wunused:locals",
+  "-Wunused:params",
+  "-Wunused:privates",
+  // The committed apibuilder client under `app/scala/com/bryzek/ai/generated/` is
+  // regenerated, not hand-written, so a warning there is a codegen bug rather than a
+  // bug in this repo and `-Werror` must not fail this build for one.
   "-Wconf:src=.*/generated/.*:s"
 )
 
@@ -36,7 +46,6 @@ lazy val root = project
   .in(file("."))
   .enablePlugins(PlayScala)
   .settings(
-    resolvers += "scalaz-bintray" at "https://dl.bintray.com/scalaz/releases",
     scalafmtOnCompile := true,
     Compile / packageDoc / mappings := Seq(),
     Compile / packageDoc / publishArtifact := true,
