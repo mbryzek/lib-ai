@@ -24,28 +24,34 @@ ThisBuild / scalaVersion := "3.8.4"
 // Keep the unused browser-automation stack off the test classpath.
 //
 // It arrives by two transitive routes -- play-test -> io.fluentlenium:fluentlenium-core, and
-// scalatestplus-play -> org.seleniumhq.selenium:htmlunit-driver -- and underneath them sit
+// scalatestplus-play -> org.seleniumhq.selenium:htmlunit-driver -> net.sourceforge.htmlunit --
+// and each of the four packages underneath carries an open high or critical advisory:
 // net.sourceforge.htmlunit:htmlunit, org.eclipse.jetty 9.4 (htmlunit's websocket client),
 // org.codehaus.plexus:plexus-utils (fluentlenium's maven-model) and io.appium:java-client.
-// Each of those carries an open high/critical advisory, and the worst of them cannot be bumped:
-// net.sourceforge.htmlunit:htmlunit has no release above 2.70.0 because the fix shipped under a
-// renamed coordinate (org.htmlunit:htmlunit 3.0.0), which nothing on this classpath resolves.
-// Excluding is the only remediation in our hands until play-test and htmlunit-driver move.
+// The worst of them cannot be bumped: net.sourceforge.htmlunit:htmlunit has no release above
+// 2.70.0, because the fix shipped under a renamed coordinate (org.htmlunit:htmlunit 3.0.0) that
+// nothing on this classpath resolves. Excluding is the only remediation in our hands until
+// play-test and htmlunit-driver move to it.
 //
-// Nothing here constructs a WebDriver or extends a scalatestplus-play browser trait; the only
-// types used from it are PlaySpec, GuiceOneAppPerSuite and GuiceOneServerPerSuite. So a browser
-// test written after this fails to link, loudly, at the moment it is written -- which is the
-// intended trade: add a maintained stack (org.htmlunit, or Playwright) rather than inherit a
-// stale one through a transitive.
+// org.seleniumhq.selenium IS DELIBERATELY LEFT ALONE, and htmlunit-driver with it. `play.api.test
+// .PlayRunners` -- which `play.api.test.Helpers` extends, and which every GuiceOneServerPerSuite
+// spec initializes on its way to starting a test server -- holds `val HTMLUNIT =
+// classOf[HtmlUnitDriver]` and `val FIREFOX = classOf[FirefoxDriver]` as class literals, so both
+// driver classes must RESOLVE or Helpers' static initializer throws NoClassDefFoundError and
+// every server-per-suite spec dies before its first assertion. Resolving them needs only their
+// own supertypes, which are all Selenium; neither loads anything from net.sourceforge.htmlunit.
+// None of the Selenium artifacts carries an open advisory.
 //
-// NOT an org-wide org.seleniumhq.selenium rule: selenium-java and the driver artifacts carry no
-// open advisory, and org.scalatestplus:selenium-4-12 -- a direct scalatestplus-play dependency --
-// is compiled against them.
+// What does go is genuinely unreferenced: the only play-test classes naming fluentlenium are
+// TestBrowser and WebDriverFactory, and nothing here constructs a WebDriver, extends a
+// scalatestplus-play browser trait, or uses anything from it beyond PlaySpec,
+// GuiceOneAppPerSuite and GuiceOneServerPerSuite. A browser test written after this fails to
+// link, loudly, at the moment it is written -- which is the intended trade: add a maintained
+// stack (org.htmlunit, or Playwright) rather than inherit a stale one through a transitive.
 ThisBuild / excludeDependencies ++= Seq(
   ExclusionRule("net.sourceforge.htmlunit"),
   ExclusionRule("io.fluentlenium"),
-  ExclusionRule("io.appium"),
-  ExclusionRule("org.seleniumhq.selenium", "htmlunit-driver")
+  ExclusionRule("io.appium")
 )
 
 // `-feature` is what makes a `-Werror` failure name the construct, the file and the line.
