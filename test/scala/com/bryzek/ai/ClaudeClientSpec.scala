@@ -111,6 +111,82 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       message must include("output_tokens=30000")
     }
 
+    "refuses a response that stopped at the output ceiling with an answer half written" in {
+      // The five log_review_analyze responses of ISS-4625: text came back, so every caller took it as the answer,
+      // and it was the first 8192 tokens of one. `stop_reason` is the only thing that says so and it is gone by the
+      // time the caller holds the string, so the refusal has to happen here.
+      val truncated = fixedClient(
+        ClaudeResponse(
+          id = "msg_truncated",
+          `type` = "message",
+          role = ClaudeRole.Assistant,
+          content = Seq(ClaudeClient.textBlock("""{"findings": [{"summary": "the worker retried""")),
+          model = ClaudeModel.ClaudeSonnet5,
+          stopReason = ClaudeStopReason.MaxTokens,
+          usage = ClaudeUsage(inputTokens = 100000, outputTokens = 8192)
+        )
+      )
+
+      // Effort is already at the floor, so this is the refusal itself rather than the step-down below.
+      val result = await(truncated.chatText(request.copy(effort = Some(ClaudeEffort.Low)), models))(using timeout)
+
+      result.isInvalid mustBe true
+      val error = result.swap.toOption.get.toNonEmptyList.head
+      error.message must include("truncated")
+      error.message must include("stop_reason=max_tokens")
+      error.message must include("output_tokens=8192")
+      // The prefix is evidence for whoever reads the failure, and reachable only here -- but it is not an answer,
+      // so it is in `raw` rather than in the content channel.
+      error.raw mustBe Some("""{"findings": [{"summary": "the worker retried""")
+    }
+
+    "recovers a truncated answer by stepping effort down, exactly as it does an empty one" in {
+      // A truncation IS budget exhaustion -- the ceiling was reached, thinking merely left enough room to start --
+      // so it earns the same one-step recovery, and the caller sees one complete answer.
+      val seen = efforts()
+      val client = respondingClient(seen) { req =>
+        if (req.outputConfig.flatMap(_.effort).contains(ClaudeEffort.Medium)) answered else truncatedAnswer
+      }
+
+      val result = await(
+        client.chatText(request.copy(effort = Some(ClaudeEffort.High), maxTokens = 128000L), models)
+      )(using timeout)
+
+      result.isValid mustBe true
+      result.toOption.get.content mustBe "the draft"
+      seen.result() mustBe List(Some(ClaudeEffort.High), Some(ClaudeEffort.Medium))
+    }
+
+    "names the truncation on a structured response rather than the parse error it causes" in {
+      // Half a JSON object is well-formed as far as it got, so the parser reports a missing brace -- the one thing
+      // that is not wrong with it. The stop reason is checked before the text is parsed for exactly that reason.
+      val truncated = fixedClient(
+        ClaudeResponse(
+          id = "msg_truncated_json",
+          `type` = "message",
+          role = ClaudeRole.Assistant,
+          content = Seq(ClaudeClient.textBlock("""{"steps": [], "insight": "You are doing""")),
+          model = ClaudeModel.ClaudeSonnet5,
+          stopReason = ClaudeStopReason.MaxTokens,
+          usage = ClaudeUsage(inputTokens = 500, outputTokens = 4096)
+        )
+      )
+
+      val result = await(
+        truncated.chatCompletion[SingleInsightResponse](
+          request.copy(effort = Some(ClaudeEffort.Low)),
+          ClaudeOutputFormats.SingleInsight,
+          models
+        )
+      )(using timeout)
+
+      result.isInvalid mustBe true
+      val message = result.swap.toOption.get.toNonEmptyList.head.message
+      message must include("truncated")
+      message must include("stop_reason=max_tokens")
+      message must not include ("Content is not valid JSON")
+    }
+
     "toClaudeRequest wraps system in a single block" in {
       val r = AiRequest(messages = Nil, system = Some("hello"))
       val out = r.toClaudeRequest(ClaudeModel.ClaudeSonnet5)
@@ -204,6 +280,10 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
         "No text content in response (stop_reason=max_tokens, output_tokens=64000)"
       ) mustBe true
       // Thinking left just enough to start the draft, which was then cut off mid-string.
+      ClaudeClient.isBudgetExhaustionError(
+        "Response truncated at the output ceiling (stop_reason=max_tokens, output_tokens=8192); the answer is a prefix"
+      ) mustBe true
+      // The same truncation as an older run persisted it, before the stop reason was read at the point of parsing.
       ClaudeClient.isBudgetExhaustionError(
         "Content is not valid JSON: Unexpected end-of-input: was expecting closing quote for a string value"
       ) mustBe true
@@ -639,6 +719,29 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       sent.requests.size mustBe 2
     }
 
+    "surface a truncated finalize turn as an error rather than half an answer" in {
+      // The loop already declines to take a truncated turn as the answer; the finalize turn it runs instead can hit
+      // the same ceiling, and the prose it comes back with reads exactly like a complete reply.
+      val truncated = answered.copy(
+        content = Seq(ClaudeClient.textBlock("Last month your sessions were ru")),
+        stopReason = ClaudeStopReason.MaxTokens
+      )
+      val sent = scriptedClient(truncated, truncated)
+      val result = await(
+        sent.client.runToolLoopText(
+          request.copy(effort = Some(ClaudeEffort.Low)),
+          tools = Seq(tool),
+          models = models,
+          maxCalls = 25
+        ) { _ =>
+          sys.error("the model never asked for a tool")
+        }
+      )(using timeout)
+
+      result.isInvalid mustBe true
+      result.swap.toOption.get.toNonEmptyList.head.message must include("truncated")
+    }
+
     "surface an empty completion as an error rather than an empty answer" in {
       val thinkingOnly = answered.copy(
         content = Seq(ClaudeContentBlock(ClaudeContentType.Thinking).copy(thinking = Some("still reasoning")))
@@ -1068,6 +1171,15 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
     content = Seq(ClaudeClient.textBlock("the draft")),
     stopReason = ClaudeStopReason.EndTurn,
     usage = ClaudeUsage(inputTokens = 5000, outputTokens = 4374)
+  )
+
+  /** A turn that spent the ceiling with the answer already under way: `stop_reason=max_tokens` and a text block that
+    * is the first sentence of one.
+    */
+  private val truncatedAnswer: ClaudeResponse = budgetExhausted.copy(
+    id = "msg_truncated",
+    content = Seq(ClaudeClient.textBlock("the dra")),
+    usage = ClaudeUsage(inputTokens = 5000, outputTokens = 128000)
   )
 
   /** Records the `effort` of each request a [[respondingClient]] receives, in order. */
