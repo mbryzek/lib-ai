@@ -447,28 +447,25 @@ object ClaudeClient {
     errorMessage.contains(s"stop_reason=${ClaudeStopReason.Refusal}")
 
   /** Whether an error message says the request ran out of `max_tokens` -- thinking and the answer share that ceiling,
-    * so a deep enough thinking pass leaves nothing for the answer. It surfaces as one of TWO messages depending on how
-    * much of the budget thinking took, and both were observed on 2026-08-09 within twenty minutes of each other:
+    * so a deep enough thinking pass leaves little or nothing for the answer. How much it left decides which error the
+    * response becomes, and both are exhaustion: [[ClaudeContent.noTextError]] when no answer began at all, and
+    * [[ClaudeContent.truncatedError]] when one began and was cut off. Both name the stop reason, and that token --
+    * machine-formatted, written by this library, said by nothing else in a message -- is the whole signature.
     *
-    *   - thinking took all of it, so there is no text block at all (see [[ClaudeClient.noTextError]]) -- `No text
-    *     content in response (stop_reason=max_tokens, output_tokens=64000)`
-    *   - thinking left just enough to start the answer, which is then cut off mid-string -- `Content is not valid JSON:
-    *     Unexpected end-of-input: was expecting closing quote ...`
-    *
-    * The second is the same failure wearing a parser error, so it gets the same response. Each is matched on two
-    * independent phrases: `Content is not valid JSON` ON ITS OWN is an ordinary malformed response -- a content problem
-    * the model can correct -- and it is only truncation when the parser also ran out of input.
+    * The parser shape is matched as well because a persisted error read back from an older run carries it: a
+    * truncation used to reach the JSON parser and surface as `Content is not valid JSON: Unexpected end-of-input: was
+    * expecting closing quote ...`, with no stop reason anywhere in it. It takes both phrases, never one: `Content is
+    * not valid JSON` on its own is an ordinary malformed response, a content problem the model can correct.
     *
     * This lives here, next to the code that FORMATS those messages, because it used to live in platform: rewording
     * either message would have silently switched off the recovery over there, with no compile error and no test failure
     * here to catch it (ISS-1717).
     */
   def isBudgetExhaustionError(errorMessage: String): Boolean = {
-    val thinkingTookEverything =
-      errorMessage.contains("No text content") && errorMessage.contains(s"stop_reason=${ClaudeStopReason.MaxTokens}")
+    val stoppedAtTheCeiling = errorMessage.contains(s"stop_reason=${ClaudeStopReason.MaxTokens}")
     val answerCutOffMidStream =
       errorMessage.contains("Content is not valid JSON") && errorMessage.contains("Unexpected end-of-input")
-    thinkingTookEverything || answerCutOffMidStream
+    stoppedAtTheCeiling || answerCutOffMidStream
   }
 
   /** One rung down the effort ladder, or None at the floor. `None` means the caller sent no `effort`, which is the
@@ -683,8 +680,9 @@ case class ClaudeClient(
     * question the model answers without calling a tool that halved the wall clock (ISS-3311).
     *
     * Every other stop reason still finalizes: `max_tokens` carries a truncated answer, `refusal` and a pure-thinking
-    * turn carry no text at all, and the finalize turn is the retry that either recovers or produces the error
-    * `noTextError` is there to raise.
+    * turn carry no text at all, and the finalize turn is the retry that either recovers or produces the error --
+    * [[ClaudeContent.truncatedError]] for a finalize turn that hit the ceiling in its turn, [[ClaudeContent.noTextError]]
+    * for one that emitted nothing.
     */
   def runToolLoopText(
     request: AiRequest,
@@ -714,10 +712,7 @@ case class ClaudeClient(
         toolChoice = Some(ClaudeToolChoice(ClaudeToolChoiceType.None)),
         outputConfig = base.outputConfig
       )
-      sendAndStore[String](req, defaultHeaders, context, feature) { (rm, resp) =>
-        val text = textContent(resp)
-        if (text.nonEmpty) ClaudeResponseMetadata(rm, resp, text).validNec else noTextError(rm, resp).invalidNec
-      }
+      sendAndStore[String](req, defaultHeaders, context, feature)(textAnswer)
     }
 
   /** The tool loop itself, shared by [[runToolLoop]] and [[runToolLoopText]], which differ only in how the last turn
@@ -959,8 +954,8 @@ case class ClaudeClient(
     * Deliberately an error rather than the paused response. A paused turn stopped MID-THOUGHT: it carries whatever
     * prose the model had written before the server-tool loop hit its iteration limit, which reads as a complete answer
     * and is not one. Returning it would hand callers a silently truncated result — a wrong answer presented as a right
-    * one — where an error is at worst a retry. Same reasoning as [[ClaudeContent.noTextError]], and it names the cap it
-    * hit so the failure says what to change.
+    * one — where an error is at worst a retry. Same reasoning as [[ClaudeContent.truncatedError]], which refuses the
+    * other way a turn stops mid-answer, and it names the cap it hit so the failure says what to change.
     */
   private def pauseTurnExhaustedError(rm: ClaudeRequestMetadata): ClaudeError =
     rm.error(
@@ -1024,14 +1019,7 @@ case class ClaudeClient(
   private def chatTextSingle(originalRequest: ClaudeRequest, context: Option[String], feature: Option[String])(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[String]]] = {
-    sendAndStore[String](originalRequest, defaultHeaders, context, feature) { (rm, resp) =>
-      val text = textContent(resp)
-      if (text.nonEmpty) {
-        ClaudeResponseMetadata(rm, resp, text).validNec
-      } else {
-        noTextError(rm, resp).invalidNec
-      }
-    }
+    sendAndStore[String](originalRequest, defaultHeaders, context, feature)(textAnswer)
   }
 
   private def storeResponse[T](
@@ -1052,8 +1040,15 @@ case class ClaudeClient(
   ): ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]] =
     ClaudeContent.parse[T](rm.error, response).map(value => ClaudeResponseMetadata(rm, response, value))
 
-  private def noTextError(rm: ClaudeRequestMetadata, response: ClaudeResponse): ClaudeError =
-    ClaudeContent.noTextError(rm.error, response)
+  /** [[parseText]]'s counterpart for a caller that asked for prose: the answer as it stands, or the error saying why
+    * what came back is not one. Both prose paths -- [[chatText]] and [[runToolLoopText]]'s finalize turn -- share it,
+    * so neither can be the one that forgets to ask whether the generation finished.
+    */
+  private def textAnswer(
+    rm: ClaudeRequestMetadata,
+    response: ClaudeResponse
+  ): ValidatedNec[ClaudeError, ClaudeResponseMetadata[String]] =
+    ClaudeContent.requireText(rm.error, response).map(text => ClaudeResponseMetadata(rm, response, text))
 }
 
 object ClaudeOutputFormats {

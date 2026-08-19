@@ -2,7 +2,7 @@ package com.bryzek.ai.claude
 
 import cats.data.ValidatedNec
 import cats.implicits.*
-import com.bryzek.claude.models.{ClaudeContentType, ClaudeError, ClaudeResponse}
+import com.bryzek.claude.models.{ClaudeContentType, ClaudeError, ClaudeResponse, ClaudeStopReason}
 import play.api.libs.json.{JsError, JsSuccess, Json, Reads}
 
 import scala.util.{Failure, Success, Try}
@@ -37,11 +37,38 @@ private[claude] object ClaudeContent {
       None
     )
 
-  /** The response's text, or a [[noTextError]] when it has none. */
+  /** A response that stopped at the output ceiling with text in it -- `stop_reason=max_tokens`, and what came back is
+    * a PREFIX of the answer rather than the answer. Nothing downstream can tell: `stop_reason` lives on the response
+    * and is gone by the time anyone holds the string, so a JSON caller fails on the missing brace and reports the one
+    * thing that was NOT wrong (the JSON was well-formed as far as it got), and a prose caller publishes a sentence
+    * that stops mid-word.
+    *
+    * Names `stop_reason` + `output_tokens` in the same shape as [[noTextError]] -- which is also the signature
+    * [[ClaudeClient.isBudgetExhaustionError]] matches, so a truncation is absorbed by the effort step-down exactly as
+    * a no-text turn is. The partial text goes in `raw`: it is evidence for whoever reads the failure, never an answer.
+    */
+  def truncatedError(err: ErrorFactory, response: ClaudeResponse): ClaudeError =
+    err(
+      s"Response truncated at the output ceiling (stop_reason=${response.stopReason}, " +
+        s"output_tokens=${response.usage.outputTokens}); the answer is a prefix",
+      Some(text(response))
+    )
+
+  /** The response's text, refused when there is none ([[noTextError]]) or when what there is is only the beginning of
+    * it ([[truncatedError]]).
+    *
+    * "Did this generation finish" is a property of the protocol rather than of any one feature, so it is asked here:
+    * every path that turns a response into an answer -- both clients, both tool loops -- comes through this method, and
+    * a check restated at each entry point is one the next entry point is written without.
+    *
+    * A response with NO text is reported as such even when it also hit the ceiling, because that is the more specific
+    * diagnosis: thinking consumed the whole budget before the answer began.
+    */
   def requireText(err: ErrorFactory, response: ClaudeResponse): ValidatedNec[ClaudeError, String] =
     text(response) match {
-      case t if t.nonEmpty => t.validNec
-      case _ => noTextError(err, response).invalidNec
+      case t if t.isEmpty => noTextError(err, response).invalidNec
+      case _ if response.stopReason == ClaudeStopReason.MaxTokens => truncatedError(err, response).invalidNec
+      case t => t.validNec
     }
 
   /** Parses the response's text as `T`. With structured outputs Claude returns clean JSON without markdown delimiters,
