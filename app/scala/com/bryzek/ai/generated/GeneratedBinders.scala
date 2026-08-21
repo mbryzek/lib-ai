@@ -1,5 +1,6 @@
 package generated.binders
 
+
 trait Bindable[T] {
   def fromString(value: String): T
   def toString(value: T): String
@@ -36,6 +37,7 @@ case class BasePathBindable[T](bindable: Bindable[T]) extends _root_.play.api.mv
   final override def unbind(key: String, value: T): String = bindable.toString(value)
 }
 
+
 private val localDateBinder = new Bindable[_root_.org.joda.time.LocalDate] {
   override def fromString(value: String): _root_.org.joda.time.LocalDate = _root_.org.joda.time.format.ISODateTimeFormat.dateTimeParser.parseLocalDate(value)
   override def toString(value: _root_.org.joda.time.LocalDate): String = _root_.org.joda.time.format.ISODateTimeFormat.date.print(value)
@@ -57,3 +59,10 @@ private val localTimeBinder = new Bindable[_root_.org.joda.time.LocalTime] {
 }
 implicit def pathBinderTimeIso8601(implicit stringBinder: play.api.mvc.QueryStringBindable[String]): play.api.mvc.PathBindable[_root_.org.joda.time.LocalTime] = BasePathBindable(localTimeBinder)
 implicit def queryStringBinderTimeIso8601(implicit stringBinder: play.api.mvc.QueryStringBindable[String]): play.api.mvc.QueryStringBindable[_root_.org.joda.time.LocalTime] = BaseQueryStringBindable(localTimeBinder)
+private val bigDecimalBinder = new Bindable[scala.math.BigDecimal] {
+  override def fromString(value: String): scala.math.BigDecimal = scala.math.BigDecimal(value)
+  override def toString(value: scala.math.BigDecimal): String = value.toString
+  override def example: scala.math.BigDecimal = scala.math.BigDecimal("0.00")
+}
+implicit def pathBinderBigDecimal(implicit stringBinder: play.api.mvc.QueryStringBindable[String]): play.api.mvc.PathBindable[scala.math.BigDecimal] = BasePathBindable(bigDecimalBinder)
+implicit def queryStringBinderBigDecimal(implicit stringBinder: play.api.mvc.QueryStringBindable[String]): play.api.mvc.QueryStringBindable[scala.math.BigDecimal] = BaseQueryStringBindable(bigDecimalBinder)
