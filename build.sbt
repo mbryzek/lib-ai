@@ -59,15 +59,44 @@ ThisBuild / excludeDependencies ++= Seq(
 // and the `ci` log is the only artifact that run leaves -- nobody can re-run it
 // interactively. Order below is the two general flags, then the `-W` set alphabetically,
 // so a new option has one obvious place to go.
+//
+// `-Wvalue-discard` (E175) and `-Wnonunit-statement` (E176) are here for ONE class of silent
+// bug: a computation that produced a value carrying its own outcome -- a `Future` nobody
+// awaited, an `Either`/`Try`/`ValidatedNec` nobody inspected -- thrown away, so the code
+// compiles, runs and reports success while the work it stands for never happened. Fixing one
+// means HANDLING the value: await it, fold it, bind it, return it. Adapting it to `Unit`
+// re-hides the exact thing the flag found, so it is not a fix.
+//
+// RAISED ON THE VALUE'S TYPE, NOT ON EVERY STATEMENT, and the three `-Wconf` lines below are
+// how. Bare, the pair fires on every statement whose value goes unused: a `mutable.Map#put`
+// returning the entry it displaced, a Java builder returning itself, a generated DAO `insert`
+// returning the row it just wrote, a ScalaTest matcher returning the `Assertion` it has already
+// thrown on. None of those is a dropped result, and none of them has any remedy other than the
+// `: Unit` ascription this rule forbids -- so the two ids are silenced, then re-raised for the
+// types where a discard IS the defect. Re-raised as an ERROR rather than a warning, so the gate
+// does not depend on `-Werror` staying on above it.
+//
+// ORDER IS LOAD-BEARING: a later `-Wconf` rule beats an earlier one, so the sequence is
+// silence-then-raise and never the reverse. Growing the gate means adding a type to the last
+// line; deleting the two silencing lines is not the same thing and never was -- it surfaces
+// tens of thousands of statements whose only legal fix this rule has ruled out.
+//
+// `-Xlint` IS NOT IN THIS SET, and its Scala 3 replacement is why. The option is Scala 2's;
+// Scala 3 deprecates it and schedules it for removal, pointing at `-Wshadow` instead -- and
+// `-Wshadow` fires on a constructor parameter forwarded to a base class that re-exposes it as a
+// `val` of the same name, which is the only spelling that relationship has. Its remedy is a
+// worse parameter name at every named-argument call site, so the lint costs more than the
+// shadowing it reports.
 lazy val allScalacOptions = Seq(
   "-feature",
   "-Werror",
   "-Wimplausible-patterns",
-  "-Wunused:imports",
-  "-Wunused:linted",
-  "-Wunused:locals",
-  "-Wunused:params",
-  "-Wunused:privates",
+  "-Wnonunit-statement",
+  "-Wunused:all",
+  "-Wvalue-discard",
+  "-Wconf:id=E175:s",
+  "-Wconf:id=E176:s",
+  "-Wconf:msg=value of type ((scala\\.concurrent\\.)?Future|(scala\\.util\\.)?Try|(scala\\.util\\.)?Either|cats\\.data\\.Validated):e",
   // The committed apibuilder client under `app/scala/com/bryzek/ai/generated/` is
   // regenerated, not hand-written, so a warning there is a codegen bug rather than a
   // bug in this repo and `-Werror` must not fail this build for one.

@@ -133,7 +133,7 @@ class TestClaudeClient extends IClient with ClaudeBatchResults with SimulatedCla
 
   override def createClaudeBatch(
     body: ClaudeBatchForm,
-    @scala.annotation.nowarn("msg=unused") requestHeaders: Seq[(String, String)] = Nil
+    requestHeaders: Seq[(String, String)] = Nil
   ): Future[ClaudeBatch] = Future {
     val id = s"msgbatch_test_${batchCounter.incrementAndGet()}"
     val details = body.requests.map { item =>
@@ -174,12 +174,12 @@ class TestClaudeClient extends IClient with ClaudeBatchResults with SimulatedCla
 
   override def getClaudeBatchById(
     id: String,
-    @scala.annotation.nowarn("msg=unused") requestHeaders: Seq[(String, String)] = Nil
+    requestHeaders: Seq[(String, String)] = Nil
   ): Future[ClaudeBatch] = lookup(id).map(_._1)
 
   override def cancelClaudeBatchById(
     id: String,
-    @scala.annotation.nowarn("msg=unused") requestHeaders: Seq[(String, String)] = Nil
+    requestHeaders: Seq[(String, String)] = Nil
   ): Future[ClaudeBatch] = lookup(id).map { case (batch, lines) =>
     val canceling = batch.copy(cancelInitiatedAt = Some(DateTime.now()))
     batches.put(id, (canceling, lines))
@@ -188,7 +188,7 @@ class TestClaudeClient extends IClient with ClaudeBatchResults with SimulatedCla
 
   override def fetchBatchResults(
     batch: ClaudeBatch,
-    @scala.annotation.nowarn("msg=unused") requestHeaders: Seq[(String, String)] = Nil
+    requestHeaders: Seq[(String, String)] = Nil
   ): Future[Seq[String]] = lookup(batch.id).map(_._2)
 
   private def lookup(id: String): Future[(ClaudeBatch, Seq[String])] =
