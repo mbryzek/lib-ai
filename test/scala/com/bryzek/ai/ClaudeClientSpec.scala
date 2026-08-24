@@ -949,7 +949,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
     "resends the paused assistant content verbatim, with no extra user turn" in {
       val pausedTurn = paused("I searched and found")
       val sent = scriptedClient(pausedTurn, answered)
-      await(sent.client.chatText(request, models))(using timeout)
+      await(sent.client.chatText(request, models))(using timeout).isValid mustBe true
 
       val resumed = sent.requests(1)
       // Exactly one message appended: the paused assistant turn. A "continue" user turn would both break the
