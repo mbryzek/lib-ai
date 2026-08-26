@@ -21,6 +21,49 @@ ThisBuild / sonatypeCredentialHost := "central.sonatype.com"
 ThisBuild / sonatypeRepository := "https://central.sonatype.com/api/v1/publisher"
 
 ThisBuild / scalaVersion := "3.8.4"
+
+// Every Jackson artifact in this build resolves to one version.
+//
+// Jackson's own compatibility rule is that a release train moves together: the datatype and
+// dataformat modules compile against databind's internal serializer/deserializer SPI, and
+// jackson-module-scala additionally asserts its databind version at runtime and refuses to
+// register outside its own minor line. Only that last one fails loudly; a datatype module left
+// behind on an older line links fine and throws AbstractMethodError or NoSuchMethodError on
+// whichever serializer path first touches a changed SPI method. `JacksonPinSpec` asserts the pair
+// registers, so a partial bump fails by name here rather than opaquely in a consumer.
+//
+// Drift is the default here rather than an accident. play-json and pekko-serialization-jackson
+// contribute the whole family transitively at one version, so pinning a single coordinate wins the
+// conflict only for that artifact and the ones it depends on, leaving cbor/jdk8/jsr310/
+// parameter-names behind. Overriding the whole family is what makes one version true of all of
+// them.
+//
+// The floor is a security one: below 2.15.0 jackson-core has no nesting-depth limit and throws
+// StackOverflowError on deeply nested input rather than rejecting it (GHSA-h46c-h94j-95f3), and
+// that is the version play-json resolves. 2.22.2 is the head of the Jackson 2 line and the version
+// platform and acumen pin, so a consumer that pins too resolves one Jackson rather than two.
+//
+// This governs THIS build's resolution only -- sbt writes no `dependencyOverrides` into the
+// published POM -- so it decides what this repo compiles and tests against and imposes no floor on
+// a consumer. A consumer states its own, as platform and acumen do.
+//
+// jackson-annotations publishes no patch versions on its 2.20+ lines (maven-metadata.xml runs
+// 2.19.4, 2.20, 2.21, 2.22), so it carries its own version and a patch number there is a 404 that
+// fails the whole resolution.
+lazy val jacksonVersion = "2.22.2"
+lazy val jacksonAnnotationsVersion = "2.22"
+
+ThisBuild / dependencyOverrides ++= Seq(
+  "com.fasterxml.jackson.core" % "jackson-databind" % jacksonVersion,
+  "com.fasterxml.jackson.core" % "jackson-core" % jacksonVersion,
+  "com.fasterxml.jackson.core" % "jackson-annotations" % jacksonAnnotationsVersion,
+  "com.fasterxml.jackson.dataformat" % "jackson-dataformat-cbor" % jacksonVersion,
+  "com.fasterxml.jackson.datatype" % "jackson-datatype-jdk8" % jacksonVersion,
+  "com.fasterxml.jackson.datatype" % "jackson-datatype-jsr310" % jacksonVersion,
+  "com.fasterxml.jackson.module" % "jackson-module-parameter-names" % jacksonVersion,
+  "com.fasterxml.jackson.module" %% "jackson-module-scala" % jacksonVersion,
+)
+
 // Keep the unused browser-automation stack off the test classpath.
 //
 // It arrives by two transitive routes -- play-test -> io.fluentlenium:fluentlenium-core, and
