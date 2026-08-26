@@ -207,57 +207,59 @@ lazy val root = project
     scalacOptions ++= allScalacOptions,
     libraryDependencies ++= Seq(
       ws,
-      // logback-classic and logback-core, at one version at or above 1.5.33, DECLARED rather than
+      // logback-classic and logback-core, at one version at or above 1.5.34, DECLARED rather than
       // overridden.
       //
       // `PlayScala` puts play-logback on this library at compile scope, so it is in the published
       // POM and logback reaches every consumer through it, at whatever version play-logback names
-      // -- 1.5.32. A `dependencyOverrides` is resolution-local: sbt writes none of it into the POM,
-      // so it would fix this build's own classpath and leave every consumer inheriting the advisory
-      // from a library that reads as fixed. A direct compile-scope dependency is what reaches them.
+      // -- 1.5.32, and play-logback 3.0.11 is the newest stable release on Play's 3.0 line, so
+      // there is no upstream version to move to. A `dependencyOverrides` is resolution-local: sbt
+      // writes none of it into the POM, so it would fix this build's own classpath and leave every
+      // consumer inheriting the advisory from a library that reads as fixed. A direct compile-scope
+      // dependency is what reaches them.
       //
-      // The floor is a security one. Through 1.5.32, logback-core's `HardenedObjectInputStream` --
-      // the deserializer behind `SimpleSocketServer` and `SimpleSSLSocketServer` -- decided what a
-      // socket-delivered logging event may instantiate by PREFIX: a class name beginning
-      // `java.lang` or `java.util` was admitted whatever class it actually named. From 1.5.33 the
-      // same decision is an equality test against sixteen named classes, and everything else in
-      // those packages is refused with `InvalidClassException` (GHSA-p47f-322f-whfh).
-      // `LogbackPinSpec` asks the class itself for that refusal, because a pin that has stopped
-      // applying resolves cleanly and says nothing.
+      // The floor is a security one, and TWO advisories set it. Through 1.5.32, logback-core's
+      // `HardenedObjectInputStream` -- the deserializer behind `SimpleSocketServer` and
+      // `SimpleSSLSocketServer` -- decided what a socket-delivered logging event may instantiate by
+      // PREFIX: a class name beginning `java.lang` or `java.util` was admitted whatever class it
+      // actually named. From 1.5.33 the same decision is an equality test against sixteen named
+      // classes, and everything else in those packages is refused with `InvalidClassException`
+      // (GHSA-p47f-322f-whfh).
       //
-      // THE PAIR MOVES TOGETHER, and naming logback-core alone is the failure this states rather
-      // than one it prevents: the fix changed `HardenedObjectInputStream`'s constructors to take a
-      // `Context`, and logback-classic 1.5.32's `HardenedLoggingEventInputStream` calls the
-      // two-argument one its superclass no longer has. That combination resolves cleanly and throws
-      // NoSuchMethodError at class initialization.
+      // 1.5.33 IS ITSELF AFFECTED, which is why the floor is 1.5.34 and not 1.5.33. That check
+      // bounds what a stream may NAME; through 1.5.33 nothing bounded what the stream may have the
+      // JVM SYNTHESISE, because `HardenedObjectInputStream` left `resolveProxyClass` to
+      // `ObjectInputStream`, which defines a proxy class for whatever interfaces the stream names
+      // before any name check can run -- a proxy has no resolved class name until it has been
+      // defined (GHSA-jhq6-gfmj-v8fx). Whether the proxy then materialises turns on the whitelist
+      // naming `java.lang.reflect.Proxy` and the handler's own class; logback's built-in socket
+      // whitelist names neither, which is why the advisory calls the injection heavily restricted,
+      // but a caller-supplied whitelist can name both, and then the stream chooses the interfaces
+      // AND the `InvocationHandler` behind them. 1.5.34 overrides `resolveProxyClass` to refuse
+      // unconditionally, so no whitelist re-admits a proxy.
+      //
+      // `LogbackPinSpec` asserts both refusals against the resolved jar, because a pin that has
+      // stopped applying resolves cleanly and says nothing -- and it asserts the proxy one through
+      // a whitelist naming both classes an affected version stops at, since a case with an empty
+      // whitelist passes on 1.5.33 and proves nothing.
+      //
+      // BOTH COORDINATES, AT ONE VERSION. logback-core is named as well as logback-classic even
+      // though classic carries it, so the artifact the advisories are actually against states its
+      // own floor rather than depending on which classic wins a consumer's conflict resolution. And
+      // naming core alone is the failure this states rather than one it prevents: the two publish as
+      // one release train and classic compiles against core's internals, so the 1.5.33 fix changed
+      // `HardenedObjectInputStream`'s constructors to take a `Context` and logback-classic 1.5.32's
+      // `HardenedLoggingEventInputStream` calls the two-argument one its superclass no longer has.
+      // That combination resolves cleanly and throws NoSuchMethodError at class initialization.
+      //
+      // The version is `logbackVersion` in both lines rather than a literal, so the pair cannot be
+      // moved apart by editing one of them.
       "ch.qos.logback" % "logback-classic" % logbackVersion,
       "ch.qos.logback" % "logback-core" % logbackVersion,
       "joda-time" % "joda-time" % "2.14.3",
       "com.google.inject" % "guice" % "5.1.0",
       "org.playframework" %% "play-json" % "3.0.6",
       "org.typelevel" %% "cats-core" % "2.13.0",
-      // logback reaches this build through the Play plugin -- `enablePlugins(PlayScala)` puts
-      // play-logback on the compile classpath, and play-logback carries logback-classic, which
-      // carries logback-core. logback-core below 1.5.34 lets the deserialization modules its
-      // HardenedObjectInputStream is supposed to bound instantiate classes outside that bound,
-      // which turns any path that reads a serialized logging event into an object-injection sink
-      // (GHSA-jhq6-gfmj-v8fx). play-logback 3.0.11 declares logback-classic 1.5.32 and is the
-      // newest stable release on Play's 3.0 line, so there is no upstream version to move to and
-      // both coordinates have to be named here.
-      //
-      // DECLARED, NOT `dependencyOverrides`. An override is resolution-local: it fixes this
-      // build's classpath and writes nothing into the published POM, so every consumer would keep
-      // resolving 1.5.32 through the play-logback edge and inherit the advisory from a library
-      // that reads as fixed.
-      //
-      // logback-core is named as well as logback-classic even though classic carries it, so the
-      // artifact the advisory is actually against states its own floor rather than depending on
-      // which classic wins a consumer's conflict resolution. The two publish as one release train
-      // and classic compiles against core's internals, so they move together or a classic paired
-      // with a core it was not built against throws NoSuchMethodError on whichever appender path
-      // first touches a changed member.
-      "ch.qos.logback" % "logback-core" % "1.5.34",
-      "ch.qos.logback" % "logback-classic" % "1.5.34",
       "org.scalatestplus.play" %% "scalatestplus-play" % "7.0.2" % Test
     )
   )
