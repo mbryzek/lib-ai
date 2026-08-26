@@ -22,44 +22,56 @@ ThisBuild / sonatypeRepository := "https://central.sonatype.com/api/v1/publisher
 
 ThisBuild / scalaVersion := "3.8.4"
 
-// Every Jackson artifact on this classpath resolves to one version, declared here.
+// Every Jackson artifact in this build resolves to one version.
 //
-// Jackson reaches this build transitively by two routes -- Play (pekko-serialization-jackson) and
-// play-json -- and both carry the 2.14 line, inside the affected range of GHSA-j3rv-43j4-c7qm,
-// where a PolymorphicTypeValidator is consulted for the declared type but not for a generic type
-// PARAMETER of it, so a subtype the validator would refuse is still instantiated during
-// deserialization. play-json has no release above 3.0.6 and the Play version comes from the sbt
-// plugin, so there is no upstream bump that moves Jackson and the coordinates are named here.
+// Jackson's own compatibility rule is that a release train moves together: the datatype and
+// dataformat modules compile against databind's internal serializer/deserializer SPI, and
+// jackson-module-scala additionally asserts its databind version at runtime and refuses to
+// register outside its own minor line. Only that last one fails loudly; a datatype module left
+// behind on an older line links fine and throws AbstractMethodError or NoSuchMethodError on
+// whichever serializer path first touches a changed SPI method. `JacksonPinSpec` asserts the pair
+// registers, so a partial bump fails by name here rather than opaquely in a consumer.
 //
-// DECLARED, NOT `dependencyOverrides`. An override is resolution-local: it fixes this build's
-// classpath and writes nothing into the published POM, so every consumer would keep resolving
-// 2.14.3 through the transitive edge and inherit the advisory from a library that reads as fixed.
-// A direct compile-scope dependency is what reaches them.
+// Drift is the default here rather than an accident. Jackson reaches this build only transitively,
+// by two routes -- play-json, and Play itself through pekko-serialization-jackson -- and neither is
+// a coordinate this build names, so there is no version here to bump: play-json has no release
+// above 3.0.6 and the Play version comes from the sbt plugin. Pinning a single coordinate wins the
+// conflict only for that artifact and the ones it depends on, leaving cbor/jdk8/jsr310/
+// parameter-names behind. Overriding the whole family is what makes one version true of all of
+// them.
 //
-// The whole family moves together rather than jackson-databind alone. jackson-module-scala asserts
-// its databind version at RUNTIME and refuses to register against a databind whose minor version
-// is not its own, so a build where the two drift boots no Guice-backed Play app at all. Every
-// module tracks the databind minor version it was built against, and the datatype and
-// dataformat modules are not dragged forward by a databind bump -- left alone they stay on the
-// transitive 2.14.3 while databind moves.
+// The floor is a security one and two advisories set it, so it is stated as a range rather than a
+// single number. jackson-core below 2.15.0 has no nesting-depth limit and throws StackOverflowError
+// on deeply nested input rather than rejecting it (GHSA-h46c-h94j-95f3), and that is the version
+// play-json resolves. jackson-databind below 2.18.8 -- and again on 2.19.0 through 2.21.3 --
+// validates a type id carrying generics by the substring before the `<` and then resolves the type
+// arguments out of the rest of it without ever offering them to the PolymorphicTypeValidator, so
+// an allow-list naming one safe container admits any type smuggled into that container's parameter
+// position (GHSA-j3rv-43j4-c7qm).
+//
+// The second is the binding one, and it is why the first is not the number to read off this
+// comment: it rules out the whole 2.15.0-2.18.7 span the nesting-depth floor would allow, so the
+// lowest this pin may state is 2.18.8, and anything chosen on the 2.19 line must be 2.21.4 or
+// above. 2.22.2 is the head of the Jackson 2 line and the version platform and acumen pin, so a
+// consumer that pins too resolves one Jackson rather than two.
+//
+// This governs THIS build's resolution only -- sbt writes no `dependencyOverrides` into the
+// published POM -- so it decides what this repo compiles and tests against and imposes no floor on
+// a consumer. A consumer states its own, as platform and acumen do.
 //
 // jackson-annotations publishes no patch versions on its 2.20+ lines (maven-metadata.xml runs
 // 2.19.4, 2.20, 2.21, 2.22), so it carries its own version and a patch number there is a 404 that
 // fails the whole resolution.
-//
-// 2.22.2 rather than the advisory's own 2.18.8 floor: both are out of range, and 2.22.2 is what
-// platform and acumen already pin, so the Jackson this library's suite resolves is the one its
-// consumers actually run and the next dependency sweep has nothing to bump.
 lazy val jacksonVersion = "2.22.2"
 lazy val jacksonAnnotationsVersion = "2.22"
 
-lazy val jacksonDependencies = Seq(
+ThisBuild / dependencyOverrides ++= Seq(
   "com.fasterxml.jackson.core" % "jackson-databind" % jacksonVersion,
   "com.fasterxml.jackson.core" % "jackson-core" % jacksonVersion,
   "com.fasterxml.jackson.core" % "jackson-annotations" % jacksonAnnotationsVersion,
+  "com.fasterxml.jackson.dataformat" % "jackson-dataformat-cbor" % jacksonVersion,
   "com.fasterxml.jackson.datatype" % "jackson-datatype-jdk8" % jacksonVersion,
   "com.fasterxml.jackson.datatype" % "jackson-datatype-jsr310" % jacksonVersion,
-  "com.fasterxml.jackson.dataformat" % "jackson-dataformat-cbor" % jacksonVersion,
   "com.fasterxml.jackson.module" % "jackson-module-parameter-names" % jacksonVersion,
   "com.fasterxml.jackson.module" %% "jackson-module-scala" % jacksonVersion,
 )
@@ -170,7 +182,6 @@ lazy val root = project
     // it rather than about this suite. platform and acumen pin theirs for the same reason.
     Test / javaOptions += "-Xmx4g",
     scalacOptions ++= allScalacOptions,
-    libraryDependencies ++= jacksonDependencies,
     libraryDependencies ++= Seq(
       ws,
       "joda-time" % "joda-time" % "2.14.3",
