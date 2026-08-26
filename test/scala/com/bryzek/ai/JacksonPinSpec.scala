@@ -2,14 +2,18 @@ package com.bryzek.ai
 
 import com.fasterxml.jackson.core.async.ByteArrayFeeder
 import com.fasterxml.jackson.core.exc.StreamConstraintsException
+import com.fasterxml.jackson.core.`type`.TypeReference
 import com.fasterxml.jackson.core.{JsonFactory, StreamReadConstraints}
-import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.{DatabindException, ObjectMapper}
+import com.fasterxml.jackson.databind.ObjectMapper.DefaultTyping
+import com.fasterxml.jackson.databind.json.JsonMapper
+import com.fasterxml.jackson.databind.jsontype.BasicPolymorphicTypeValidator
 import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-/** The Jackson family this build resolves is pinned in build.sbt rather than inherited, and both
-  * halves of that pin fail silently when they are wrong.
+/** The Jackson family this build resolves is pinned in build.sbt rather than inherited, and every
+  * part of that pin fails silently when it is wrong.
   *
   * A partial pin resolves cleanly and then refuses at runtime: jackson-module-scala checks its
   * databind version when it registers and throws "Scala module <v> requires Jackson Databind
@@ -21,12 +25,28 @@ import org.scalatest.wordspec.AnyWordSpec
   * being rejected (GHSA-h46c-h94j-95f3). The depth limit that replaced it is what the second
   * assertion observes; the exception type it throws did not exist before the fix.
   *
-  * A pin that slips anywhere below 2.18.8, or onto the 2.19-2.21.3 line, resolves cleanly and
-  * passes both of the assertions above, because the depth limit they observe shipped in 2.15.0.
-  * What it reintroduces is GHSA-r7wm-3cxj-wff9: the non-blocking parser applies maxNumberLength to
-  * the digits in each fed chunk rather than to the number accumulated across feeds, so a value
-  * split across `feedInput` calls is not bounded at all and no chunk ever has to exceed the limit.
-  * The third assertion is the one that separates a fixed line from a merely-nesting-safe one.
+  * A pin below 2.18.8, or on 2.19.0 through 2.21.3, resolves cleanly and passes both of the
+  * assertions above, because the depth limit they observe shipped in 2.15.0. Two advisories share
+  * that range -- one against databind, one against core -- and the third and fourth assertions
+  * take one each. Neither can be read off a version number: both are behaviour of a limit that is
+  * configured, reported as in force, and not applied.
+  *
+  * The databind one is the quieter, because there the configuration that is supposed to stop an
+  * attack reports that it is in force and is not. A type id carrying generics is validated by the
+  * substring before the `<` alone; databind then parses the whole canonical string and resolves
+  * the arguments out of the rest of it without offering them to the `PolymorphicTypeValidator` at
+  * all. An allow-list naming one safe container therefore admits any type smuggled into that
+  * container's parameter position, which is instantiated and has its properties set from the
+  * document (GHSA-j3rv-43j4-c7qm). Nothing throws and nothing is logged -- the deserialization
+  * simply succeeds where it was configured not to, which is why the third assertion offers a
+  * denied type through a parameter and asks for the refusal, rather than reading a version number
+  * back.
+  *
+  * The core one is the same shape one layer down: the non-blocking parser applies maxNumberLength
+  * to the digits in each fed chunk rather than to the number accumulated across feeds, so a value
+  * split across `feedInput` calls is not bounded at all and no chunk ever has to exceed the limit
+  * (GHSA-r7wm-3cxj-wff9). The fourth assertion feeds one number in pieces and asks for the
+  * refusal.
   */
 class JacksonPinSpec extends AnyWordSpec with Matchers {
 
@@ -46,6 +66,29 @@ class JacksonPinSpec extends AnyWordSpec with Matchers {
         new ObjectMapper().readTree(nested)
       }
       thrown.getMessage must include("nesting depth")
+    }
+
+    "apply the PolymorphicTypeValidator to a type id's generic ARGUMENTS, not just its raw class" in {
+      // The validator allows exactly one container and nothing else, so `java.util.HashMap` is a
+      // denied type here. It is named as a generic ARGUMENT of the allowed container rather than
+      // on its own, which is the bypass: a type id containing `<` was validated by the substring
+      // before it, and the arguments parsed out of the rest were resolved and instantiated
+      // without ever being offered to the validator.
+      val mapper = JsonMapper
+        .builder()
+        .activateDefaultTyping(
+          BasicPolymorphicTypeValidator.builder().allowIfSubType("java.util.ArrayList").build(),
+          DefaultTyping.JAVA_LANG_OBJECT,
+        )
+        .build()
+
+      val thrown = intercept[DatabindException] {
+        mapper.readValue(
+          """[["java.util.ArrayList<java.util.HashMap>",[{"a":"b"}]]]""",
+          new TypeReference[java.util.List[Object]] {},
+        )
+      }
+      thrown.getMessage must include("java.util.HashMap")
     }
 
     "bound a number accumulated across feeds, not the digits within one feed" in {
