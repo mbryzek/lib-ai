@@ -21,6 +21,34 @@ ThisBuild / sonatypeCredentialHost := "central.sonatype.com"
 ThisBuild / sonatypeRepository := "https://central.sonatype.com/api/v1/publisher"
 
 ThisBuild / scalaVersion := "3.8.4"
+
+// Every Jackson artifact in this build resolves to one version, out of the range of
+// GHSA-rmj7-2vxq-3g9f -- where BasicPolymorphicTypeValidator's `allowIfSubTypeIsArray` check is
+// bypassed by naming an array of a forbidden type, so polymorphic deserialization accepts a subtype
+// the allowlist was written to refuse. Jackson reaches this build only transitively, through
+// play-ws -> play / play-json, and play-ahc-ws 3.0.11 is its newest release -- so there is no
+// upstream version to move to and Jackson has to be named here.
+//
+// DECLARED AT COMPILE SCOPE, NOT `dependencyOverrides`. An override is resolution-local: it fixes
+// this build's classpath and writes nothing into the published POM, so every consumer would keep
+// resolving the affected version through the play-ws edge and inherit the advisory from a library
+// that reads as fixed. A direct compile-scope dependency is what reaches them. All eight artifacts
+// are on this build's compile classpath, so all eight are declared.
+//
+// ONE VERSION FOR THE WHOLE FAMILY, not just jackson-databind. jackson-module-scala asserts its
+// databind version at runtime and refuses to register against a databind whose minor is not its
+// own, so a build where the two drift boots no Guice-backed Play app at all -- which is every
+// scalatestplus-play spec in this repo -- and the datatype modules are compiled against databind's
+// SPI, which moves with it.
+//
+// 2.22.2 rather than the advisory's own 2.18.8 floor: both are out of range, and 2.22.2 is what
+// platform and acumen already pin, so the Jackson this library resolves is the one its consumers
+// actually run and the next dependency sweep has nothing to bump. jackson-annotations publishes no
+// patch versions on its 2.20+ lines (maven-metadata.xml runs 2.19.4, 2.20, 2.21, 2.22), so it
+// carries its own version and a patch number there is a 404 that fails the whole resolution.
+lazy val jacksonVersion = "2.22.2"
+lazy val jacksonAnnotationsVersion = "2.22"
+
 // Keep the unused browser-automation stack off the test classpath.
 //
 // It arrives by two transitive routes -- play-test -> io.fluentlenium:fluentlenium-core, and
@@ -128,6 +156,15 @@ lazy val root = project
     Test / javaOptions += "-Xmx4g",
     scalacOptions ++= allScalacOptions,
     libraryDependencies ++= Seq(
+      // Pinned out of the range of GHSA-rmj7-2vxq-3g9f; see the jackson version block above.
+      "com.fasterxml.jackson.core" % "jackson-databind" % jacksonVersion,
+      "com.fasterxml.jackson.core" % "jackson-core" % jacksonVersion,
+      "com.fasterxml.jackson.core" % "jackson-annotations" % jacksonAnnotationsVersion,
+      "com.fasterxml.jackson.datatype" % "jackson-datatype-jdk8" % jacksonVersion,
+      "com.fasterxml.jackson.datatype" % "jackson-datatype-jsr310" % jacksonVersion,
+      "com.fasterxml.jackson.dataformat" % "jackson-dataformat-cbor" % jacksonVersion,
+      "com.fasterxml.jackson.module" % "jackson-module-parameter-names" % jacksonVersion,
+      "com.fasterxml.jackson.module" %% "jackson-module-scala" % jacksonVersion,
       ws,
       "joda-time" % "joda-time" % "2.14.3",
       "com.google.inject" % "guice" % "5.1.0",
