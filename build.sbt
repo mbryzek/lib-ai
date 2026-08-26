@@ -21,6 +21,49 @@ ThisBuild / sonatypeCredentialHost := "central.sonatype.com"
 ThisBuild / sonatypeRepository := "https://central.sonatype.com/api/v1/publisher"
 
 ThisBuild / scalaVersion := "3.8.4"
+
+// Every Jackson artifact on this classpath resolves to one version, declared here.
+//
+// Jackson reaches this build transitively by two routes -- Play (pekko-serialization-jackson) and
+// play-json -- and both carry the 2.14 line, inside the affected range of GHSA-j3rv-43j4-c7qm,
+// where a PolymorphicTypeValidator is consulted for the declared type but not for a generic type
+// PARAMETER of it, so a subtype the validator would refuse is still instantiated during
+// deserialization. play-json has no release above 3.0.6 and the Play version comes from the sbt
+// plugin, so there is no upstream bump that moves Jackson and the coordinates are named here.
+//
+// DECLARED, NOT `dependencyOverrides`. An override is resolution-local: it fixes this build's
+// classpath and writes nothing into the published POM, so every consumer would keep resolving
+// 2.14.3 through the transitive edge and inherit the advisory from a library that reads as fixed.
+// A direct compile-scope dependency is what reaches them.
+//
+// The whole family moves together rather than jackson-databind alone. jackson-module-scala asserts
+// its databind version at RUNTIME and refuses to register against a databind whose minor version
+// is not its own, so a build where the two drift boots no Guice-backed Play app at all. Every
+// module tracks the databind minor version it was built against, and the datatype and
+// dataformat modules are not dragged forward by a databind bump -- left alone they stay on the
+// transitive 2.14.3 while databind moves.
+//
+// jackson-annotations publishes no patch versions on its 2.20+ lines (maven-metadata.xml runs
+// 2.19.4, 2.20, 2.21, 2.22), so it carries its own version and a patch number there is a 404 that
+// fails the whole resolution.
+//
+// 2.22.2 rather than the advisory's own 2.18.8 floor: both are out of range, and 2.22.2 is what
+// platform and acumen already pin, so the Jackson this library's suite resolves is the one its
+// consumers actually run and the next dependency sweep has nothing to bump.
+lazy val jacksonVersion = "2.22.2"
+lazy val jacksonAnnotationsVersion = "2.22"
+
+lazy val jacksonDependencies = Seq(
+  "com.fasterxml.jackson.core" % "jackson-databind" % jacksonVersion,
+  "com.fasterxml.jackson.core" % "jackson-core" % jacksonVersion,
+  "com.fasterxml.jackson.core" % "jackson-annotations" % jacksonAnnotationsVersion,
+  "com.fasterxml.jackson.datatype" % "jackson-datatype-jdk8" % jacksonVersion,
+  "com.fasterxml.jackson.datatype" % "jackson-datatype-jsr310" % jacksonVersion,
+  "com.fasterxml.jackson.dataformat" % "jackson-dataformat-cbor" % jacksonVersion,
+  "com.fasterxml.jackson.module" % "jackson-module-parameter-names" % jacksonVersion,
+  "com.fasterxml.jackson.module" %% "jackson-module-scala" % jacksonVersion,
+)
+
 // Keep the unused browser-automation stack off the test classpath.
 //
 // It arrives by two transitive routes -- play-test -> io.fluentlenium:fluentlenium-core, and
@@ -127,6 +170,7 @@ lazy val root = project
     // it rather than about this suite. platform and acumen pin theirs for the same reason.
     Test / javaOptions += "-Xmx4g",
     scalacOptions ++= allScalacOptions,
+    libraryDependencies ++= jacksonDependencies,
     libraryDependencies ++= Seq(
       ws,
       "joda-time" % "joda-time" % "2.14.3",
