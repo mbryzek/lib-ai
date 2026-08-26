@@ -33,20 +33,15 @@ ThisBuild / scalaVersion := "3.8.4"
 // registers, so a partial bump fails by name here rather than opaquely in a consumer.
 //
 // Drift is the default here rather than an accident. play-json and pekko-serialization-jackson
-// contribute the whole family transitively at one version -- and at compile scope in this build,
-// because `ws` puts the Play stack there -- so pinning a single coordinate wins the conflict only
-// for that artifact and the ones it depends on, leaving cbor/jdk8/jsr310/parameter-names behind.
-// Overriding the whole family is what makes one version true of all of them.
+// contribute the whole family transitively at one version, so pinning a single coordinate wins the
+// conflict only for that artifact and the ones it depends on, leaving cbor/jdk8/jsr310/
+// parameter-names behind. Overriding the whole family is what makes one version true of all of
+// them.
 //
-// The floor is a security one, and two advisories set it. In jackson-core below 2.18.8 (and on the
-// 2.19-2.21.3 line) the non-blocking parser applies maxNumberLength to the digits in each fed
-// chunk rather than to the number accumulated across feeds, so a value split across feedInput
-// calls is never bounded at all (GHSA-r7wm-3cxj-wff9); below 2.15.0 there is additionally no
-// nesting-depth limit, so deeply nested input exhausts the stack instead of being rejected
-// (GHSA-h46c-h94j-95f3). play-json 3.0.6 is its newest release and still declares 2.14.3, so there
-// is no upstream release to move to and the coordinates have to be named here. 2.22.2 is the head
-// of the Jackson 2 line and the version platform, acumen and the other libs in this family pin, so
-// a consumer that pins too resolves one Jackson rather than two.
+// The floor is a security one: below 2.15.0 jackson-core has no nesting-depth limit and throws
+// StackOverflowError on deeply nested input rather than rejecting it (GHSA-h46c-h94j-95f3), and
+// that is the version play-json resolves. 2.22.2 is the head of the Jackson 2 line and the version
+// platform and acumen pin, so a consumer that pins too resolves one Jackson rather than two.
 //
 // This governs THIS build's resolution only -- sbt writes no `dependencyOverrides` into the
 // published POM -- so it decides what this repo compiles and tests against and imposes no floor on

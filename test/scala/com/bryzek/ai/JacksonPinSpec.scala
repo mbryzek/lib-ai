@@ -1,4 +1,4 @@
-package com.bryzek.ai.claude
+package com.bryzek.ai
 
 import com.fasterxml.jackson.core.async.ByteArrayFeeder
 import com.fasterxml.jackson.core.exc.StreamConstraintsException
