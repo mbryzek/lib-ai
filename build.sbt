@@ -21,6 +21,74 @@ ThisBuild / sonatypeCredentialHost := "central.sonatype.com"
 ThisBuild / sonatypeRepository := "https://central.sonatype.com/api/v1/publisher"
 
 ThisBuild / scalaVersion := "3.8.4"
+
+// Every Jackson artifact in this build resolves to one version, in every configuration, and the
+// published POM says so.
+//
+// Jackson's own compatibility rule is that a release train moves together: the datatype and
+// dataformat modules compile against databind's internal serializer/deserializer SPI, and
+// jackson-module-scala additionally asserts its databind version at runtime and refuses to run
+// outside its own minor line. Only that last one fails loudly; a module left behind on an older
+// line links fine and throws AbstractMethodError or NoSuchMethodError on whichever serializer path
+// first touches a changed SPI method, whenever something first exercises it. So a pin that names
+// only the vulnerable coordinate trades an advisory for a latent linkage error.
+//
+// The whole family arrives transitively at ONE version and has to leave at one: play-json
+// contributes core/annotations/databind/datatype-jdk8/datatype-jsr310, and play (via
+// scalatestplus-play) contributes dataformat-cbor/module-parameter-names/module-scala through
+// pekko-serialization-jackson. That version is inside the affected range of GHSA-r7wm-3cxj-wff9,
+// where jackson-core's non-blocking parser applies maxNumberLength to the digits in each fed chunk
+// rather than to the number accumulated across feeds, so a value split across feedInput calls is
+// never bounded at all. play-json 3.0.6 is its newest release and still declares the vulnerable
+// version, so there is no upstream release to move to and the coordinates have to be named here.
+//
+// TWO STATEMENTS, TWO JOBS, and neither one does the other's:
+//
+//   dependencyOverrides is resolution-local. It settles every configuration of THIS build, the
+//   artifacts that only ever reach the test classpath included, and writes nothing into the
+//   published POM.
+//
+//   libraryDependencies is what a consumer sees. Declaring, at compile scope, each artifact this
+//   library already exports transitively is what makes a consumer resolve the fixed version
+//   instead of inheriting the vulnerable one through the play-json edge from a library that reads
+//   as fixed.
+//
+// 2.22.2 rather than the advisory's own 2.18.8 floor: both are out of range, and 2.22.2 is what
+// platform and acumen already pin, so the Jackson this library's tests resolve is the one its
+// consumers actually run and the next dependency sweep has nothing to bump.
+//
+// jackson-annotations publishes no patch versions on its 2.20+ lines (maven-metadata.xml runs
+// 2.19.4, 2.20, 2.21, 2.22), so it carries its own version and a patch number there is a 404 that
+// fails the whole resolution.
+lazy val jacksonVersion = "2.22.2"
+lazy val jacksonAnnotationsVersion = "2.22"
+
+ThisBuild / dependencyOverrides ++= Seq(
+  "com.fasterxml.jackson.core" % "jackson-databind" % jacksonVersion,
+  "com.fasterxml.jackson.core" % "jackson-core" % jacksonVersion,
+  "com.fasterxml.jackson.core" % "jackson-annotations" % jacksonAnnotationsVersion,
+  "com.fasterxml.jackson.dataformat" % "jackson-dataformat-cbor" % jacksonVersion,
+  "com.fasterxml.jackson.datatype" % "jackson-datatype-jdk8" % jacksonVersion,
+  "com.fasterxml.jackson.datatype" % "jackson-datatype-jsr310" % jacksonVersion,
+  "com.fasterxml.jackson.module" % "jackson-module-parameter-names" % jacksonVersion,
+  "com.fasterxml.jackson.module" %% "jackson-module-scala" % jacksonVersion,
+)
+
+// The Jackson this library puts on a CONSUMER's compile classpath -- the POM-facing half of the
+// block above, added to `libraryDependencies` below. All eight, unlike the other libs in this
+// family: `ws` pulls the Play stack at compile scope here, so pekko-serialization-jackson's
+// dataformat-cbor, module-parameter-names and module-scala are exported rather than test-only.
+lazy val jacksonExports = Seq(
+  "com.fasterxml.jackson.core" % "jackson-databind" % jacksonVersion,
+  "com.fasterxml.jackson.core" % "jackson-core" % jacksonVersion,
+  "com.fasterxml.jackson.core" % "jackson-annotations" % jacksonAnnotationsVersion,
+  "com.fasterxml.jackson.dataformat" % "jackson-dataformat-cbor" % jacksonVersion,
+  "com.fasterxml.jackson.datatype" % "jackson-datatype-jdk8" % jacksonVersion,
+  "com.fasterxml.jackson.datatype" % "jackson-datatype-jsr310" % jacksonVersion,
+  "com.fasterxml.jackson.module" % "jackson-module-parameter-names" % jacksonVersion,
+  "com.fasterxml.jackson.module" %% "jackson-module-scala" % jacksonVersion,
+)
+
 // Keep the unused browser-automation stack off the test classpath.
 //
 // It arrives by two transitive routes -- play-test -> io.fluentlenium:fluentlenium-core, and
@@ -134,5 +202,6 @@ lazy val root = project
       "org.playframework" %% "play-json" % "3.0.6",
       "org.typelevel" %% "cats-core" % "2.13.0",
       "org.scalatestplus.play" %% "scalatestplus-play" % "7.0.2" % Test
-    )
+    ),
+    libraryDependencies ++= jacksonExports
   )
