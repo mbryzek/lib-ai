@@ -82,6 +82,23 @@ ThisBuild / dependencyOverrides ++= Seq(
 
 lazy val logbackVersion = "1.5.34"
 
+// at.yawk.lz4:lz4-java resolves to 1.11.2 or above, in every subproject.
+//
+// Below 1.11.1 the JNI-backed XXHash implementations hand a caller-supplied byte array and its
+// `off`/`len` to native code without first proving the range is inside the array: the streaming
+// `update` paths validate nothing at all, and the one-shot `hash` paths call
+// `SafeUtils.checkRange`, which skips every array access when `len == 0` and so lets a null array
+// through. Native code then dereferences it and the JVM dies where a Java exception belongs
+// (GHSA-xx22-p4ch-683r). The pure-Java XXHash implementations are unaffected, and so is the
+// ordinary case where only a valid array's CONTENTS are attacker-influenced -- the exposure is the
+// array reference and the range arguments.
+//
+// It is not declared anywhere in this build: play_3 depends on it directly and pins 1.11.0, so an
+// override is the only thing that moves it and there is no `libraryDependencies` line to edit
+// instead. Drop this pin once the Play version this build resolves ships a lz4-java at or above
+// 1.11.1 of its own.
+ThisBuild / dependencyOverrides += "at.yawk.lz4" % "lz4-java" % "1.11.2"
+
 // Keep the unused browser-automation stack off the test classpath.
 //
 // It arrives by two transitive routes -- play-test -> io.fluentlenium:fluentlenium-core, and
@@ -219,6 +236,28 @@ lazy val root = project
       "com.google.inject" % "guice" % "5.1.0",
       "org.playframework" %% "play-json" % "3.0.6",
       "org.typelevel" %% "cats-core" % "2.13.0",
+      // logback reaches this build through the Play plugin -- `enablePlugins(PlayScala)` puts
+      // play-logback on the compile classpath, and play-logback carries logback-classic, which
+      // carries logback-core. logback-core below 1.5.34 lets the deserialization modules its
+      // HardenedObjectInputStream is supposed to bound instantiate classes outside that bound,
+      // which turns any path that reads a serialized logging event into an object-injection sink
+      // (GHSA-jhq6-gfmj-v8fx). play-logback 3.0.11 declares logback-classic 1.5.32 and is the
+      // newest stable release on Play's 3.0 line, so there is no upstream version to move to and
+      // both coordinates have to be named here.
+      //
+      // DECLARED, NOT `dependencyOverrides`. An override is resolution-local: it fixes this
+      // build's classpath and writes nothing into the published POM, so every consumer would keep
+      // resolving 1.5.32 through the play-logback edge and inherit the advisory from a library
+      // that reads as fixed.
+      //
+      // logback-core is named as well as logback-classic even though classic carries it, so the
+      // artifact the advisory is actually against states its own floor rather than depending on
+      // which classic wins a consumer's conflict resolution. The two publish as one release train
+      // and classic compiles against core's internals, so they move together or a classic paired
+      // with a core it was not built against throws NoSuchMethodError on whichever appender path
+      // first touches a changed member.
+      "ch.qos.logback" % "logback-core" % "1.5.34",
+      "ch.qos.logback" % "logback-classic" % "1.5.34",
       "org.scalatestplus.play" %% "scalatestplus-play" % "7.0.2" % Test
     )
   )
