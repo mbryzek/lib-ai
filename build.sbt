@@ -32,10 +32,8 @@ ThisBuild / scalaVersion := "3.8.4"
 // whichever serializer path first touches a changed SPI method. `JacksonPinSpec` asserts the pair
 // registers, so a partial bump fails by name here rather than opaquely in a consumer.
 //
-// Drift is the default here rather than an accident. Jackson reaches this build only transitively,
-// by two routes -- play-json, and Play itself through pekko-serialization-jackson -- and neither is
-// a coordinate this build names, so there is no version here to bump: play-json has no release
-// above 3.0.6 and the Play version comes from the sbt plugin. Pinning a single coordinate wins the
+// Drift is the default here rather than an accident. play-json and pekko-serialization-jackson
+// contribute the whole family transitively at one version, so pinning a single coordinate wins the
 // conflict only for that artifact and the ones it depends on, leaving cbor/jdk8/jsr310/
 // parameter-names behind. Overriding the whole family is what makes one version true of all of
 // them.
