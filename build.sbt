@@ -80,6 +80,23 @@ ThisBuild / dependencyOverrides ++= Seq(
   "com.fasterxml.jackson.module" %% "jackson-module-scala" % jacksonVersion,
 )
 
+// at.yawk.lz4:lz4-java resolves to 1.11.2 or above, in every subproject.
+//
+// Below 1.11.1 the JNI-backed XXHash implementations hand a caller-supplied byte array and its
+// `off`/`len` to native code without first proving the range is inside the array: the streaming
+// `update` paths validate nothing at all, and the one-shot `hash` paths call
+// `SafeUtils.checkRange`, which skips every array access when `len == 0` and so lets a null array
+// through. Native code then dereferences it and the JVM dies where a Java exception belongs
+// (GHSA-xx22-p4ch-683r). The pure-Java XXHash implementations are unaffected, and so is the
+// ordinary case where only a valid array's CONTENTS are attacker-influenced -- the exposure is the
+// array reference and the range arguments.
+//
+// It is not declared anywhere in this build: play_3 depends on it directly and pins 1.11.0, so an
+// override is the only thing that moves it and there is no `libraryDependencies` line to edit
+// instead. Drop this pin once the Play version this build resolves ships a lz4-java at or above
+// 1.11.1 of its own.
+ThisBuild / dependencyOverrides += "at.yawk.lz4" % "lz4-java" % "1.11.2"
+
 // Keep the unused browser-automation stack off the test classpath.
 //
 // It arrives by two transitive routes -- play-test -> io.fluentlenium:fluentlenium-core, and
