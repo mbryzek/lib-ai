@@ -80,6 +80,8 @@ ThisBuild / dependencyOverrides ++= Seq(
   "com.fasterxml.jackson.module" %% "jackson-module-scala" % jacksonVersion,
 )
 
+lazy val logbackVersion = "1.5.34"
+
 // at.yawk.lz4:lz4-java resolves to 1.11.2 or above, in every subproject.
 //
 // Below 1.11.1 the JNI-backed XXHash implementations hand a caller-supplied byte array and its
@@ -205,6 +207,31 @@ lazy val root = project
     scalacOptions ++= allScalacOptions,
     libraryDependencies ++= Seq(
       ws,
+      // logback-classic and logback-core, at one version at or above 1.5.33, DECLARED rather than
+      // overridden.
+      //
+      // `PlayScala` puts play-logback on this library at compile scope, so it is in the published
+      // POM and logback reaches every consumer through it, at whatever version play-logback names
+      // -- 1.5.32. A `dependencyOverrides` is resolution-local: sbt writes none of it into the POM,
+      // so it would fix this build's own classpath and leave every consumer inheriting the advisory
+      // from a library that reads as fixed. A direct compile-scope dependency is what reaches them.
+      //
+      // The floor is a security one. Through 1.5.32, logback-core's `HardenedObjectInputStream` --
+      // the deserializer behind `SimpleSocketServer` and `SimpleSSLSocketServer` -- decided what a
+      // socket-delivered logging event may instantiate by PREFIX: a class name beginning
+      // `java.lang` or `java.util` was admitted whatever class it actually named. From 1.5.33 the
+      // same decision is an equality test against sixteen named classes, and everything else in
+      // those packages is refused with `InvalidClassException` (GHSA-p47f-322f-whfh).
+      // `LogbackPinSpec` asks the class itself for that refusal, because a pin that has stopped
+      // applying resolves cleanly and says nothing.
+      //
+      // THE PAIR MOVES TOGETHER, and naming logback-core alone is the failure this states rather
+      // than one it prevents: the fix changed `HardenedObjectInputStream`'s constructors to take a
+      // `Context`, and logback-classic 1.5.32's `HardenedLoggingEventInputStream` calls the
+      // two-argument one its superclass no longer has. That combination resolves cleanly and throws
+      // NoSuchMethodError at class initialization.
+      "ch.qos.logback" % "logback-classic" % logbackVersion,
+      "ch.qos.logback" % "logback-core" % logbackVersion,
       "joda-time" % "joda-time" % "2.14.3",
       "com.google.inject" % "guice" % "5.1.0",
       "org.playframework" %% "play-json" % "3.0.6",
