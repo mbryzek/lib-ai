@@ -80,7 +80,7 @@ ThisBuild / dependencyOverrides ++= Seq(
   "com.fasterxml.jackson.module" %% "jackson-module-scala" % jacksonVersion,
 )
 
-lazy val logbackVersion = "1.5.34"
+lazy val logbackVersion = "1.6.3"
 
 // at.yawk.lz4:lz4-java resolves to 1.11.2 or above, in every subproject.
 //
