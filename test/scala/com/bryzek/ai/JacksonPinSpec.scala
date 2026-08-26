@@ -26,9 +26,9 @@ import org.scalatest.wordspec.AnyWordSpec
   * assertion observes; the exception type it throws did not exist before the fix.
   *
   * A pin below 2.18.8, or on 2.19.0 through 2.21.3, resolves cleanly and passes both of the
-  * assertions above, because the depth limit they observe shipped in 2.15.0. Two advisories share
-  * that range -- one against databind, one against core -- and the third and fourth assertions
-  * take one each. Neither can be read off a version number: both are behaviour of a limit that is
+  * assertions above, because the depth limit they observe shipped in 2.15.0. Three advisories
+  * share that range -- two against databind, one against core -- and the remaining assertions take
+  * one each. None can be read off a version number: each is behaviour of a limit that is
   * configured, reported as in force, and not applied.
   *
   * The databind one is the quieter, because there the configuration that is supposed to stop an
@@ -42,10 +42,15 @@ import org.scalatest.wordspec.AnyWordSpec
   * denied type through a parameter and asks for the refusal, rather than reading a version number
   * back.
   *
+  * The second databind one is the same bypass reached by a different route: `allowIfSubTypeIsArray`
+  * answered on `clazz.isArray()` alone, so an array of a denied class was allowed and its elements
+  * were then instantiated with no further check (GHSA-rmj7-2vxq-3g9f). The fourth assertion names a
+  * denied type as an array's component and asks for the refusal.
+  *
   * The core one is the same shape one layer down: the non-blocking parser applies maxNumberLength
   * to the digits in each fed chunk rather than to the number accumulated across feeds, so a value
   * split across `feedInput` calls is not bounded at all and no chunk ever has to exceed the limit
-  * (GHSA-r7wm-3cxj-wff9). The fourth assertion feeds one number in pieces and asks for the
+  * (GHSA-r7wm-3cxj-wff9). The fifth assertion feeds one number in pieces and asks for the
   * refusal.
   */
 class JacksonPinSpec extends AnyWordSpec with Matchers {
@@ -85,6 +90,32 @@ class JacksonPinSpec extends AnyWordSpec with Matchers {
       val thrown = intercept[DatabindException] {
         mapper.readValue(
           """[["java.util.ArrayList<java.util.HashMap>",[{"a":"b"}]]]""",
+          new TypeReference[java.util.List[Object]] {},
+        )
+      }
+      thrown.getMessage must include("java.util.HashMap")
+    }
+
+    "apply the PolymorphicTypeValidator to an array's COMPONENT type, not just to its arrayness" in {
+      // The validator allows arrays, plus exactly one concrete container and nothing else, so
+      // `java.util.HashMap` is a denied type here. It is named as the COMPONENT of an array rather
+      // than on its own, which is the bypass: `allowIfSubTypeIsArray` answered on `clazz.isArray()`
+      // alone, and the elements were then instantiated with no further check.
+      val mapper = JsonMapper
+        .builder()
+        .activateDefaultTyping(
+          BasicPolymorphicTypeValidator
+            .builder()
+            .allowIfSubTypeIsArray()
+            .allowIfSubType("java.util.ArrayList")
+            .build(),
+          DefaultTyping.JAVA_LANG_OBJECT,
+        )
+        .build()
+
+      val thrown = intercept[DatabindException] {
+        mapper.readValue(
+          """[["[Ljava.util.HashMap;",[{"a":"b"}]]]""",
           new TypeReference[java.util.List[Object]] {},
         )
       }
