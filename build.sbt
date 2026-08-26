@@ -22,40 +22,35 @@ ThisBuild / sonatypeRepository := "https://central.sonatype.com/api/v1/publisher
 
 ThisBuild / scalaVersion := "3.8.4"
 
-// Every Jackson artifact in this build resolves to one version, in every configuration, and the
-// published POM says so.
+// Every Jackson artifact in this build resolves to one version.
 //
 // Jackson's own compatibility rule is that a release train moves together: the datatype and
 // dataformat modules compile against databind's internal serializer/deserializer SPI, and
-// jackson-module-scala additionally asserts its databind version at runtime and refuses to run
-// outside its own minor line. Only that last one fails loudly; a module left behind on an older
-// line links fine and throws AbstractMethodError or NoSuchMethodError on whichever serializer path
-// first touches a changed SPI method, whenever something first exercises it. So a pin that names
-// only the vulnerable coordinate trades an advisory for a latent linkage error.
+// jackson-module-scala additionally asserts its databind version at runtime and refuses to
+// register outside its own minor line. Only that last one fails loudly; a datatype module left
+// behind on an older line links fine and throws AbstractMethodError or NoSuchMethodError on
+// whichever serializer path first touches a changed SPI method. `JacksonPinSpec` asserts the pair
+// registers, so a partial bump fails by name here rather than opaquely in a consumer.
 //
-// The whole family arrives transitively at ONE version and has to leave at one: play-json
-// contributes core/annotations/databind/datatype-jdk8/datatype-jsr310, and play (via
-// scalatestplus-play) contributes dataformat-cbor/module-parameter-names/module-scala through
-// pekko-serialization-jackson. That version is inside the affected range of GHSA-r7wm-3cxj-wff9,
-// where jackson-core's non-blocking parser applies maxNumberLength to the digits in each fed chunk
-// rather than to the number accumulated across feeds, so a value split across feedInput calls is
-// never bounded at all. play-json 3.0.6 is its newest release and still declares the vulnerable
-// version, so there is no upstream release to move to and the coordinates have to be named here.
+// Drift is the default here rather than an accident. play-json and pekko-serialization-jackson
+// contribute the whole family transitively at one version -- and at compile scope in this build,
+// because `ws` puts the Play stack there -- so pinning a single coordinate wins the conflict only
+// for that artifact and the ones it depends on, leaving cbor/jdk8/jsr310/parameter-names behind.
+// Overriding the whole family is what makes one version true of all of them.
 //
-// TWO STATEMENTS, TWO JOBS, and neither one does the other's:
+// The floor is a security one, and two advisories set it. In jackson-core below 2.18.8 (and on the
+// 2.19-2.21.3 line) the non-blocking parser applies maxNumberLength to the digits in each fed
+// chunk rather than to the number accumulated across feeds, so a value split across feedInput
+// calls is never bounded at all (GHSA-r7wm-3cxj-wff9); below 2.15.0 there is additionally no
+// nesting-depth limit, so deeply nested input exhausts the stack instead of being rejected
+// (GHSA-h46c-h94j-95f3). play-json 3.0.6 is its newest release and still declares 2.14.3, so there
+// is no upstream release to move to and the coordinates have to be named here. 2.22.2 is the head
+// of the Jackson 2 line and the version platform, acumen and the other libs in this family pin, so
+// a consumer that pins too resolves one Jackson rather than two.
 //
-//   dependencyOverrides is resolution-local. It settles every configuration of THIS build, the
-//   artifacts that only ever reach the test classpath included, and writes nothing into the
-//   published POM.
-//
-//   libraryDependencies is what a consumer sees. Declaring, at compile scope, each artifact this
-//   library already exports transitively is what makes a consumer resolve the fixed version
-//   instead of inheriting the vulnerable one through the play-json edge from a library that reads
-//   as fixed.
-//
-// 2.22.2 rather than the advisory's own 2.18.8 floor: both are out of range, and 2.22.2 is what
-// platform and acumen already pin, so the Jackson this library's tests resolve is the one its
-// consumers actually run and the next dependency sweep has nothing to bump.
+// This governs THIS build's resolution only -- sbt writes no `dependencyOverrides` into the
+// published POM -- so it decides what this repo compiles and tests against and imposes no floor on
+// a consumer. A consumer states its own, as platform and acumen do.
 //
 // jackson-annotations publishes no patch versions on its 2.20+ lines (maven-metadata.xml runs
 // 2.19.4, 2.20, 2.21, 2.22), so it carries its own version and a patch number there is a 404 that
@@ -64,21 +59,6 @@ lazy val jacksonVersion = "2.22.2"
 lazy val jacksonAnnotationsVersion = "2.22"
 
 ThisBuild / dependencyOverrides ++= Seq(
-  "com.fasterxml.jackson.core" % "jackson-databind" % jacksonVersion,
-  "com.fasterxml.jackson.core" % "jackson-core" % jacksonVersion,
-  "com.fasterxml.jackson.core" % "jackson-annotations" % jacksonAnnotationsVersion,
-  "com.fasterxml.jackson.dataformat" % "jackson-dataformat-cbor" % jacksonVersion,
-  "com.fasterxml.jackson.datatype" % "jackson-datatype-jdk8" % jacksonVersion,
-  "com.fasterxml.jackson.datatype" % "jackson-datatype-jsr310" % jacksonVersion,
-  "com.fasterxml.jackson.module" % "jackson-module-parameter-names" % jacksonVersion,
-  "com.fasterxml.jackson.module" %% "jackson-module-scala" % jacksonVersion,
-)
-
-// The Jackson this library puts on a CONSUMER's compile classpath -- the POM-facing half of the
-// block above, added to `libraryDependencies` below. All eight, unlike the other libs in this
-// family: `ws` pulls the Play stack at compile scope here, so pekko-serialization-jackson's
-// dataformat-cbor, module-parameter-names and module-scala are exported rather than test-only.
-lazy val jacksonExports = Seq(
   "com.fasterxml.jackson.core" % "jackson-databind" % jacksonVersion,
   "com.fasterxml.jackson.core" % "jackson-core" % jacksonVersion,
   "com.fasterxml.jackson.core" % "jackson-annotations" % jacksonAnnotationsVersion,
@@ -202,6 +182,5 @@ lazy val root = project
       "org.playframework" %% "play-json" % "3.0.6",
       "org.typelevel" %% "cats-core" % "2.13.0",
       "org.scalatestplus.play" %% "scalatestplus-play" % "7.0.2" % Test
-    ),
-    libraryDependencies ++= jacksonExports
+    )
   )
