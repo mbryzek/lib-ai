@@ -38,24 +38,26 @@ ThisBuild / scalaVersion := "3.8.4"
 // parameter-names behind. Overriding the whole family is what makes one version true of all of
 // them.
 //
-// The floor is a security one and three advisories set it, so it is stated as a range rather than
-// a single number. jackson-core below 2.15.0 has no nesting-depth limit and throws
-// StackOverflowError on deeply nested input rather than rejecting it (GHSA-h46c-h94j-95f3), and
-// that is the version play-json resolves. jackson-databind below 2.18.8 -- and again on 2.19.0
-// through 2.21.3 -- validates a type id carrying generics by the substring before the `<` and then
-// resolves the type arguments out of the rest of it without ever offering them to the
-// PolymorphicTypeValidator, so an allow-list naming one safe container admits any type smuggled
-// into that container's parameter position (GHSA-j3rv-43j4-c7qm). jackson-core over that same
-// range applies maxNumberLength to the digits within each chunk fed to the non-blocking parser
-// rather than to the number accumulated across feeds, so a number split across `feedInput` calls
-// is not bounded at all and no chunk ever has to exceed the limit (GHSA-r7wm-3cxj-wff9).
+// The floor is a security one and four advisories set it, so it is stated as a range rather than a
+// single number. jackson-core below 2.15.0 has no nesting-depth limit and throws StackOverflowError
+// on deeply nested input rather than rejecting it (GHSA-h46c-h94j-95f3), and that is the version
+// play-json resolves. jackson-databind below 2.18.8 -- and again on 2.19.0 through 2.21.3 --
+// validates a type id carrying generics by the substring before the `<` and then resolves the type
+// arguments out of the rest of it without ever offering them to the PolymorphicTypeValidator, so an
+// allow-list naming one safe container admits any type smuggled into that container's parameter
+// position (GHSA-j3rv-43j4-c7qm). Databind over that same range also answers
+// `allowIfSubTypeIsArray` on `clazz.isArray()` alone and never validates the array's component
+// type, so a denied class named as the element of an array is admitted and instantiated with no
+// further check (GHSA-rmj7-2vxq-3g9f). jackson-core over that same range applies maxNumberLength to
+// the digits within each chunk fed to the non-blocking parser rather than to the number accumulated
+// across feeds, so a number split across `feedInput` calls is not bounded at all and no chunk ever
+// has to exceed the limit (GHSA-r7wm-3cxj-wff9).
 //
-// The second and third are the binding ones -- they share one range -- and they are why the first
-// is not the number to read off this comment: they rule out the whole 2.15.0-2.18.7 span the
-// nesting-depth floor would allow, so the lowest this pin may state is 2.18.8, and anything chosen
-// on the 2.19 line must be 2.21.4 or above. 2.22.2 is the head of the Jackson 2 line and the
-// version platform and acumen pin, so a consumer that pins too resolves one Jackson rather than
-// two.
+// The last three are the binding ones -- they share one range -- and they are why the first is not
+// the number to read off this comment: they rule out the whole 2.15.0-2.18.7 span the nesting-depth
+// floor would allow, so the lowest this pin may state is 2.18.8, and anything chosen on the 2.19
+// line must be 2.21.4 or above. 2.22.2 is the head of the Jackson 2 line and the version platform
+// and acumen pin, so a consumer that pins too resolves one Jackson rather than two.
 //
 // This governs THIS build's resolution only -- sbt writes no `dependencyOverrides` into the
 // published POM -- so it decides what this repo compiles and tests against and imposes no floor on
