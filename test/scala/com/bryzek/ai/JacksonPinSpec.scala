@@ -1,7 +1,9 @@
 package com.bryzek.ai
 
+import com.fasterxml.jackson.core.async.ByteArrayFeeder
 import com.fasterxml.jackson.core.exc.StreamConstraintsException
 import com.fasterxml.jackson.core.`type`.TypeReference
+import com.fasterxml.jackson.core.{JsonFactory, StreamReadConstraints}
 import com.fasterxml.jackson.databind.{DatabindException, ObjectMapper}
 import com.fasterxml.jackson.databind.ObjectMapper.DefaultTyping
 import com.fasterxml.jackson.databind.json.JsonMapper
@@ -23,16 +25,28 @@ import org.scalatest.wordspec.AnyWordSpec
   * being rejected (GHSA-h46c-h94j-95f3). The depth limit that replaced it is what the second
   * assertion observes; the exception type it throws did not exist before the fix.
   *
-  * A pin below 2.18.8, or on 2.19.0 through 2.21.3, is the quietest of the three, because there
-  * the configuration that is supposed to stop an attack reports that it is in force and is not. A
-  * type id carrying generics is validated by the substring before the `<` alone; databind then
-  * parses the whole canonical string and resolves the arguments out of the rest of it without
-  * offering them to the `PolymorphicTypeValidator` at all. An allow-list naming one safe container
-  * therefore admits any type smuggled into that container's parameter position, which is
-  * instantiated and has its properties set from the document (GHSA-j3rv-43j4-c7qm). Nothing throws
-  * and nothing is logged -- the deserialization simply succeeds where it was configured not to,
-  * which is why the third assertion offers a denied type through a parameter and asks for the
-  * refusal, rather than reading a version number back.
+  * A pin below 2.18.8, or on 2.19.0 through 2.21.3, resolves cleanly and passes both of the
+  * assertions above, because the depth limit they observe shipped in 2.15.0. Two advisories share
+  * that range -- one against databind, one against core -- and the third and fourth assertions
+  * take one each. Neither can be read off a version number: both are behaviour of a limit that is
+  * configured, reported as in force, and not applied.
+  *
+  * The databind one is the quieter, because there the configuration that is supposed to stop an
+  * attack reports that it is in force and is not. A type id carrying generics is validated by the
+  * substring before the `<` alone; databind then parses the whole canonical string and resolves
+  * the arguments out of the rest of it without offering them to the `PolymorphicTypeValidator` at
+  * all. An allow-list naming one safe container therefore admits any type smuggled into that
+  * container's parameter position, which is instantiated and has its properties set from the
+  * document (GHSA-j3rv-43j4-c7qm). Nothing throws and nothing is logged -- the deserialization
+  * simply succeeds where it was configured not to, which is why the third assertion offers a
+  * denied type through a parameter and asks for the refusal, rather than reading a version number
+  * back.
+  *
+  * The core one is the same shape one layer down: the non-blocking parser applies maxNumberLength
+  * to the digits in each fed chunk rather than to the number accumulated across feeds, so a value
+  * split across `feedInput` calls is not bounded at all and no chunk ever has to exceed the limit
+  * (GHSA-r7wm-3cxj-wff9). The fourth assertion feeds one number in pieces and asks for the
+  * refusal.
   */
 class JacksonPinSpec extends AnyWordSpec with Matchers {
 
@@ -75,6 +89,28 @@ class JacksonPinSpec extends AnyWordSpec with Matchers {
         )
       }
       thrown.getMessage must include("java.util.HashMap")
+    }
+
+    "bound a number accumulated across feeds, not the digits within one feed" in {
+      val factory = JsonFactory
+        .builder()
+        .streamReadConstraints(StreamReadConstraints.builder().maxNumberLength(100).build())
+        .build()
+      val parser = factory.createNonBlockingByteArrayParser()
+      val feeder = parser.getNonBlockingInputFeeder.asInstanceOf[ByteArrayFeeder]
+      // Ten feeds of fifty digits: 500 digits against a limit of 100, with no single chunk over
+      // the limit. On an unfixed line every feed is measured on its own and all ten are accepted.
+      val chunk = "1".repeat(50).getBytes("UTF-8")
+
+      val thrown = intercept[StreamConstraintsException] {
+        (1 to 10).foreach { _ =>
+          feeder.feedInput(chunk, 0, chunk.length)
+          parser.nextToken()
+        }
+        feeder.endOfInput()
+        parser.nextToken()
+      }
+      thrown.getMessage must include("Number value length")
     }
   }
 }
