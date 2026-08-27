@@ -4,7 +4,7 @@ import _root_.play.api.libs.ws.WSResponse
 import _root_.play.api.libs.json.{Json, JsValue, JsArray, Reads, JsSuccess, JsError}
 
 case class ApiException(
-  response: _root_.play.api.libs.ws.WSResponse,
+  @transient response: _root_.play.api.libs.ws.WSResponse,
   message: String
 ) extends RuntimeException(s"HTTP ${response.status}: $message")
 
