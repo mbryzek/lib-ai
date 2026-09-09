@@ -6,6 +6,7 @@ import com.bryzek.claude.models.{
   ClaudeContentType,
   ClaudeEffort,
   ClaudeMediaType,
+  ClaudeMessage,
   ClaudeModel,
   ClaudeRequest,
   ClaudeResponse,
@@ -757,6 +758,55 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       result.swap.toOption.get.toNonEmptyList.head.message must include("No text content")
     }
 
+    // THE TRANSCRIPT RULE IS NOT ABOUT THE STOP REASON. Every `tool_use` block must be followed by
+    // its `tool_result` in the next message, so a turn that chose tools and then stopped for
+    // `max_tokens` has to be answered like any other. Echoing it into the finalize turn instead is a
+    // 400 -- "tool_use ids were found without tool_result blocks immediately after" -- which fails
+    // the whole loop after paying for it (ISS-9978).
+    "answer the tool calls of a turn that stopped for a reason other than tool_use" in {
+      val truncatedChoice = budgetExhausted.copy(
+        id = "msg_truncated_tools",
+        content = Seq(toolUseBlock("toolu_first"), toolUseBlock("toolu_second")),
+        stopReason = ClaudeStopReason.MaxTokens
+      )
+      val sent = scriptedClient(truncatedChoice, answered)
+      val executed = scala.collection.mutable.Buffer.empty[String]
+      val result = await(
+        sent.client.runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 25) { use =>
+          executed.synchronized(executed += use.id)
+          scala.concurrent.Future.successful(ClaudeToolOutput(content = """{"total": 42}"""))
+        }
+      )(using timeout)
+
+      result.isValid mustBe true
+      result.toOption.get.value mustBe "the draft"
+      executed.synchronized(executed.toSet) mustBe Set("toolu_first", "toolu_second")
+      // Two calls, not three: the turn was answered and the loop went round, rather than finalizing
+      // over an unanswered one.
+      sent.requests.size mustBe 2
+      unansweredToolUses(sent.requests.last.messages) mustBe empty
+    }
+
+    // The same fault reached through a stop reason this library does not know: whatever the API says
+    // about how a turn ended, the blocks in it decide what the next message has to carry.
+    "answer the tool calls of a turn whose stop reason this library does not know" in {
+      val unknown = budgetExhausted.copy(
+        id = "msg_unknown_stop",
+        content = Seq(toolUseBlock("toolu_only")),
+        stopReason = ClaudeStopReason.UNDEFINED("something_new")
+      )
+      val sent = scriptedClient(unknown, answered)
+      val result = await(
+        sent.client.runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 25) { _ =>
+          scala.concurrent.Future.successful(ClaudeToolOutput(content = """{"total": 42}"""))
+        }
+      )(using timeout)
+
+      result.isValid mustBe true
+      result.toOption.get.invocations.map(_.use.id) mustBe Seq("toolu_only")
+      unansweredToolUses(sent.requests.last.messages) mustBe empty
+    }
+
     "runToolLoop keeps its finalize turn: prose is not the parseable object its callers need" in {
       val prose = answered.copy(content = Seq(ClaudeClient.textBlock("Here is what I found, in prose.")))
       val structured = answered.copy(
@@ -1155,6 +1205,30 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
   /** A client that always returns the given response verbatim -- used to exercise response-shape handling (e.g. a
     * no-text turn) that the sandbox TestClaudeClient never produces on its own.
     */
+  /** A `tool_use` block as the API returns one, for the loop tests that script a turn choosing tools. */
+  private def toolUseBlock(id: String): ClaudeContentBlock =
+    ClaudeContentBlock(ClaudeContentType.ToolUse).copy(
+      id = Some(id),
+      name = Some("get_metric"),
+      input = Some(Json.obj())
+    )
+
+  /** The `tool_use` ids in a transcript that the message after them does not answer -- which is exactly what the
+    * Messages API 400s on. Empty is the only valid reading, so a test asserts on this rather than on the shape of one
+    * message: the rule is about a PAIR of messages, and a loop that answered the wrong turn's calls would satisfy any
+    * single-message assertion.
+    */
+  private def unansweredToolUses(messages: Seq[ClaudeMessage]): Seq[String] = {
+    messages.zipWithIndex.flatMap { case (message, i) =>
+      val uses = message.content.filter(_.`type` == ClaudeContentType.ToolUse).flatMap(_.id)
+      val answered = messages
+        .lift(i + 1)
+        .toSeq
+        .flatMap(_.content.filter(_.`type` == ClaudeContentType.ToolResult).flatMap(_.toolUseId))
+      uses.filterNot(answered.contains)
+    }
+  }
+
   /** A turn that spent the whole output budget on thinking: `stop_reason=max_tokens` and no text block. */
   private val budgetExhausted: ClaudeResponse = ClaudeResponse(
     id = "msg_exhausted",
