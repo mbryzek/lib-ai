@@ -771,7 +771,15 @@ case class ClaudeClient(
               case Invalid(errors) => Future.successful(Invalid(errors))
               case Valid(rm) =>
                 val uses = ClaudeClient.toolUses(rm.response)
-                if (rm.response.stopReason == ClaudeStopReason.ToolUse && uses.nonEmpty) {
+                // ANY turn carrying `tool_use` blocks is answered with `tool_result` blocks, whatever
+                // the stop reason says. The API's rule is about the transcript and not about how the
+                // turn ended: every `tool_use` block must be followed by its result in the next
+                // message, so a turn that chose tools and then stopped for `max_tokens` -- or for a
+                // stop reason this library does not know -- has to be answered like any other, or the
+                // next request is a 400 that fails the whole loop (ISS-9978). Executing a truncated
+                // call is the right outcome too: a tool that cannot read partial input says so as an
+                // error result, which the model recovers from on the next turn.
+                if (uses.nonEmpty) {
                   Future.traverse(uses)(u => runTool(execute, u)).flatMap { newInvocations =>
                     val allErrored = newInvocations.forall(_.output.isError)
                     val streak = if (allErrored) consecutiveErrors + 1 else 0
