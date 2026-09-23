@@ -7,12 +7,14 @@ import com.bryzek.claude.models.{
   ClaudeResponse,
   ClaudeRole,
   ClaudeStopReason,
+  ClaudeToolCaller,
   ClaudeToolType,
   ClaudeUsage
 }
+import com.bryzek.claude.models.json.*
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
-import play.api.libs.json.{JsValue, Json}
+import play.api.libs.json.{JsDefined, JsValue, Json}
 
 class ClaudeToolsSpec extends AnyWordSpec with Matchers {
 
@@ -60,6 +62,7 @@ class ClaudeToolsSpec extends AnyWordSpec with Matchers {
       tool.inputSchema mustBe Some(Json.obj("type" -> "object"))
       tool.maxUses mustBe None
       tool.allowedDomains mustBe None
+      tool.allowedCallers mustBe None
       ClaudeTools.isCustom(tool) mustBe true
     }
   }
@@ -85,6 +88,20 @@ class ClaudeToolsSpec extends AnyWordSpec with Matchers {
       ClaudeTools.webSearch(allowedDomains = Seq("scala-lang.org")).allowedDomains mustBe Some(Seq("scala-lang.org"))
     }
 
+    "allow only direct calling by default" in {
+      // The API's own default includes programmatic calling, which cost three times the input tokens on a measured
+      // lookup, and which claude-haiku-4-5 rejects outright unless `[direct]` is sent.
+      ClaudeTools.webSearch().allowedCallers mustBe Some(Seq(ClaudeToolCaller.Direct))
+      Json.toJson(ClaudeTools.webSearch()) \ "allowed_callers" mustBe JsDefined(Json.arr("direct"))
+    }
+
+    "opt in to programmatic calling, or omit the field for the API default" in {
+      ClaudeTools
+        .webSearch(allowedCallers = Seq(ClaudeToolCaller.CodeExecution20260521))
+        .allowedCallers mustBe Some(Seq(ClaudeToolCaller.CodeExecution20260521))
+      ClaudeTools.webSearch(allowedCallers = Nil).allowedCallers mustBe None
+    }
+
     "refuse both domain filters at once" in {
       // Mutually exclusive on the wire; failing here names the caller error instead of surfacing it as an API 400.
       an[IllegalArgumentException] must be thrownBy
@@ -102,6 +119,7 @@ class ClaudeToolsSpec extends AnyWordSpec with Matchers {
       tool.citations.map(_.enabled) mustBe Some(true)
       tool.maxContentTokens mustBe Some(10000L)
       tool.description mustBe None
+      tool.allowedCallers mustBe Some(Seq(ClaudeToolCaller.Direct))
     }
 
     "refuse both domain filters at once" in {
