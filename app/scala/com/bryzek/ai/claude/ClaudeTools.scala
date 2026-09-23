@@ -50,8 +50,22 @@ object ClaudeTools {
       blockedDomains = None,
       citations = None,
       maxContentTokens = None,
+      allowedCallers = None,
       cacheControl = cacheControl
     )
+
+  /** Who may invoke a server tool when the caller does not say: the model itself, one call at a time, and never from
+    * inside a code execution turn.
+    *
+    * The API's own default for web_search_20260209 and web_fetch_20260209 includes PROGRAMMATIC tool calling, where the
+    * model wraps its searches in code execution and prints result sets back into its own context. Measured against
+    * api.anthropic.com on 2026-09-23 on one lookup (Sonnet 5, same prompt and schema): 297,553 input / 5,618 output
+    * tokens by default against 96,605 / 975 with `[direct]`, for an answer of the same quality. And a model without
+    * programmatic calling (claude-haiku-4-5) rejects a web tool outright unless it is sent `[direct]`. So direct is
+    * the default here, and programmatic calling is an opt-in for the broad research question where filtering results
+    * in code before they reach the context is worth what it costs.
+    */
+  val DirectOnly: Seq[ClaudeToolCaller] = Seq(ClaudeToolCaller.Direct)
 
   /** Anthropic-hosted web search. The model runs its own searches and reads the results server-side; only what it kept
     * enters the context window.
@@ -62,18 +76,30 @@ object ClaudeTools {
     * [[ClaudeServerToolResults]] surfaces rather than throwing on.
     *
     * `allowedDomains` and `blockedDomains` are mutually exclusive; passing both is a caller error the API rejects.
+    *
+    * `allowedCallers` defaults to [[DirectOnly]] -- see there for why. Pass the `code_execution_*` caller(s) to allow
+    * programmatic calling, or `Nil` to omit the field and take the API's own default.
     */
   def webSearch(
     maxUses: Option[Long] = None,
     allowedDomains: Seq[String] = Nil,
     blockedDomains: Seq[String] = Nil,
+    allowedCallers: Seq[ClaudeToolCaller] = DirectOnly,
     cacheControl: Option[ClaudeCacheControl] = None
   ): ClaudeTool = {
     require(
       allowedDomains.isEmpty || blockedDomains.isEmpty,
       "web_search accepts allowedDomains or blockedDomains, not both"
     )
-    serverTool(WebSearchName, ClaudeToolType.WebSearch20260209, maxUses, allowedDomains, blockedDomains, cacheControl)
+    serverTool(
+      WebSearchName,
+      ClaudeToolType.WebSearch20260209,
+      maxUses,
+      allowedDomains,
+      blockedDomains,
+      allowedCallers,
+      cacheControl
+    )
   }
 
   /** Anthropic-hosted web fetch. Retrieves a URL and puts the page into the model's context.
@@ -83,6 +109,8 @@ object ClaudeTools {
     *
     * `maxContentTokens` is the other half of the cost story: a fetch of an unbounded page otherwise lands the whole
     * page in the context window at input-token rates.
+    *
+    * `allowedCallers` defaults to [[DirectOnly]], as on [[webSearch]].
     */
   def webFetch(
     maxUses: Option[Long] = None,
@@ -90,17 +118,25 @@ object ClaudeTools {
     blockedDomains: Seq[String] = Nil,
     citations: Option[Boolean] = None,
     maxContentTokens: Option[Long] = None,
+    allowedCallers: Seq[ClaudeToolCaller] = DirectOnly,
     cacheControl: Option[ClaudeCacheControl] = None
   ): ClaudeTool = {
     require(
       allowedDomains.isEmpty || blockedDomains.isEmpty,
       "web_fetch accepts allowedDomains or blockedDomains, not both"
     )
-    serverTool(WebFetchName, ClaudeToolType.WebFetch20260209, maxUses, allowedDomains, blockedDomains, cacheControl)
-      .copy(
-        citations = citations.map(ClaudeCitationsConfig(_)),
-        maxContentTokens = maxContentTokens
-      )
+    serverTool(
+      WebFetchName,
+      ClaudeToolType.WebFetch20260209,
+      maxUses,
+      allowedDomains,
+      blockedDomains,
+      allowedCallers,
+      cacheControl
+    ).copy(
+      citations = citations.map(ClaudeCitationsConfig(_)),
+      maxContentTokens = maxContentTokens
+    )
   }
 
   private def serverTool(
@@ -109,6 +145,7 @@ object ClaudeTools {
     maxUses: Option[Long],
     allowedDomains: Seq[String],
     blockedDomains: Seq[String],
+    allowedCallers: Seq[ClaudeToolCaller],
     cacheControl: Option[ClaudeCacheControl]
   ): ClaudeTool =
     ClaudeTool(
@@ -122,6 +159,7 @@ object ClaudeTools {
       blockedDomains = Option.when(blockedDomains.nonEmpty)(blockedDomains),
       citations = None,
       maxContentTokens = None,
+      allowedCallers = Option.when(allowedCallers.nonEmpty)(allowedCallers),
       cacheControl = cacheControl
     )
 

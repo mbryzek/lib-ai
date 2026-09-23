@@ -38,6 +38,8 @@ package object Factories {
 
   def makeClaudeThinkingType(): com.bryzek.claude.models.ClaudeThinkingType = _root_.scala.util.Random.shuffle(com.bryzek.claude.models.ClaudeThinkingType.all).head
 
+  def makeClaudeToolCaller(): com.bryzek.claude.models.ClaudeToolCaller = _root_.scala.util.Random.shuffle(com.bryzek.claude.models.ClaudeToolCaller.all).head
+
   def makeClaudeToolChoiceType(): com.bryzek.claude.models.ClaudeToolChoiceType = _root_.scala.util.Random.shuffle(com.bryzek.claude.models.ClaudeToolChoiceType.all).head
 
   def makeClaudeToolType(): com.bryzek.claude.models.ClaudeToolType = _root_.scala.util.Random.shuffle(com.bryzek.claude.models.ClaudeToolType.all).head
@@ -351,6 +353,7 @@ package object Factories {
     blockedDomains: Option[Seq[String]] = None,
     citations: Option[com.bryzek.claude.models.ClaudeCitationsConfig] = None,
     maxContentTokens: Option[Long] = None,
+    allowedCallers: Option[Seq[com.bryzek.claude.models.ClaudeToolCaller]] = None,
     cacheControl: Option[com.bryzek.claude.models.ClaudeCacheControl] = None
   ): com.bryzek.claude.models.ClaudeTool = {
     com.bryzek.claude.models.ClaudeTool(
@@ -364,6 +367,7 @@ package object Factories {
       blockedDomains = blockedDomains,
       citations = citations,
       maxContentTokens = maxContentTokens,
+      allowedCallers = allowedCallers,
       cacheControl = cacheControl
     )
   }
