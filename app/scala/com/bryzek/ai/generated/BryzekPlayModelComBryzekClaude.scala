@@ -109,10 +109,11 @@ object ClaudeModel {
   case object ClaudeSonnet5 extends ClaudeModel { override def toString: String = "claude-sonnet-5" }
   case object ClaudeHaiku45 extends ClaudeModel { override def toString: String = "claude-haiku-4-5" }
   case object ClaudeOpus5 extends ClaudeModel { override def toString: String = "claude-opus-5" }
+  case object ClaudeOpus55 extends ClaudeModel { override def toString: String = "claude-opus-5-5" }
   case object ClaudeFable5 extends ClaudeModel { override def toString: String = "claude-fable-5" }
   final case class UNDEFINED(description: String) extends ClaudeModel { override def toString: String = description }
 
-  val all: scala.List[ClaudeModel] = scala.List(ClaudeSonnet5, ClaudeHaiku45, ClaudeOpus5, ClaudeFable5)
+  val all: scala.List[ClaudeModel] = scala.List(ClaudeSonnet5, ClaudeHaiku45, ClaudeOpus5, ClaudeOpus55, ClaudeFable5)
   private val byName: Map[String, ClaudeModel] = all.map(x => x.toString.toLowerCase -> x).toMap
   def apply(value: String): ClaudeModel = fromString(value).getOrElse(UNDEFINED(value))
   def fromString(value: String): _root_.scala.Option[ClaudeModel] = byName.get(value.toLowerCase)
@@ -1894,18 +1895,23 @@ object KnownClaudeModel {
     override def toString: String = _root_.com.bryzek.claude.models.ClaudeModel.ClaudeOpus5.toString
     override def toClaudeModel: _root_.com.bryzek.claude.models.ClaudeModel = _root_.com.bryzek.claude.models.ClaudeModel.ClaudeOpus5
   }
+  case object ClaudeOpus55 extends KnownClaudeModel {
+    override def toString: String = _root_.com.bryzek.claude.models.ClaudeModel.ClaudeOpus55.toString
+    override def toClaudeModel: _root_.com.bryzek.claude.models.ClaudeModel = _root_.com.bryzek.claude.models.ClaudeModel.ClaudeOpus55
+  }
   case object ClaudeFable5 extends KnownClaudeModel {
     override def toString: String = _root_.com.bryzek.claude.models.ClaudeModel.ClaudeFable5.toString
     override def toClaudeModel: _root_.com.bryzek.claude.models.ClaudeModel = _root_.com.bryzek.claude.models.ClaudeModel.ClaudeFable5
   }
 
-  val all: scala.List[KnownClaudeModel] = scala.List(ClaudeSonnet5, ClaudeHaiku45, ClaudeOpus5, ClaudeFable5)
+  val all: scala.List[KnownClaudeModel] = scala.List(ClaudeSonnet5, ClaudeHaiku45, ClaudeOpus5, ClaudeOpus55, ClaudeFable5)
 
   def validate(value: _root_.com.bryzek.claude.models.ClaudeModel): _root_.cats.data.ValidatedNec[String, KnownClaudeModel] = {
     value match {
     case _root_.com.bryzek.claude.models.ClaudeModel.ClaudeSonnet5 => _root_.cats.data.Validated.validNec(KnownClaudeModel.ClaudeSonnet5)
     case _root_.com.bryzek.claude.models.ClaudeModel.ClaudeHaiku45 => _root_.cats.data.Validated.validNec(KnownClaudeModel.ClaudeHaiku45)
     case _root_.com.bryzek.claude.models.ClaudeModel.ClaudeOpus5 => _root_.cats.data.Validated.validNec(KnownClaudeModel.ClaudeOpus5)
+    case _root_.com.bryzek.claude.models.ClaudeModel.ClaudeOpus55 => _root_.cats.data.Validated.validNec(KnownClaudeModel.ClaudeOpus55)
     case _root_.com.bryzek.claude.models.ClaudeModel.ClaudeFable5 => _root_.cats.data.Validated.validNec(KnownClaudeModel.ClaudeFable5)
     case _root_.com.bryzek.claude.models.ClaudeModel.UNDEFINED(desc) => _root_.cats.data.Validated.invalidNec(s"Invalid value '${desc}' for ClaudeModel")
     }

@@ -150,14 +150,16 @@ case class AiRequest(
       toolChoice = None,
       outputConfig = {
         val budget = AiRequest.taskBudgetFor(model, maxTokens)
-        Option.when(effort.isDefined || budget.isDefined)(
-          ClaudeOutputConfig(effort = effort, format = None, taskBudget = budget)
+        val sentEffort = AiRequest.effortFor(model, effort)
+        Option.when(sentEffort.isDefined || budget.isDefined)(
+          ClaudeOutputConfig(effort = sentEffort, format = None, taskBudget = budget)
         )
       },
       thinking = KnownClaudeModel.validate(model).toOption match {
-        case Some(KnownClaudeModel.ClaudeFable5) =>
-          // Fable 5 rejects any explicit thinking config except adaptive (thinking is always on);
-          // omitting the field runs adaptive, so a Disabled request cannot be honored on this model.
+        case Some(KnownClaudeModel.ClaudeFable5 | KnownClaudeModel.ClaudeOpus55) =>
+          // Fable 5 and Opus 5.5 reject every explicit thinking config except adaptive (thinking is always on, and
+          // `disabled` is a 400 at every effort level); omitting the field runs adaptive, so a Disabled request cannot
+          // be honored on these models. Effort is the only control.
           None
         case Some(KnownClaudeModel.ClaudeHaiku45) =>
           // Haiku 4.5 predates adaptive thinking and rejects it ("adaptive thinking is not
@@ -201,11 +203,30 @@ object AiRequest {
       // An unrecognized model id is one we have not qualified. Omitting the budget loses the pacing; sending it to a
       // model that does not take it loses the whole request.
       case None => false
-      case Some(KnownClaudeModel.ClaudeSonnet5 | KnownClaudeModel.ClaudeOpus5 | KnownClaudeModel.ClaudeFable5) => true
+      case Some(
+            KnownClaudeModel.ClaudeSonnet5 | KnownClaudeModel.ClaudeOpus5 | KnownClaudeModel.ClaudeOpus55 |
+            KnownClaudeModel.ClaudeFable5
+          ) =>
+        true
     }
     val total = (maxTokens * TaskBudgetFraction).toLong
     Option.when(supported && total >= MinTaskBudget)(ClaudeTaskBudget(total = total))
   }
+
+  /** The `effort` actually sent for a request. An unset effort means `high` everywhere in this library -- it is what
+    * [[ClaudeClient.lowerEffort]] steps down from and what the step-down log line names -- and on every model but one
+    * that is also the API's own default, so leaving the field off says the same thing.
+    *
+    * Opus 5.5 is the exception: its API default is `medium`, one rung lower. Sending nothing there would silently hand
+    * every caller that never chose an effort a less capable run, with no diff anywhere to point at, and the step-down
+    * would then retry at the effort that had just failed. So the library says `high` out loud on that model. A caller
+    * that wants `medium` asks for it.
+    */
+  private[claude] def effortFor(model: ClaudeModel, effort: Option[ClaudeEffort]): Option[ClaudeEffort] =
+    KnownClaudeModel.validate(model).toOption match {
+      case Some(KnownClaudeModel.ClaudeOpus55) => effort.orElse(Some(ClaudeEffort.High))
+      case _ => effort
+    }
 }
 
 /** Marker for an [[IClient]] that stands in for the API being ABSENT -- [[TestClaudeClient]], and any double a consumer

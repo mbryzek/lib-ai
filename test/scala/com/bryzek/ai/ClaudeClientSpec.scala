@@ -309,7 +309,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       out.outputConfig.flatMap(_.taskBudget).map(_.`type`) mustBe Some(ClaudeTaskBudgetType.Tokens)
       out.maxTokens mustBe 128000L
 
-      Seq(ClaudeModel.ClaudeOpus5, ClaudeModel.ClaudeFable5).foreach { model =>
+      Seq(ClaudeModel.ClaudeOpus5, ClaudeModel.ClaudeOpus55, ClaudeModel.ClaudeFable5).foreach { model =>
         AiRequest(messages = Nil, maxTokens = 128000L)
           .toClaudeRequest(model)
           .outputConfig
@@ -401,6 +401,31 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       AiRequest(messages = Nil, thinking = ClaudeThinkingType.Disabled)
         .toClaudeRequest(ClaudeModel.ClaudeFable5)
         .thinking mustBe None
+    }
+
+    "toClaudeRequest omits the thinking field entirely for Opus 5.5" in {
+      // Opus 5.5 answers 400 to `disabled` at every effort level; omitting the field runs adaptive.
+      AiRequest(messages = Nil).toClaudeRequest(ClaudeModel.ClaudeOpus55).thinking mustBe None
+      AiRequest(messages = Nil, thinking = ClaudeThinkingType.Disabled)
+        .toClaudeRequest(ClaudeModel.ClaudeOpus55)
+        .thinking mustBe None
+    }
+
+    "toClaudeRequest sends high on Opus 5.5 when the caller chose no effort" in {
+      // The API default on Opus 5.5 is medium; an unset effort means high everywhere in this library.
+      AiRequest(messages = Nil, maxTokens = 8000L)
+        .toClaudeRequest(ClaudeModel.ClaudeOpus55)
+        .outputConfig
+        .flatMap(_.effort) mustBe Some(ClaudeEffort.High)
+
+      // An explicit choice is sent as chosen.
+      AiRequest(messages = Nil, maxTokens = 8000L, effort = Some(ClaudeEffort.Low))
+        .toClaudeRequest(ClaudeModel.ClaudeOpus55)
+        .outputConfig
+        .flatMap(_.effort) mustBe Some(ClaudeEffort.Low)
+
+      // Every other model's default is already high, so nothing is added there.
+      AiRequest(messages = Nil, maxTokens = 8000L).toClaudeRequest(ClaudeModel.ClaudeOpus5).outputConfig mustBe None
     }
 
     "toClaudeRequest omits the thinking field entirely for Haiku 4.5" in {
