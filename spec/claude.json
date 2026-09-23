@@ -40,6 +40,15 @@
                 { "name": "web_fetch_20260209" }
             ]
         },
+        "claude_tool_caller": {
+            "description": "Who may invoke a server tool, sent as a server tool's `allowed_callers`. `direct` is the model calling the tool itself, one call per server_tool_use block, with the results entering its context as they come back. Each `code_execution_*` value is PROGRAMMATIC tool calling: the model wraps its calls in a code execution turn and processes the results in code before any of them reach its context. Omitting allowed_callers leaves the API's own default, which for web_search_20260209 and web_fetch_20260209 includes programmatic calling -- and a model that does not support programmatic calling (claude-haiku-4-5) rejects such a tool outright unless it is sent `[direct]` (verified against api.anthropic.com 2026-09-23, which also named these four values as the only ones it accepts).",
+            "values": [
+                { "name": "direct" },
+                { "name": "code_execution_20250825" },
+                { "name": "code_execution_20260120" },
+                { "name": "code_execution_20260521" }
+            ]
+        },
         "claude_source_type": {
             "values": [
                 { "name": "base64" }
@@ -169,7 +178,7 @@
             ]
         },
         "claude_tool": {
-            "description": "A tool the model may call. A single flat model spanning both kinds of tool (discriminated on `type`) rather than a union, for the reason documented on claude_content_block. `type` absent is a CUSTOM tool -- executed by the caller, requiring name + description + input_schema, answered with a tool_result block; that is the only kind that existed before server tools and its wire bytes are unchanged. `type` present is an Anthropic-hosted SERVER tool, which takes name + type and its own options and nothing else.\n\nThe two field sets are mutually exclusive on the wire and the API enforces it rather than ignoring the extras: a web_search_20260209 tool carrying a `description` is rejected with `tools.0.web_search_20260209.description: Extra inputs are not permitted` (verified against api.anthropic.com 2026-08-12). That is why description and input_schema are optional here and why callers should build tools through ClaudeTools in lib-ai rather than by hand -- those constructors are what make the two shapes unmixable.\n\nPopulated by kind: custom -> name, description, input_schema, strict; web_search_20260209 -> name, type, max_uses, allowed_domains/blocked_domains; web_fetch_20260209 -> name, type, max_uses, allowed_domains/blocked_domains, citations, max_content_tokens.",
+            "description": "A tool the model may call. A single flat model spanning both kinds of tool (discriminated on `type`) rather than a union, for the reason documented on claude_content_block. `type` absent is a CUSTOM tool -- executed by the caller, requiring name + description + input_schema, answered with a tool_result block; that is the only kind that existed before server tools and its wire bytes are unchanged. `type` present is an Anthropic-hosted SERVER tool, which takes name + type and its own options and nothing else.\n\nThe two field sets are mutually exclusive on the wire and the API enforces it rather than ignoring the extras: a web_search_20260209 tool carrying a `description` is rejected with `tools.0.web_search_20260209.description: Extra inputs are not permitted` (verified against api.anthropic.com 2026-08-12). That is why description and input_schema are optional here and why callers should build tools through ClaudeTools in lib-ai rather than by hand -- those constructors are what make the two shapes unmixable.\n\nPopulated by kind: custom -> name, description, input_schema, strict; web_search_20260209 -> name, type, max_uses, allowed_domains/blocked_domains, allowed_callers; web_fetch_20260209 -> name, type, max_uses, allowed_domains/blocked_domains, allowed_callers, citations, max_content_tokens.",
             "fields": [
                 { "name": "name", "type": "string", "description": "Custom: the name the model calls. Server: the fixed name the API defines for that tool -- `web_search` and `web_fetch` respectively. Sending anything else is rejected." },
                 { "name": "type", "type": "claude_tool_type", "required": false, "description": "Absent for a custom tool. See claude_tool_type." },
@@ -181,6 +190,7 @@
                 { "name": "blocked_domains", "type": "[string]", "required": false, "description": "Server tools only. Excludes these domains. Mutually exclusive with allowed_domains." },
                 { "name": "citations", "type": "claude_citations_config", "required": false, "description": "web_fetch only. Whether fetched content is cited in the answer." },
                 { "name": "max_content_tokens", "type": "long", "required": false, "description": "web_fetch only. Truncates fetched page content to this many tokens before it enters the context window -- the lever for a fetch of an unbounded page not eating the whole budget." },
+                { "name": "allowed_callers", "type": "[claude_tool_caller]", "required": false, "description": "Server tools only. Who may invoke this tool -- see claude_tool_caller. Absent is the API's default, which for web_search and web_fetch includes programmatic calling." },
                 { "name": "cache_control", "type": "claude_cache_control", "required": false }
             ]
         },

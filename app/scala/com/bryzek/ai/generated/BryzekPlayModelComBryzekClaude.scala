@@ -212,6 +212,21 @@ object ClaudeThinkingType {
   def fromString(value: String): _root_.scala.Option[ClaudeThinkingType] = byName.get(value.toLowerCase)
 }
 
+sealed trait ClaudeToolCaller extends _root_.scala.Product with _root_.scala.Serializable
+
+object ClaudeToolCaller {
+  case object Direct extends ClaudeToolCaller { override def toString: String = "direct" }
+  case object CodeExecution20250825 extends ClaudeToolCaller { override def toString: String = "code_execution_20250825" }
+  case object CodeExecution20260120 extends ClaudeToolCaller { override def toString: String = "code_execution_20260120" }
+  case object CodeExecution20260521 extends ClaudeToolCaller { override def toString: String = "code_execution_20260521" }
+  final case class UNDEFINED(description: String) extends ClaudeToolCaller { override def toString: String = description }
+
+  val all: scala.List[ClaudeToolCaller] = scala.List(Direct, CodeExecution20250825, CodeExecution20260120, CodeExecution20260521)
+  private val byName: Map[String, ClaudeToolCaller] = all.map(x => x.toString.toLowerCase -> x).toMap
+  def apply(value: String): ClaudeToolCaller = fromString(value).getOrElse(UNDEFINED(value))
+  def fromString(value: String): _root_.scala.Option[ClaudeToolCaller] = byName.get(value.toLowerCase)
+}
+
 sealed trait ClaudeToolChoiceType extends _root_.scala.Product with _root_.scala.Serializable
 
 object ClaudeToolChoiceType {
@@ -502,6 +517,7 @@ case class ClaudeTool(
   blockedDomains: Option[Seq[String]],
   citations: Option[ClaudeCitationsConfig],
   maxContentTokens: Option[Long],
+  allowedCallers: Option[Seq[ClaudeToolCaller]],
   cacheControl: Option[ClaudeCacheControl]
 )
 
@@ -518,6 +534,7 @@ object ClaudeTool {
       blockedDomains = None,
       citations = None,
       maxContentTokens = None,
+      allowedCallers = None,
       cacheControl = None
     )
   }
@@ -857,6 +874,23 @@ package object json {
 
   implicit def jsonWritesComBryzekClaudeModelsClaudeThinkingType: play.api.libs.json.Writes[ClaudeThinkingType] = {
     (obj: com.bryzek.claude.models.ClaudeThinkingType) => {
+      play.api.libs.json.JsString(obj.toString)
+    }
+  }
+
+
+  implicit val jsonReadsComBryzekClaudeModelsClaudeToolCaller: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeToolCaller] = new play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeToolCaller] {
+    def reads(js: play.api.libs.json.JsValue): play.api.libs.json.JsResult[com.bryzek.claude.models.ClaudeToolCaller] = {
+      js.validate[String] match {
+        case play.api.libs.json.JsSuccess(v, _) => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeToolCaller(v))
+        case err: play.api.libs.json.JsError => err
+      }
+    }
+  }
+
+
+  implicit def jsonWritesComBryzekClaudeModelsClaudeToolCaller: play.api.libs.json.Writes[ClaudeToolCaller] = {
+    (obj: com.bryzek.claude.models.ClaudeToolCaller) => {
       play.api.libs.json.JsString(obj.toString)
     }
   }
@@ -1457,8 +1491,9 @@ package object json {
       blockedDomains <- (JsPath \ "blocked_domains").readNullable[Seq[String]]
       citations <- (JsPath \ "citations").readNullable[com.bryzek.claude.models.ClaudeCitationsConfig]
       maxContentTokens <- (JsPath \ "max_content_tokens").readNullable[Long]
+      allowedCallers <- (JsPath \ "allowed_callers").readNullable[Seq[com.bryzek.claude.models.ClaudeToolCaller]]
       cacheControl <- (JsPath \ "cache_control").readNullable[com.bryzek.claude.models.ClaudeCacheControl]
-    } yield com.bryzek.claude.models.ClaudeTool(name, `type`, description, inputSchema, strict, maxUses, allowedDomains, blockedDomains, citations, maxContentTokens, cacheControl)
+    } yield com.bryzek.claude.models.ClaudeTool(name, `type`, description, inputSchema, strict, maxUses, allowedDomains, blockedDomains, citations, maxContentTokens, allowedCallers, cacheControl)
   }
 
 
@@ -1480,6 +1515,7 @@ package object json {
       obj.blockedDomains.map { x => play.api.libs.json.Json.obj("blocked_domains" -> play.api.libs.json.Json.toJson(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
       obj.citations.map { x => play.api.libs.json.Json.obj("citations" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeCitationsConfig(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
       obj.maxContentTokens.map { x => play.api.libs.json.Json.obj("max_content_tokens" -> play.api.libs.json.JsNumber(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
+      obj.allowedCallers.map { x => play.api.libs.json.Json.obj("allowed_callers" -> play.api.libs.json.Json.toJson(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
       obj.cacheControl.map { x => play.api.libs.json.Json.obj("cache_control" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeCacheControl(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
   }
 
@@ -2067,6 +2103,41 @@ object KnownClaudeThinkingType {
   }
 }
 
+sealed trait KnownClaudeToolCaller extends _root_.scala.Product with _root_.scala.Serializable {
+  def toClaudeToolCaller: _root_.com.bryzek.claude.models.ClaudeToolCaller
+}
+
+object KnownClaudeToolCaller {
+  case object Direct extends KnownClaudeToolCaller {
+    override def toString: String = _root_.com.bryzek.claude.models.ClaudeToolCaller.Direct.toString
+    override def toClaudeToolCaller: _root_.com.bryzek.claude.models.ClaudeToolCaller = _root_.com.bryzek.claude.models.ClaudeToolCaller.Direct
+  }
+  case object CodeExecution20250825 extends KnownClaudeToolCaller {
+    override def toString: String = _root_.com.bryzek.claude.models.ClaudeToolCaller.CodeExecution20250825.toString
+    override def toClaudeToolCaller: _root_.com.bryzek.claude.models.ClaudeToolCaller = _root_.com.bryzek.claude.models.ClaudeToolCaller.CodeExecution20250825
+  }
+  case object CodeExecution20260120 extends KnownClaudeToolCaller {
+    override def toString: String = _root_.com.bryzek.claude.models.ClaudeToolCaller.CodeExecution20260120.toString
+    override def toClaudeToolCaller: _root_.com.bryzek.claude.models.ClaudeToolCaller = _root_.com.bryzek.claude.models.ClaudeToolCaller.CodeExecution20260120
+  }
+  case object CodeExecution20260521 extends KnownClaudeToolCaller {
+    override def toString: String = _root_.com.bryzek.claude.models.ClaudeToolCaller.CodeExecution20260521.toString
+    override def toClaudeToolCaller: _root_.com.bryzek.claude.models.ClaudeToolCaller = _root_.com.bryzek.claude.models.ClaudeToolCaller.CodeExecution20260521
+  }
+
+  val all: scala.List[KnownClaudeToolCaller] = scala.List(Direct, CodeExecution20250825, CodeExecution20260120, CodeExecution20260521)
+
+  def validate(value: _root_.com.bryzek.claude.models.ClaudeToolCaller): _root_.cats.data.ValidatedNec[String, KnownClaudeToolCaller] = {
+    value match {
+    case _root_.com.bryzek.claude.models.ClaudeToolCaller.Direct => _root_.cats.data.Validated.validNec(KnownClaudeToolCaller.Direct)
+    case _root_.com.bryzek.claude.models.ClaudeToolCaller.CodeExecution20250825 => _root_.cats.data.Validated.validNec(KnownClaudeToolCaller.CodeExecution20250825)
+    case _root_.com.bryzek.claude.models.ClaudeToolCaller.CodeExecution20260120 => _root_.cats.data.Validated.validNec(KnownClaudeToolCaller.CodeExecution20260120)
+    case _root_.com.bryzek.claude.models.ClaudeToolCaller.CodeExecution20260521 => _root_.cats.data.Validated.validNec(KnownClaudeToolCaller.CodeExecution20260521)
+    case _root_.com.bryzek.claude.models.ClaudeToolCaller.UNDEFINED(desc) => _root_.cats.data.Validated.invalidNec(s"Invalid value '${desc}' for ClaudeToolCaller")
+    }
+  }
+}
+
 sealed trait KnownClaudeToolChoiceType extends _root_.scala.Product with _root_.scala.Serializable {
   def toClaudeToolChoiceType: _root_.com.bryzek.claude.models.ClaudeToolChoiceType
 }
@@ -2407,6 +2478,26 @@ package object Bindables {
   }
   implicit def pathBindableClaudeThinkingType: _root_.play.api.mvc.PathBindable[com.bryzek.claude.models.ClaudeThinkingType] = generated.binders.BasePathBindable(claudeThinkingType)
   implicit def queryStringBindableClaudeThinkingType: _root_.play.api.mvc.QueryStringBindable[com.bryzek.claude.models.ClaudeThinkingType] = generated.binders.BaseQueryStringBindable(claudeThinkingType)
+
+
+  private val claudeToolCaller: generated.binders.Bindable[com.bryzek.claude.models.ClaudeToolCaller] = new generated.binders.Bindable[com.bryzek.claude.models.ClaudeToolCaller] {
+    override def fromString(value: String): com.bryzek.claude.models.ClaudeToolCaller = com.bryzek.claude.models.ClaudeToolCaller.fromString(value).getOrElse(com.bryzek.claude.models.ClaudeToolCaller(value))
+    override def toString(value: com.bryzek.claude.models.ClaudeToolCaller): String = value.toString
+    override def example: com.bryzek.claude.models.ClaudeToolCaller = com.bryzek.claude.models.ClaudeToolCaller.Direct
+    override def validValues: Seq[com.bryzek.claude.models.ClaudeToolCaller] = com.bryzek.claude.models.ClaudeToolCaller.all
+    override def bind(key: String, value: String): Either[String, com.bryzek.claude.models.ClaudeToolCaller] = {
+      com.bryzek.claude.models.ClaudeToolCaller.fromString(value) match {
+        case Some(v) => Right(v)
+        case None =>
+          com.bryzek.claude.models.KnownClaudeToolCaller.validate(com.bryzek.claude.models.ClaudeToolCaller(value)).fold(
+            errors => Left(errors.head),
+            _ => Left(errorMessage(key, value))
+          )
+      }
+    }
+  }
+  implicit def pathBindableClaudeToolCaller: _root_.play.api.mvc.PathBindable[com.bryzek.claude.models.ClaudeToolCaller] = generated.binders.BasePathBindable(claudeToolCaller)
+  implicit def queryStringBindableClaudeToolCaller: _root_.play.api.mvc.QueryStringBindable[com.bryzek.claude.models.ClaudeToolCaller] = generated.binders.BaseQueryStringBindable(claudeToolCaller)
 
 
   private val claudeToolChoiceType: generated.binders.Bindable[com.bryzek.claude.models.ClaudeToolChoiceType] = new generated.binders.Bindable[com.bryzek.claude.models.ClaudeToolChoiceType] {
