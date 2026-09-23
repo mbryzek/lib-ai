@@ -7,6 +7,7 @@
                 { "name": "claude-sonnet-5" },
                 { "name": "claude-haiku-4-5" },
                 { "name": "claude-opus-5" },
+                { "name": "claude-opus-5-5" },
                 { "name": "claude-fable-5" }
             ]
         },
@@ -33,7 +34,7 @@
             ]
         },
         "claude_tool_type": {
-            "description": "Discriminator on a tool definition. ABSENT means a caller-executed custom tool -- the only kind that existed before server tools, and the shape every existing caller still sends byte-for-byte. Every value here is an Anthropic-hosted SERVER tool: it runs on Anthropic's infrastructure inside the same request, so there is no tool_use block to answer and no execute callback, and the results come back as content blocks on the same response. The date suffix is the tool VERSION and is part of the wire value; `_20260209` is the dynamic-filtering generation, supported on claude-opus-5 and claude-sonnet-5 (both already in claude_model).",
+            "description": "Discriminator on a tool definition. ABSENT means a caller-executed custom tool -- the only kind that existed before server tools, and the shape every existing caller still sends byte-for-byte. Every value here is an Anthropic-hosted SERVER tool: it runs on Anthropic's infrastructure inside the same request, so there is no tool_use block to answer and no execute callback, and the results come back as content blocks on the same response. The date suffix is the tool VERSION and is part of the wire value; `_20260209` is the dynamic-filtering generation, supported on claude-opus-5, claude-opus-5-5 and claude-sonnet-5 (all in claude_model).",
             "values": [
                 { "name": "web_search_20260209" },
                 { "name": "web_fetch_20260209" }

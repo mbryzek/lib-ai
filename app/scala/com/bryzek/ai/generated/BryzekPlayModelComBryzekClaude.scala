@@ -6,6 +6,8 @@
 
 package com.bryzek.claude.models
 
+
+
 sealed trait ClaudeBatchProcessingStatus extends _root_.scala.Product with _root_.scala.Serializable
 
 object ClaudeBatchProcessingStatus {
@@ -107,10 +109,11 @@ object ClaudeModel {
   case object ClaudeSonnet5 extends ClaudeModel { override def toString: String = "claude-sonnet-5" }
   case object ClaudeHaiku45 extends ClaudeModel { override def toString: String = "claude-haiku-4-5" }
   case object ClaudeOpus5 extends ClaudeModel { override def toString: String = "claude-opus-5" }
+  case object ClaudeOpus55 extends ClaudeModel { override def toString: String = "claude-opus-5-5" }
   case object ClaudeFable5 extends ClaudeModel { override def toString: String = "claude-fable-5" }
   final case class UNDEFINED(description: String) extends ClaudeModel { override def toString: String = description }
 
-  val all: scala.List[ClaudeModel] = scala.List(ClaudeSonnet5, ClaudeHaiku45, ClaudeOpus5, ClaudeFable5)
+  val all: scala.List[ClaudeModel] = scala.List(ClaudeSonnet5, ClaudeHaiku45, ClaudeOpus5, ClaudeOpus55, ClaudeFable5)
   private val byName: Map[String, ClaudeModel] = all.map(x => x.toString.toLowerCase -> x).toMap
   def apply(value: String): ClaudeModel = fromString(value).getOrElse(UNDEFINED(value))
   def fromString(value: String): _root_.scala.Option[ClaudeModel] = byName.get(value.toLowerCase)
@@ -607,6 +610,7 @@ case class Message(placeholder: Option[String])
 package object json {
   import play.api.libs.json.*
 
+
   implicit val jsonReadsJodaDateTime: play.api.libs.json.Reads[_root_.org.joda.time.DateTime] = { (js: play.api.libs.json.JsValue) =>
     js.validate[String].flatMap { value =>
       _root_.scala.util.Try(_root_.org.joda.time.format.ISODateTimeFormat.dateTimeParser.parseDateTime(value)) match {
@@ -619,6 +623,7 @@ package object json {
     play.api.libs.json.JsString(_root_.org.joda.time.format.ISODateTimeFormat.dateTime.print(x))
   }
 
+
   implicit val jsonReadsComBryzekClaudeModelsClaudeBatchProcessingStatus: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeBatchProcessingStatus] = new play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeBatchProcessingStatus] {
     def reads(js: play.api.libs.json.JsValue): play.api.libs.json.JsResult[com.bryzek.claude.models.ClaudeBatchProcessingStatus] = {
       js.validate[String] match {
@@ -628,11 +633,13 @@ package object json {
     }
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeBatchProcessingStatus: play.api.libs.json.Writes[ClaudeBatchProcessingStatus] = {
     (obj: com.bryzek.claude.models.ClaudeBatchProcessingStatus) => {
       play.api.libs.json.JsString(obj.toString)
     }
   }
+
 
   implicit val jsonReadsComBryzekClaudeModelsClaudeBatchResultType: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeBatchResultType] = new play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeBatchResultType] {
     def reads(js: play.api.libs.json.JsValue): play.api.libs.json.JsResult[com.bryzek.claude.models.ClaudeBatchResultType] = {
@@ -643,11 +650,13 @@ package object json {
     }
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeBatchResultType: play.api.libs.json.Writes[ClaudeBatchResultType] = {
     (obj: com.bryzek.claude.models.ClaudeBatchResultType) => {
       play.api.libs.json.JsString(obj.toString)
     }
   }
+
 
   implicit val jsonReadsComBryzekClaudeModelsClaudeCacheType: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeCacheType] = new play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeCacheType] {
     def reads(js: play.api.libs.json.JsValue): play.api.libs.json.JsResult[com.bryzek.claude.models.ClaudeCacheType] = {
@@ -658,11 +667,13 @@ package object json {
     }
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeCacheType: play.api.libs.json.Writes[ClaudeCacheType] = {
     (obj: com.bryzek.claude.models.ClaudeCacheType) => {
       play.api.libs.json.JsString(obj.toString)
     }
   }
+
 
   implicit val jsonReadsComBryzekClaudeModelsClaudeContentType: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeContentType] = new play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeContentType] {
     def reads(js: play.api.libs.json.JsValue): play.api.libs.json.JsResult[com.bryzek.claude.models.ClaudeContentType] = {
@@ -673,11 +684,13 @@ package object json {
     }
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeContentType: play.api.libs.json.Writes[ClaudeContentType] = {
     (obj: com.bryzek.claude.models.ClaudeContentType) => {
       play.api.libs.json.JsString(obj.toString)
     }
   }
+
 
   implicit val jsonReadsComBryzekClaudeModelsClaudeEffort: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeEffort] = new play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeEffort] {
     def reads(js: play.api.libs.json.JsValue): play.api.libs.json.JsResult[com.bryzek.claude.models.ClaudeEffort] = {
@@ -688,11 +701,13 @@ package object json {
     }
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeEffort: play.api.libs.json.Writes[ClaudeEffort] = {
     (obj: com.bryzek.claude.models.ClaudeEffort) => {
       play.api.libs.json.JsString(obj.toString)
     }
   }
+
 
   implicit val jsonReadsComBryzekClaudeModelsClaudeMediaType: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeMediaType] = new play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeMediaType] {
     def reads(js: play.api.libs.json.JsValue): play.api.libs.json.JsResult[com.bryzek.claude.models.ClaudeMediaType] = {
@@ -703,11 +718,13 @@ package object json {
     }
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeMediaType: play.api.libs.json.Writes[ClaudeMediaType] = {
     (obj: com.bryzek.claude.models.ClaudeMediaType) => {
       play.api.libs.json.JsString(obj.toString)
     }
   }
+
 
   implicit val jsonReadsComBryzekClaudeModelsClaudeModel: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeModel] = new play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeModel] {
     def reads(js: play.api.libs.json.JsValue): play.api.libs.json.JsResult[com.bryzek.claude.models.ClaudeModel] = {
@@ -718,11 +735,13 @@ package object json {
     }
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeModel: play.api.libs.json.Writes[ClaudeModel] = {
     (obj: com.bryzek.claude.models.ClaudeModel) => {
       play.api.libs.json.JsString(obj.toString)
     }
   }
+
 
   implicit val jsonReadsComBryzekClaudeModelsClaudeOutputFormatType: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeOutputFormatType] = new play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeOutputFormatType] {
     def reads(js: play.api.libs.json.JsValue): play.api.libs.json.JsResult[com.bryzek.claude.models.ClaudeOutputFormatType] = {
@@ -733,11 +752,13 @@ package object json {
     }
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeOutputFormatType: play.api.libs.json.Writes[ClaudeOutputFormatType] = {
     (obj: com.bryzek.claude.models.ClaudeOutputFormatType) => {
       play.api.libs.json.JsString(obj.toString)
     }
   }
+
 
   implicit val jsonReadsComBryzekClaudeModelsClaudeRole: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeRole] = new play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeRole] {
     def reads(js: play.api.libs.json.JsValue): play.api.libs.json.JsResult[com.bryzek.claude.models.ClaudeRole] = {
@@ -748,11 +769,13 @@ package object json {
     }
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeRole: play.api.libs.json.Writes[ClaudeRole] = {
     (obj: com.bryzek.claude.models.ClaudeRole) => {
       play.api.libs.json.JsString(obj.toString)
     }
   }
+
 
   implicit val jsonReadsComBryzekClaudeModelsClaudeServiceTier: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeServiceTier] = new play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeServiceTier] {
     def reads(js: play.api.libs.json.JsValue): play.api.libs.json.JsResult[com.bryzek.claude.models.ClaudeServiceTier] = {
@@ -763,11 +786,13 @@ package object json {
     }
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeServiceTier: play.api.libs.json.Writes[ClaudeServiceTier] = {
     (obj: com.bryzek.claude.models.ClaudeServiceTier) => {
       play.api.libs.json.JsString(obj.toString)
     }
   }
+
 
   implicit val jsonReadsComBryzekClaudeModelsClaudeSourceType: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeSourceType] = new play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeSourceType] {
     def reads(js: play.api.libs.json.JsValue): play.api.libs.json.JsResult[com.bryzek.claude.models.ClaudeSourceType] = {
@@ -778,11 +803,13 @@ package object json {
     }
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeSourceType: play.api.libs.json.Writes[ClaudeSourceType] = {
     (obj: com.bryzek.claude.models.ClaudeSourceType) => {
       play.api.libs.json.JsString(obj.toString)
     }
   }
+
 
   implicit val jsonReadsComBryzekClaudeModelsClaudeStopReason: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeStopReason] = new play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeStopReason] {
     def reads(js: play.api.libs.json.JsValue): play.api.libs.json.JsResult[com.bryzek.claude.models.ClaudeStopReason] = {
@@ -793,11 +820,13 @@ package object json {
     }
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeStopReason: play.api.libs.json.Writes[ClaudeStopReason] = {
     (obj: com.bryzek.claude.models.ClaudeStopReason) => {
       play.api.libs.json.JsString(obj.toString)
     }
   }
+
 
   implicit val jsonReadsComBryzekClaudeModelsClaudeTaskBudgetType: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeTaskBudgetType] = new play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeTaskBudgetType] {
     def reads(js: play.api.libs.json.JsValue): play.api.libs.json.JsResult[com.bryzek.claude.models.ClaudeTaskBudgetType] = {
@@ -808,11 +837,13 @@ package object json {
     }
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeTaskBudgetType: play.api.libs.json.Writes[ClaudeTaskBudgetType] = {
     (obj: com.bryzek.claude.models.ClaudeTaskBudgetType) => {
       play.api.libs.json.JsString(obj.toString)
     }
   }
+
 
   implicit val jsonReadsComBryzekClaudeModelsClaudeThinkingType: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeThinkingType] = new play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeThinkingType] {
     def reads(js: play.api.libs.json.JsValue): play.api.libs.json.JsResult[com.bryzek.claude.models.ClaudeThinkingType] = {
@@ -823,11 +854,13 @@ package object json {
     }
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeThinkingType: play.api.libs.json.Writes[ClaudeThinkingType] = {
     (obj: com.bryzek.claude.models.ClaudeThinkingType) => {
       play.api.libs.json.JsString(obj.toString)
     }
   }
+
 
   implicit val jsonReadsComBryzekClaudeModelsClaudeToolChoiceType: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeToolChoiceType] = new play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeToolChoiceType] {
     def reads(js: play.api.libs.json.JsValue): play.api.libs.json.JsResult[com.bryzek.claude.models.ClaudeToolChoiceType] = {
@@ -838,11 +871,13 @@ package object json {
     }
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeToolChoiceType: play.api.libs.json.Writes[ClaudeToolChoiceType] = {
     (obj: com.bryzek.claude.models.ClaudeToolChoiceType) => {
       play.api.libs.json.JsString(obj.toString)
     }
   }
+
 
   implicit val jsonReadsComBryzekClaudeModelsClaudeToolType: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeToolType] = new play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeToolType] {
     def reads(js: play.api.libs.json.JsValue): play.api.libs.json.JsResult[com.bryzek.claude.models.ClaudeToolType] = {
@@ -853,11 +888,13 @@ package object json {
     }
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeToolType: play.api.libs.json.Writes[ClaudeToolType] = {
     (obj: com.bryzek.claude.models.ClaudeToolType) => {
       play.api.libs.json.JsString(obj.toString)
     }
   }
+
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeApiOutputFormat: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeApiOutputFormat] = {
     for {
@@ -866,9 +903,11 @@ package object json {
     } yield com.bryzek.claude.models.ClaudeApiOutputFormat(`type`, schema)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeApiOutputFormat: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeApiOutputFormat] = {
     (obj: com.bryzek.claude.models.ClaudeApiOutputFormat) => jsObjectComBryzekClaudeModelsClaudeApiOutputFormat(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsClaudeApiOutputFormat(obj: com.bryzek.claude.models.ClaudeApiOutputFormat): play.api.libs.json.JsObject = {
     play.api.libs.json.Json.obj(
@@ -876,6 +915,7 @@ package object json {
       "schema" -> obj.schema
     )
   }
+
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeBatch: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeBatch] = {
     for {
@@ -892,9 +932,11 @@ package object json {
     } yield com.bryzek.claude.models.ClaudeBatch(id, `type`, processingStatus, requestCounts, createdAt, expiresAt, endedAt, archivedAt, cancelInitiatedAt, resultsUrl)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeBatch: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeBatch] = {
     (obj: com.bryzek.claude.models.ClaudeBatch) => jsObjectComBryzekClaudeModelsClaudeBatch(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsClaudeBatch(obj: com.bryzek.claude.models.ClaudeBatch): play.api.libs.json.JsObject = {
     play.api.libs.json.Json.obj(
@@ -911,21 +953,25 @@ package object json {
       obj.resultsUrl.map { x => play.api.libs.json.Json.obj("results_url" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
   }
 
+
   implicit def jsonReadsComBryzekClaudeModelsClaudeBatchForm: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeBatchForm] = {
     for {
       requests <- (JsPath \ "requests").read[Seq[com.bryzek.claude.models.ClaudeBatchRequestItem]]
     } yield com.bryzek.claude.models.ClaudeBatchForm(requests)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeBatchForm: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeBatchForm] = {
     (obj: com.bryzek.claude.models.ClaudeBatchForm) => jsObjectComBryzekClaudeModelsClaudeBatchForm(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsClaudeBatchForm(obj: com.bryzek.claude.models.ClaudeBatchForm): play.api.libs.json.JsObject = {
     play.api.libs.json.Json.obj(
       "requests" -> play.api.libs.json.Json.toJson(obj.requests)
     )
   }
+
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeBatchRequestCounts: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeBatchRequestCounts] = {
     for {
@@ -937,9 +983,11 @@ package object json {
     } yield com.bryzek.claude.models.ClaudeBatchRequestCounts(processing, succeeded, errored, canceled, expired)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeBatchRequestCounts: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeBatchRequestCounts] = {
     (obj: com.bryzek.claude.models.ClaudeBatchRequestCounts) => jsObjectComBryzekClaudeModelsClaudeBatchRequestCounts(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsClaudeBatchRequestCounts(obj: com.bryzek.claude.models.ClaudeBatchRequestCounts): play.api.libs.json.JsObject = {
     play.api.libs.json.Json.obj(
@@ -951,6 +999,7 @@ package object json {
     )
   }
 
+
   implicit def jsonReadsComBryzekClaudeModelsClaudeBatchRequestItem: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeBatchRequestItem] = {
     for {
       customId <- (JsPath \ "custom_id").read[String]
@@ -958,9 +1007,11 @@ package object json {
     } yield com.bryzek.claude.models.ClaudeBatchRequestItem(customId, params)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeBatchRequestItem: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeBatchRequestItem] = {
     (obj: com.bryzek.claude.models.ClaudeBatchRequestItem) => jsObjectComBryzekClaudeModelsClaudeBatchRequestItem(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsClaudeBatchRequestItem(obj: com.bryzek.claude.models.ClaudeBatchRequestItem): play.api.libs.json.JsObject = {
     play.api.libs.json.Json.obj(
@@ -969,6 +1020,7 @@ package object json {
     )
   }
 
+
   implicit def jsonReadsComBryzekClaudeModelsClaudeBatchResult: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeBatchResult] = {
     for {
       customId <- (JsPath \ "custom_id").read[String]
@@ -976,9 +1028,11 @@ package object json {
     } yield com.bryzek.claude.models.ClaudeBatchResult(customId, result)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeBatchResult: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeBatchResult] = {
     (obj: com.bryzek.claude.models.ClaudeBatchResult) => jsObjectComBryzekClaudeModelsClaudeBatchResult(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsClaudeBatchResult(obj: com.bryzek.claude.models.ClaudeBatchResult): play.api.libs.json.JsObject = {
     play.api.libs.json.Json.obj(
@@ -986,6 +1040,7 @@ package object json {
       "result" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeBatchResultDetail(obj.result)
     )
   }
+
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeBatchResultDetail: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeBatchResultDetail] = {
     for {
@@ -995,9 +1050,11 @@ package object json {
     } yield com.bryzek.claude.models.ClaudeBatchResultDetail(`type`, message, error)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeBatchResultDetail: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeBatchResultDetail] = {
     (obj: com.bryzek.claude.models.ClaudeBatchResultDetail) => jsObjectComBryzekClaudeModelsClaudeBatchResultDetail(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsClaudeBatchResultDetail(obj: com.bryzek.claude.models.ClaudeBatchResultDetail): play.api.libs.json.JsObject = {
     play.api.libs.json.Json.obj(
@@ -1007,6 +1064,7 @@ package object json {
       obj.error.map { x => play.api.libs.json.Json.obj("error" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeErrorResponse(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
   }
 
+
   implicit def jsonReadsComBryzekClaudeModelsClaudeCacheControl: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeCacheControl] = {
     for {
       `type` <- (JsPath \ "type").readWithDefault[com.bryzek.claude.models.ClaudeCacheType](com.bryzek.claude.models.ClaudeCacheType.Ephemeral)
@@ -1014,9 +1072,11 @@ package object json {
     } yield com.bryzek.claude.models.ClaudeCacheControl(`type`, ttl)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeCacheControl: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeCacheControl] = {
     (obj: com.bryzek.claude.models.ClaudeCacheControl) => jsObjectComBryzekClaudeModelsClaudeCacheControl(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsClaudeCacheControl(obj: com.bryzek.claude.models.ClaudeCacheControl): play.api.libs.json.JsObject = {
     play.api.libs.json.Json.obj(
@@ -1025,6 +1085,7 @@ package object json {
       obj.ttl.map { x => play.api.libs.json.Json.obj("ttl" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
   }
 
+
   implicit def jsonReadsComBryzekClaudeModelsClaudeCacheCreation: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeCacheCreation] = {
     for {
       ephemeral5mInputTokens <- (JsPath \ "ephemeral_5m_input_tokens").readWithDefault[Long](0L)
@@ -1032,9 +1093,11 @@ package object json {
     } yield com.bryzek.claude.models.ClaudeCacheCreation(ephemeral5mInputTokens, ephemeral1hInputTokens)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeCacheCreation: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeCacheCreation] = {
     (obj: com.bryzek.claude.models.ClaudeCacheCreation) => jsObjectComBryzekClaudeModelsClaudeCacheCreation(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsClaudeCacheCreation(obj: com.bryzek.claude.models.ClaudeCacheCreation): play.api.libs.json.JsObject = {
     play.api.libs.json.Json.obj(
@@ -1043,21 +1106,25 @@ package object json {
     )
   }
 
+
   implicit def jsonReadsComBryzekClaudeModelsClaudeCitationsConfig: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeCitationsConfig] = {
     for {
       enabled <- (JsPath \ "enabled").read[Boolean]
     } yield com.bryzek.claude.models.ClaudeCitationsConfig(enabled)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeCitationsConfig: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeCitationsConfig] = {
     (obj: com.bryzek.claude.models.ClaudeCitationsConfig) => jsObjectComBryzekClaudeModelsClaudeCitationsConfig(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsClaudeCitationsConfig(obj: com.bryzek.claude.models.ClaudeCitationsConfig): play.api.libs.json.JsObject = {
     play.api.libs.json.Json.obj(
       "enabled" -> play.api.libs.json.JsBoolean(obj.enabled)
     )
   }
+
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeContentBlock: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeContentBlock] = {
     for {
@@ -1077,9 +1144,11 @@ package object json {
     } yield com.bryzek.claude.models.ClaudeContentBlock(`type`, text, id, name, input, toolUseId, content, isError, thinking, signature, data, source, cacheControl)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeContentBlock: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeContentBlock] = {
     (obj: com.bryzek.claude.models.ClaudeContentBlock) => jsObjectComBryzekClaudeModelsClaudeContentBlock(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsClaudeContentBlock(obj: com.bryzek.claude.models.ClaudeContentBlock): play.api.libs.json.JsObject = {
     play.api.libs.json.Json.obj(
@@ -1099,6 +1168,7 @@ package object json {
       obj.cacheControl.map { x => play.api.libs.json.Json.obj("cache_control" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeCacheControl(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
   }
 
+
   implicit def jsonReadsComBryzekClaudeModelsClaudeError: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeError] = {
     for {
       message <- (JsPath \ "message").read[String]
@@ -1106,9 +1176,11 @@ package object json {
     } yield com.bryzek.claude.models.ClaudeError(message, raw)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeError: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeError] = {
     (obj: com.bryzek.claude.models.ClaudeError) => jsObjectComBryzekClaudeModelsClaudeError(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsClaudeError(obj: com.bryzek.claude.models.ClaudeError): play.api.libs.json.JsObject = {
     play.api.libs.json.Json.obj(
@@ -1117,21 +1189,25 @@ package object json {
       obj.raw.map { x => play.api.libs.json.Json.obj("raw" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
   }
 
+
   implicit def jsonReadsComBryzekClaudeModelsClaudeErrorResponse: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeErrorResponse] = {
     for {
       error <- (JsPath \ "error").read[com.bryzek.claude.models.ClaudeError]
     } yield com.bryzek.claude.models.ClaudeErrorResponse(error)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeErrorResponse: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeErrorResponse] = {
     (obj: com.bryzek.claude.models.ClaudeErrorResponse) => jsObjectComBryzekClaudeModelsClaudeErrorResponse(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsClaudeErrorResponse(obj: com.bryzek.claude.models.ClaudeErrorResponse): play.api.libs.json.JsObject = {
     play.api.libs.json.Json.obj(
       "error" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeError(obj.error)
     )
   }
+
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeMessage: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeMessage] = {
     for {
@@ -1140,9 +1216,11 @@ package object json {
     } yield com.bryzek.claude.models.ClaudeMessage(role, content)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeMessage: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeMessage] = {
     (obj: com.bryzek.claude.models.ClaudeMessage) => jsObjectComBryzekClaudeModelsClaudeMessage(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsClaudeMessage(obj: com.bryzek.claude.models.ClaudeMessage): play.api.libs.json.JsObject = {
     play.api.libs.json.Json.obj(
@@ -1150,6 +1228,7 @@ package object json {
       "content" -> play.api.libs.json.Json.toJson(obj.content)
     )
   }
+
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeOutputConfig: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeOutputConfig] = {
     for {
@@ -1159,15 +1238,18 @@ package object json {
     } yield com.bryzek.claude.models.ClaudeOutputConfig(effort, format, taskBudget)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeOutputConfig: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeOutputConfig] = {
     (obj: com.bryzek.claude.models.ClaudeOutputConfig) => jsObjectComBryzekClaudeModelsClaudeOutputConfig(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsClaudeOutputConfig(obj: com.bryzek.claude.models.ClaudeOutputConfig): play.api.libs.json.JsObject = {
     obj.effort.map { x => play.api.libs.json.Json.obj("effort" -> play.api.libs.json.JsString(x.toString)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
       obj.format.map { x => play.api.libs.json.Json.obj("format" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeApiOutputFormat(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
       obj.taskBudget.map { x => play.api.libs.json.Json.obj("task_budget" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeTaskBudget(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
   }
+
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeRequest: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeRequest] = {
     for {
@@ -1182,9 +1264,11 @@ package object json {
     } yield com.bryzek.claude.models.ClaudeRequest(model, messages, maxTokens, system, tools, toolChoice, outputConfig, thinking)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeRequest: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeRequest] = {
     (obj: com.bryzek.claude.models.ClaudeRequest) => jsObjectComBryzekClaudeModelsClaudeRequest(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsClaudeRequest(obj: com.bryzek.claude.models.ClaudeRequest): play.api.libs.json.JsObject = {
     play.api.libs.json.Json.obj(
@@ -1199,6 +1283,7 @@ package object json {
       obj.thinking.map { x => play.api.libs.json.Json.obj("thinking" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeThinking(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
   }
 
+
   implicit def jsonReadsComBryzekClaudeModelsClaudeResponse: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeResponse] = {
     for {
       id <- (JsPath \ "id").read[String]
@@ -1212,9 +1297,11 @@ package object json {
     } yield com.bryzek.claude.models.ClaudeResponse(id, `type`, role, content, model, stopReason, stopSequence, usage)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeResponse: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeResponse] = {
     (obj: com.bryzek.claude.models.ClaudeResponse) => jsObjectComBryzekClaudeModelsClaudeResponse(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsClaudeResponse(obj: com.bryzek.claude.models.ClaudeResponse): play.api.libs.json.JsObject = {
     play.api.libs.json.Json.obj(
@@ -1229,6 +1316,7 @@ package object json {
       obj.stopSequence.map { x => play.api.libs.json.Json.obj("stop_sequence" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
   }
 
+
   implicit def jsonReadsComBryzekClaudeModelsClaudeServerToolError: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeServerToolError] = {
     for {
       `type` <- (JsPath \ "type").read[String]
@@ -1236,9 +1324,11 @@ package object json {
     } yield com.bryzek.claude.models.ClaudeServerToolError(`type`, errorCode)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeServerToolError: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeServerToolError] = {
     (obj: com.bryzek.claude.models.ClaudeServerToolError) => jsObjectComBryzekClaudeModelsClaudeServerToolError(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsClaudeServerToolError(obj: com.bryzek.claude.models.ClaudeServerToolError): play.api.libs.json.JsObject = {
     play.api.libs.json.Json.obj(
@@ -1247,6 +1337,7 @@ package object json {
     )
   }
 
+
   implicit def jsonReadsComBryzekClaudeModelsClaudeServerToolUsage: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeServerToolUsage] = {
     for {
       webSearchRequests <- (JsPath \ "web_search_requests").readWithDefault[Long](0L)
@@ -1254,9 +1345,11 @@ package object json {
     } yield com.bryzek.claude.models.ClaudeServerToolUsage(webSearchRequests, webFetchRequests)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeServerToolUsage: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeServerToolUsage] = {
     (obj: com.bryzek.claude.models.ClaudeServerToolUsage) => jsObjectComBryzekClaudeModelsClaudeServerToolUsage(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsClaudeServerToolUsage(obj: com.bryzek.claude.models.ClaudeServerToolUsage): play.api.libs.json.JsObject = {
     play.api.libs.json.Json.obj(
@@ -1264,6 +1357,7 @@ package object json {
       "web_fetch_requests" -> play.api.libs.json.JsNumber(obj.webFetchRequests)
     )
   }
+
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeSource: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeSource] = {
     for {
@@ -1273,9 +1367,11 @@ package object json {
     } yield com.bryzek.claude.models.ClaudeSource(`type`, mediaType, data)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeSource: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeSource] = {
     (obj: com.bryzek.claude.models.ClaudeSource) => jsObjectComBryzekClaudeModelsClaudeSource(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsClaudeSource(obj: com.bryzek.claude.models.ClaudeSource): play.api.libs.json.JsObject = {
     play.api.libs.json.Json.obj(
@@ -1285,6 +1381,7 @@ package object json {
     )
   }
 
+
   implicit def jsonReadsComBryzekClaudeModelsClaudeSystemBlock: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeSystemBlock] = {
     for {
       `type` <- (JsPath \ "type").readWithDefault[com.bryzek.claude.models.ClaudeContentType](com.bryzek.claude.models.ClaudeContentType.Text)
@@ -1293,9 +1390,11 @@ package object json {
     } yield com.bryzek.claude.models.ClaudeSystemBlock(`type`, text, cacheControl)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeSystemBlock: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeSystemBlock] = {
     (obj: com.bryzek.claude.models.ClaudeSystemBlock) => jsObjectComBryzekClaudeModelsClaudeSystemBlock(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsClaudeSystemBlock(obj: com.bryzek.claude.models.ClaudeSystemBlock): play.api.libs.json.JsObject = {
     play.api.libs.json.Json.obj(
@@ -1305,6 +1404,7 @@ package object json {
       obj.cacheControl.map { x => play.api.libs.json.Json.obj("cache_control" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeCacheControl(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
   }
 
+
   implicit def jsonReadsComBryzekClaudeModelsClaudeTaskBudget: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeTaskBudget] = {
     for {
       `type` <- (JsPath \ "type").readWithDefault[com.bryzek.claude.models.ClaudeTaskBudgetType](com.bryzek.claude.models.ClaudeTaskBudgetType.Tokens)
@@ -1312,9 +1412,11 @@ package object json {
     } yield com.bryzek.claude.models.ClaudeTaskBudget(`type`, total)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeTaskBudget: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeTaskBudget] = {
     (obj: com.bryzek.claude.models.ClaudeTaskBudget) => jsObjectComBryzekClaudeModelsClaudeTaskBudget(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsClaudeTaskBudget(obj: com.bryzek.claude.models.ClaudeTaskBudget): play.api.libs.json.JsObject = {
     play.api.libs.json.Json.obj(
@@ -1323,21 +1425,25 @@ package object json {
     )
   }
 
+
   implicit def jsonReadsComBryzekClaudeModelsClaudeThinking: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeThinking] = {
     for {
       `type` <- (JsPath \ "type").read[com.bryzek.claude.models.ClaudeThinkingType]
     } yield com.bryzek.claude.models.ClaudeThinking(`type`)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeThinking: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeThinking] = {
     (obj: com.bryzek.claude.models.ClaudeThinking) => jsObjectComBryzekClaudeModelsClaudeThinking(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsClaudeThinking(obj: com.bryzek.claude.models.ClaudeThinking): play.api.libs.json.JsObject = {
     play.api.libs.json.Json.obj(
       "type" -> play.api.libs.json.JsString(obj.`type`.toString)
     )
   }
+
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeTool: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeTool] = {
     for {
@@ -1355,9 +1461,11 @@ package object json {
     } yield com.bryzek.claude.models.ClaudeTool(name, `type`, description, inputSchema, strict, maxUses, allowedDomains, blockedDomains, citations, maxContentTokens, cacheControl)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeTool: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeTool] = {
     (obj: com.bryzek.claude.models.ClaudeTool) => jsObjectComBryzekClaudeModelsClaudeTool(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsClaudeTool(obj: com.bryzek.claude.models.ClaudeTool): play.api.libs.json.JsObject = {
     play.api.libs.json.Json.obj(
@@ -1375,6 +1483,7 @@ package object json {
       obj.cacheControl.map { x => play.api.libs.json.Json.obj("cache_control" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeCacheControl(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
   }
 
+
   implicit def jsonReadsComBryzekClaudeModelsClaudeToolChoice: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeToolChoice] = {
     for {
       `type` <- (JsPath \ "type").read[com.bryzek.claude.models.ClaudeToolChoiceType]
@@ -1383,9 +1492,11 @@ package object json {
     } yield com.bryzek.claude.models.ClaudeToolChoice(`type`, name, disableParallelToolUse)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeToolChoice: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeToolChoice] = {
     (obj: com.bryzek.claude.models.ClaudeToolChoice) => jsObjectComBryzekClaudeModelsClaudeToolChoice(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsClaudeToolChoice(obj: com.bryzek.claude.models.ClaudeToolChoice): play.api.libs.json.JsObject = {
     play.api.libs.json.Json.obj(
@@ -1394,6 +1505,7 @@ package object json {
       obj.name.map { x => play.api.libs.json.Json.obj("name" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
       obj.disableParallelToolUse.map { x => play.api.libs.json.Json.obj("disable_parallel_tool_use" -> play.api.libs.json.JsBoolean(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
   }
+
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeUsage: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeUsage] = {
     for {
@@ -1407,9 +1519,11 @@ package object json {
     } yield com.bryzek.claude.models.ClaudeUsage(inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens, cacheCreation, serverToolUse, serviceTier)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeUsage: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeUsage] = {
     (obj: com.bryzek.claude.models.ClaudeUsage) => jsObjectComBryzekClaudeModelsClaudeUsage(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsClaudeUsage(obj: com.bryzek.claude.models.ClaudeUsage): play.api.libs.json.JsObject = {
     play.api.libs.json.Json.obj(
@@ -1423,6 +1537,7 @@ package object json {
       obj.serviceTier.map { x => play.api.libs.json.Json.obj("service_tier" -> play.api.libs.json.JsString(x.toString)) }.getOrElse(play.api.libs.json.JsObject.empty)
   }
 
+
   implicit def jsonReadsComBryzekClaudeModelsClaudeWebFetchResult: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeWebFetchResult] = {
     for {
       `type` <- (JsPath \ "type").readWithDefault[String]("web_fetch_result")
@@ -1432,9 +1547,11 @@ package object json {
     } yield com.bryzek.claude.models.ClaudeWebFetchResult(`type`, url, retrievedAt, content)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeWebFetchResult: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeWebFetchResult] = {
     (obj: com.bryzek.claude.models.ClaudeWebFetchResult) => jsObjectComBryzekClaudeModelsClaudeWebFetchResult(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsClaudeWebFetchResult(obj: com.bryzek.claude.models.ClaudeWebFetchResult): play.api.libs.json.JsObject = {
     play.api.libs.json.Json.obj(
@@ -1444,6 +1561,7 @@ package object json {
       obj.retrievedAt.map { x => play.api.libs.json.Json.obj("retrieved_at" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
       obj.content.map { x => play.api.libs.json.Json.obj("content" -> x) }.getOrElse(play.api.libs.json.JsObject.empty)
   }
+
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeWebSearchResult: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeWebSearchResult] = {
     for {
@@ -1455,9 +1573,11 @@ package object json {
     } yield com.bryzek.claude.models.ClaudeWebSearchResult(`type`, title, url, pageAge, encryptedContent)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsClaudeWebSearchResult: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeWebSearchResult] = {
     (obj: com.bryzek.claude.models.ClaudeWebSearchResult) => jsObjectComBryzekClaudeModelsClaudeWebSearchResult(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsClaudeWebSearchResult(obj: com.bryzek.claude.models.ClaudeWebSearchResult): play.api.libs.json.JsObject = {
     play.api.libs.json.Json.obj(
@@ -1469,15 +1589,18 @@ package object json {
       obj.encryptedContent.map { x => play.api.libs.json.Json.obj("encrypted_content" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
   }
 
+
   implicit def jsonReadsComBryzekClaudeModelsMessage: play.api.libs.json.Reads[com.bryzek.claude.models.Message] = {
     for {
       placeholder <- (JsPath \ "placeholder").readNullable[String]
     } yield com.bryzek.claude.models.Message(placeholder)
   }
 
+
   implicit def jsonWritesComBryzekClaudeModelsMessage: play.api.libs.json.Writes[com.bryzek.claude.models.Message] = {
     (obj: com.bryzek.claude.models.Message) => jsObjectComBryzekClaudeModelsMessage(obj)
   }
+
 
   def jsObjectComBryzekClaudeModelsMessage(obj: com.bryzek.claude.models.Message): play.api.libs.json.JsObject = {
     obj.placeholder.map { x => play.api.libs.json.Json.obj("placeholder" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
@@ -1736,18 +1859,23 @@ object KnownClaudeModel {
     override def toString: String = _root_.com.bryzek.claude.models.ClaudeModel.ClaudeOpus5.toString
     override def toClaudeModel: _root_.com.bryzek.claude.models.ClaudeModel = _root_.com.bryzek.claude.models.ClaudeModel.ClaudeOpus5
   }
+  case object ClaudeOpus55 extends KnownClaudeModel {
+    override def toString: String = _root_.com.bryzek.claude.models.ClaudeModel.ClaudeOpus55.toString
+    override def toClaudeModel: _root_.com.bryzek.claude.models.ClaudeModel = _root_.com.bryzek.claude.models.ClaudeModel.ClaudeOpus55
+  }
   case object ClaudeFable5 extends KnownClaudeModel {
     override def toString: String = _root_.com.bryzek.claude.models.ClaudeModel.ClaudeFable5.toString
     override def toClaudeModel: _root_.com.bryzek.claude.models.ClaudeModel = _root_.com.bryzek.claude.models.ClaudeModel.ClaudeFable5
   }
 
-  val all: scala.List[KnownClaudeModel] = scala.List(ClaudeSonnet5, ClaudeHaiku45, ClaudeOpus5, ClaudeFable5)
+  val all: scala.List[KnownClaudeModel] = scala.List(ClaudeSonnet5, ClaudeHaiku45, ClaudeOpus5, ClaudeOpus55, ClaudeFable5)
 
   def validate(value: _root_.com.bryzek.claude.models.ClaudeModel): _root_.cats.data.ValidatedNec[String, KnownClaudeModel] = {
     value match {
     case _root_.com.bryzek.claude.models.ClaudeModel.ClaudeSonnet5 => _root_.cats.data.Validated.validNec(KnownClaudeModel.ClaudeSonnet5)
     case _root_.com.bryzek.claude.models.ClaudeModel.ClaudeHaiku45 => _root_.cats.data.Validated.validNec(KnownClaudeModel.ClaudeHaiku45)
     case _root_.com.bryzek.claude.models.ClaudeModel.ClaudeOpus5 => _root_.cats.data.Validated.validNec(KnownClaudeModel.ClaudeOpus5)
+    case _root_.com.bryzek.claude.models.ClaudeModel.ClaudeOpus55 => _root_.cats.data.Validated.validNec(KnownClaudeModel.ClaudeOpus55)
     case _root_.com.bryzek.claude.models.ClaudeModel.ClaudeFable5 => _root_.cats.data.Validated.validNec(KnownClaudeModel.ClaudeFable5)
     case _root_.com.bryzek.claude.models.ClaudeModel.UNDEFINED(desc) => _root_.cats.data.Validated.invalidNec(s"Invalid value '${desc}' for ClaudeModel")
     }
@@ -2020,6 +2148,7 @@ package object Bindables {
   implicit def pathBindableClaudeBatchProcessingStatus: _root_.play.api.mvc.PathBindable[com.bryzek.claude.models.ClaudeBatchProcessingStatus] = generated.binders.BasePathBindable(claudeBatchProcessingStatus)
   implicit def queryStringBindableClaudeBatchProcessingStatus: _root_.play.api.mvc.QueryStringBindable[com.bryzek.claude.models.ClaudeBatchProcessingStatus] = generated.binders.BaseQueryStringBindable(claudeBatchProcessingStatus)
 
+
   private val claudeBatchResultType: generated.binders.Bindable[com.bryzek.claude.models.ClaudeBatchResultType] = new generated.binders.Bindable[com.bryzek.claude.models.ClaudeBatchResultType] {
     override def fromString(value: String): com.bryzek.claude.models.ClaudeBatchResultType = com.bryzek.claude.models.ClaudeBatchResultType.fromString(value).getOrElse(com.bryzek.claude.models.ClaudeBatchResultType(value))
     override def toString(value: com.bryzek.claude.models.ClaudeBatchResultType): String = value.toString
@@ -2038,6 +2167,7 @@ package object Bindables {
   }
   implicit def pathBindableClaudeBatchResultType: _root_.play.api.mvc.PathBindable[com.bryzek.claude.models.ClaudeBatchResultType] = generated.binders.BasePathBindable(claudeBatchResultType)
   implicit def queryStringBindableClaudeBatchResultType: _root_.play.api.mvc.QueryStringBindable[com.bryzek.claude.models.ClaudeBatchResultType] = generated.binders.BaseQueryStringBindable(claudeBatchResultType)
+
 
   private val claudeCacheType: generated.binders.Bindable[com.bryzek.claude.models.ClaudeCacheType] = new generated.binders.Bindable[com.bryzek.claude.models.ClaudeCacheType] {
     override def fromString(value: String): com.bryzek.claude.models.ClaudeCacheType = com.bryzek.claude.models.ClaudeCacheType.fromString(value).getOrElse(com.bryzek.claude.models.ClaudeCacheType(value))
@@ -2058,6 +2188,7 @@ package object Bindables {
   implicit def pathBindableClaudeCacheType: _root_.play.api.mvc.PathBindable[com.bryzek.claude.models.ClaudeCacheType] = generated.binders.BasePathBindable(claudeCacheType)
   implicit def queryStringBindableClaudeCacheType: _root_.play.api.mvc.QueryStringBindable[com.bryzek.claude.models.ClaudeCacheType] = generated.binders.BaseQueryStringBindable(claudeCacheType)
 
+
   private val claudeContentType: generated.binders.Bindable[com.bryzek.claude.models.ClaudeContentType] = new generated.binders.Bindable[com.bryzek.claude.models.ClaudeContentType] {
     override def fromString(value: String): com.bryzek.claude.models.ClaudeContentType = com.bryzek.claude.models.ClaudeContentType.fromString(value).getOrElse(com.bryzek.claude.models.ClaudeContentType(value))
     override def toString(value: com.bryzek.claude.models.ClaudeContentType): String = value.toString
@@ -2076,6 +2207,7 @@ package object Bindables {
   }
   implicit def pathBindableClaudeContentType: _root_.play.api.mvc.PathBindable[com.bryzek.claude.models.ClaudeContentType] = generated.binders.BasePathBindable(claudeContentType)
   implicit def queryStringBindableClaudeContentType: _root_.play.api.mvc.QueryStringBindable[com.bryzek.claude.models.ClaudeContentType] = generated.binders.BaseQueryStringBindable(claudeContentType)
+
 
   private val claudeEffort: generated.binders.Bindable[com.bryzek.claude.models.ClaudeEffort] = new generated.binders.Bindable[com.bryzek.claude.models.ClaudeEffort] {
     override def fromString(value: String): com.bryzek.claude.models.ClaudeEffort = com.bryzek.claude.models.ClaudeEffort.fromString(value).getOrElse(com.bryzek.claude.models.ClaudeEffort(value))
@@ -2096,6 +2228,7 @@ package object Bindables {
   implicit def pathBindableClaudeEffort: _root_.play.api.mvc.PathBindable[com.bryzek.claude.models.ClaudeEffort] = generated.binders.BasePathBindable(claudeEffort)
   implicit def queryStringBindableClaudeEffort: _root_.play.api.mvc.QueryStringBindable[com.bryzek.claude.models.ClaudeEffort] = generated.binders.BaseQueryStringBindable(claudeEffort)
 
+
   private val claudeMediaType: generated.binders.Bindable[com.bryzek.claude.models.ClaudeMediaType] = new generated.binders.Bindable[com.bryzek.claude.models.ClaudeMediaType] {
     override def fromString(value: String): com.bryzek.claude.models.ClaudeMediaType = com.bryzek.claude.models.ClaudeMediaType.fromString(value).getOrElse(com.bryzek.claude.models.ClaudeMediaType(value))
     override def toString(value: com.bryzek.claude.models.ClaudeMediaType): String = value.toString
@@ -2114,6 +2247,7 @@ package object Bindables {
   }
   implicit def pathBindableClaudeMediaType: _root_.play.api.mvc.PathBindable[com.bryzek.claude.models.ClaudeMediaType] = generated.binders.BasePathBindable(claudeMediaType)
   implicit def queryStringBindableClaudeMediaType: _root_.play.api.mvc.QueryStringBindable[com.bryzek.claude.models.ClaudeMediaType] = generated.binders.BaseQueryStringBindable(claudeMediaType)
+
 
   private val claudeModel: generated.binders.Bindable[com.bryzek.claude.models.ClaudeModel] = new generated.binders.Bindable[com.bryzek.claude.models.ClaudeModel] {
     override def fromString(value: String): com.bryzek.claude.models.ClaudeModel = com.bryzek.claude.models.ClaudeModel.fromString(value).getOrElse(com.bryzek.claude.models.ClaudeModel(value))
@@ -2134,6 +2268,7 @@ package object Bindables {
   implicit def pathBindableClaudeModel: _root_.play.api.mvc.PathBindable[com.bryzek.claude.models.ClaudeModel] = generated.binders.BasePathBindable(claudeModel)
   implicit def queryStringBindableClaudeModel: _root_.play.api.mvc.QueryStringBindable[com.bryzek.claude.models.ClaudeModel] = generated.binders.BaseQueryStringBindable(claudeModel)
 
+
   private val claudeOutputFormatType: generated.binders.Bindable[com.bryzek.claude.models.ClaudeOutputFormatType] = new generated.binders.Bindable[com.bryzek.claude.models.ClaudeOutputFormatType] {
     override def fromString(value: String): com.bryzek.claude.models.ClaudeOutputFormatType = com.bryzek.claude.models.ClaudeOutputFormatType.fromString(value).getOrElse(com.bryzek.claude.models.ClaudeOutputFormatType(value))
     override def toString(value: com.bryzek.claude.models.ClaudeOutputFormatType): String = value.toString
@@ -2152,6 +2287,7 @@ package object Bindables {
   }
   implicit def pathBindableClaudeOutputFormatType: _root_.play.api.mvc.PathBindable[com.bryzek.claude.models.ClaudeOutputFormatType] = generated.binders.BasePathBindable(claudeOutputFormatType)
   implicit def queryStringBindableClaudeOutputFormatType: _root_.play.api.mvc.QueryStringBindable[com.bryzek.claude.models.ClaudeOutputFormatType] = generated.binders.BaseQueryStringBindable(claudeOutputFormatType)
+
 
   private val claudeRole: generated.binders.Bindable[com.bryzek.claude.models.ClaudeRole] = new generated.binders.Bindable[com.bryzek.claude.models.ClaudeRole] {
     override def fromString(value: String): com.bryzek.claude.models.ClaudeRole = com.bryzek.claude.models.ClaudeRole.fromString(value).getOrElse(com.bryzek.claude.models.ClaudeRole(value))
@@ -2172,6 +2308,7 @@ package object Bindables {
   implicit def pathBindableClaudeRole: _root_.play.api.mvc.PathBindable[com.bryzek.claude.models.ClaudeRole] = generated.binders.BasePathBindable(claudeRole)
   implicit def queryStringBindableClaudeRole: _root_.play.api.mvc.QueryStringBindable[com.bryzek.claude.models.ClaudeRole] = generated.binders.BaseQueryStringBindable(claudeRole)
 
+
   private val claudeServiceTier: generated.binders.Bindable[com.bryzek.claude.models.ClaudeServiceTier] = new generated.binders.Bindable[com.bryzek.claude.models.ClaudeServiceTier] {
     override def fromString(value: String): com.bryzek.claude.models.ClaudeServiceTier = com.bryzek.claude.models.ClaudeServiceTier.fromString(value).getOrElse(com.bryzek.claude.models.ClaudeServiceTier(value))
     override def toString(value: com.bryzek.claude.models.ClaudeServiceTier): String = value.toString
@@ -2190,6 +2327,7 @@ package object Bindables {
   }
   implicit def pathBindableClaudeServiceTier: _root_.play.api.mvc.PathBindable[com.bryzek.claude.models.ClaudeServiceTier] = generated.binders.BasePathBindable(claudeServiceTier)
   implicit def queryStringBindableClaudeServiceTier: _root_.play.api.mvc.QueryStringBindable[com.bryzek.claude.models.ClaudeServiceTier] = generated.binders.BaseQueryStringBindable(claudeServiceTier)
+
 
   private val claudeSourceType: generated.binders.Bindable[com.bryzek.claude.models.ClaudeSourceType] = new generated.binders.Bindable[com.bryzek.claude.models.ClaudeSourceType] {
     override def fromString(value: String): com.bryzek.claude.models.ClaudeSourceType = com.bryzek.claude.models.ClaudeSourceType.fromString(value).getOrElse(com.bryzek.claude.models.ClaudeSourceType(value))
@@ -2210,6 +2348,7 @@ package object Bindables {
   implicit def pathBindableClaudeSourceType: _root_.play.api.mvc.PathBindable[com.bryzek.claude.models.ClaudeSourceType] = generated.binders.BasePathBindable(claudeSourceType)
   implicit def queryStringBindableClaudeSourceType: _root_.play.api.mvc.QueryStringBindable[com.bryzek.claude.models.ClaudeSourceType] = generated.binders.BaseQueryStringBindable(claudeSourceType)
 
+
   private val claudeStopReason: generated.binders.Bindable[com.bryzek.claude.models.ClaudeStopReason] = new generated.binders.Bindable[com.bryzek.claude.models.ClaudeStopReason] {
     override def fromString(value: String): com.bryzek.claude.models.ClaudeStopReason = com.bryzek.claude.models.ClaudeStopReason.fromString(value).getOrElse(com.bryzek.claude.models.ClaudeStopReason(value))
     override def toString(value: com.bryzek.claude.models.ClaudeStopReason): String = value.toString
@@ -2228,6 +2367,7 @@ package object Bindables {
   }
   implicit def pathBindableClaudeStopReason: _root_.play.api.mvc.PathBindable[com.bryzek.claude.models.ClaudeStopReason] = generated.binders.BasePathBindable(claudeStopReason)
   implicit def queryStringBindableClaudeStopReason: _root_.play.api.mvc.QueryStringBindable[com.bryzek.claude.models.ClaudeStopReason] = generated.binders.BaseQueryStringBindable(claudeStopReason)
+
 
   private val claudeTaskBudgetType: generated.binders.Bindable[com.bryzek.claude.models.ClaudeTaskBudgetType] = new generated.binders.Bindable[com.bryzek.claude.models.ClaudeTaskBudgetType] {
     override def fromString(value: String): com.bryzek.claude.models.ClaudeTaskBudgetType = com.bryzek.claude.models.ClaudeTaskBudgetType.fromString(value).getOrElse(com.bryzek.claude.models.ClaudeTaskBudgetType(value))
@@ -2248,6 +2388,7 @@ package object Bindables {
   implicit def pathBindableClaudeTaskBudgetType: _root_.play.api.mvc.PathBindable[com.bryzek.claude.models.ClaudeTaskBudgetType] = generated.binders.BasePathBindable(claudeTaskBudgetType)
   implicit def queryStringBindableClaudeTaskBudgetType: _root_.play.api.mvc.QueryStringBindable[com.bryzek.claude.models.ClaudeTaskBudgetType] = generated.binders.BaseQueryStringBindable(claudeTaskBudgetType)
 
+
   private val claudeThinkingType: generated.binders.Bindable[com.bryzek.claude.models.ClaudeThinkingType] = new generated.binders.Bindable[com.bryzek.claude.models.ClaudeThinkingType] {
     override def fromString(value: String): com.bryzek.claude.models.ClaudeThinkingType = com.bryzek.claude.models.ClaudeThinkingType.fromString(value).getOrElse(com.bryzek.claude.models.ClaudeThinkingType(value))
     override def toString(value: com.bryzek.claude.models.ClaudeThinkingType): String = value.toString
@@ -2267,6 +2408,7 @@ package object Bindables {
   implicit def pathBindableClaudeThinkingType: _root_.play.api.mvc.PathBindable[com.bryzek.claude.models.ClaudeThinkingType] = generated.binders.BasePathBindable(claudeThinkingType)
   implicit def queryStringBindableClaudeThinkingType: _root_.play.api.mvc.QueryStringBindable[com.bryzek.claude.models.ClaudeThinkingType] = generated.binders.BaseQueryStringBindable(claudeThinkingType)
 
+
   private val claudeToolChoiceType: generated.binders.Bindable[com.bryzek.claude.models.ClaudeToolChoiceType] = new generated.binders.Bindable[com.bryzek.claude.models.ClaudeToolChoiceType] {
     override def fromString(value: String): com.bryzek.claude.models.ClaudeToolChoiceType = com.bryzek.claude.models.ClaudeToolChoiceType.fromString(value).getOrElse(com.bryzek.claude.models.ClaudeToolChoiceType(value))
     override def toString(value: com.bryzek.claude.models.ClaudeToolChoiceType): String = value.toString
@@ -2285,6 +2427,7 @@ package object Bindables {
   }
   implicit def pathBindableClaudeToolChoiceType: _root_.play.api.mvc.PathBindable[com.bryzek.claude.models.ClaudeToolChoiceType] = generated.binders.BasePathBindable(claudeToolChoiceType)
   implicit def queryStringBindableClaudeToolChoiceType: _root_.play.api.mvc.QueryStringBindable[com.bryzek.claude.models.ClaudeToolChoiceType] = generated.binders.BaseQueryStringBindable(claudeToolChoiceType)
+
 
   private val claudeToolType: generated.binders.Bindable[com.bryzek.claude.models.ClaudeToolType] = new generated.binders.Bindable[com.bryzek.claude.models.ClaudeToolType] {
     override def fromString(value: String): com.bryzek.claude.models.ClaudeToolType = com.bryzek.claude.models.ClaudeToolType.fromString(value).getOrElse(com.bryzek.claude.models.ClaudeToolType(value))

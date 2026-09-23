@@ -11,6 +11,7 @@ import _root_.play.api.libs.ws.writeableOf_JsValue
 
 case class Response[T](value: T, underlying: _root_.play.api.libs.ws.WSResponse)
 
+
 trait IClient {
 
   def createClaudeBatch(
@@ -45,6 +46,7 @@ class Client(
 
   private val logger = _root_.play.api.Logger("Client")
 
+
   def createClaudeBatch(
     body: com.bryzek.claude.models.ClaudeBatchForm,
     requestHeaders: Seq[(String, String)] = Nil
@@ -72,6 +74,7 @@ class Client(
 
   }
 
+
   def getClaudeBatchById(
     id: String,
     requestHeaders: Seq[(String, String)] = Nil
@@ -97,6 +100,7 @@ class Client(
     }
 
   }
+
 
   def cancelClaudeBatchById(
     id: String,
@@ -124,6 +128,7 @@ class Client(
 
   }
 
+
   def createMessage(
     body: com.bryzek.claude.models.ClaudeRequest,
     requestHeaders: Seq[(String, String)] = Nil
@@ -150,6 +155,7 @@ class Client(
     }
 
   }
+
 
   private def _maybeAddAuth(request: _root_.play.api.libs.ws.WSRequest): _root_.play.api.libs.ws.WSRequest = {
     auth match {
