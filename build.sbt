@@ -80,7 +80,7 @@ ThisBuild / dependencyOverrides ++= Seq(
   "com.fasterxml.jackson.module" %% "jackson-module-scala" % jacksonVersion,
 )
 
-lazy val logbackVersion = "1.6.3"
+lazy val logbackVersion = "1.6.5"
 
 // at.yawk.lz4:lz4-java resolves to 1.11.2 or above, in every subproject.
 //
@@ -256,7 +256,7 @@ lazy val root = project
       // moved apart by editing one of them.
       "ch.qos.logback" % "logback-classic" % logbackVersion,
       "ch.qos.logback" % "logback-core" % logbackVersion,
-      "joda-time" % "joda-time" % "2.14.3",
+      "joda-time" % "joda-time" % "2.15.0",
       "com.google.inject" % "guice" % "5.1.0",
       "org.playframework" %% "play-json" % "3.0.6",
       "org.typelevel" %% "cats-core" % "2.13.0",
