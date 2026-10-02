@@ -38,7 +38,7 @@ ThisBuild / scalaVersion := "3.8.4"
 // parameter-names behind. Overriding the whole family is what makes one version true of all of
 // them.
 //
-// The floor is a security one and four advisories set it, so it is stated as a range rather than a
+// The floor is a security one and six advisories set it, so it is stated as a range rather than a
 // single number. jackson-core below 2.15.0 has no nesting-depth limit and throws StackOverflowError
 // on deeply nested input rather than rejecting it (GHSA-h46c-h94j-95f3), and that is the version
 // play-json resolves. jackson-databind below 2.18.8 -- and again on 2.19.0 through 2.21.3 --
@@ -53,11 +53,16 @@ ThisBuild / scalaVersion := "3.8.4"
 // across feeds, so a number split across `feedInput` calls is not bounded at all and no chunk ever
 // has to exceed the limit (GHSA-r7wm-3cxj-wff9).
 //
-// The last three are the binding ones -- they share one range -- and they are why the first is not
-// the number to read off this comment: they rule out the whole 2.15.0-2.18.7 span the nesting-depth
-// floor would allow, so the lowest this pin may state is 2.18.8, and anything chosen on the 2.19
-// line must be 2.21.4 or above. 2.22.2 is the head of the Jackson 2 line and the version platform
-// and acumen pin, so a consumer that pins too resolves one Jackson rather than two.
+// jackson-databind carries two more, fixed on each release line separately: below 2.18.11, on
+// 2.19.0 through 2.21.6, and on 2.22.0 through 2.22.2 it completes forward object-id references in
+// time quadratic in their number (GHSA-cxp5-3px4-pw24), and retains every unknown raw type id it
+// is handed (GHSA-wv8q-qhhj-9h54).
+//
+// Those two are the binding ones, and they are why the first is not the number to read off this
+// comment: the lowest this pin may state is 2.18.11, anything chosen on the 2.19-2.21 lines must be
+// 2.21.7 or above, and anything on the 2.22 line must be 2.22.3 or above. 2.22.3 is the head of the
+// Jackson 2 line and the version platform and acumen pin, so a consumer that pins too resolves one
+// Jackson rather than two.
 //
 // This governs THIS build's resolution only -- sbt writes no `dependencyOverrides` into the
 // published POM -- so it decides what this repo compiles and tests against and imposes no floor on
@@ -66,7 +71,7 @@ ThisBuild / scalaVersion := "3.8.4"
 // jackson-annotations publishes no patch versions on its 2.20+ lines (maven-metadata.xml runs
 // 2.19.4, 2.20, 2.21, 2.22), so it carries its own version and a patch number there is a 404 that
 // fails the whole resolution.
-lazy val jacksonVersion = "2.22.2"
+lazy val jacksonVersion = "2.22.3"
 lazy val jacksonAnnotationsVersion = "2.22"
 
 ThisBuild / dependencyOverrides ++= Seq(
