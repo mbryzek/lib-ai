@@ -217,8 +217,9 @@ lazy val root = project
       //
       // `PlayScala` puts play-logback on this library at compile scope, so it is in the published
       // POM and logback reaches every consumer through it, at whatever version play-logback names
-      // -- 1.5.32, and play-logback 3.0.11 is the newest stable release on Play's 3.0 line, so
-      // there is no upstream version to move to. A `dependencyOverrides` is resolution-local: sbt
+      // (1.6.4 for play-logback 3.0.12). Declaring the pair here keeps the floor this library's own
+      // statement rather than a property of whichever Play release is pinned in plugins.sbt, and
+      // keeps core and classic on one version. A `dependencyOverrides` is resolution-local: sbt
       // writes none of it into the POM, so it would fix this build's own classpath and leave every
       // consumer inheriting the advisory from a library that reads as fixed. A direct compile-scope
       // dependency is what reaches them.
