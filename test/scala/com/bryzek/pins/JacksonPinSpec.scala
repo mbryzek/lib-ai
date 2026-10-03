@@ -1,4 +1,4 @@
-package com.bryzek.ai
+package com.bryzek.pins
 
 import com.fasterxml.jackson.core.async.ByteArrayFeeder
 import com.fasterxml.jackson.core.exc.StreamConstraintsException
@@ -12,8 +12,8 @@ import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-/** The Jackson family this build resolves is pinned in build.sbt rather than inherited, and every
-  * part of that pin fails silently when it is wrong.
+/** The Jackson family this build resolves is pinned by `BryzekPins.jackson2` rather than inherited,
+  * and every part of that pin fails silently when it is wrong.
   *
   * A partial pin resolves cleanly and then refuses at runtime: jackson-module-scala checks its
   * databind version when it registers and throws "Scala module <v> requires Jackson Databind
