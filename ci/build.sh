@@ -105,6 +105,26 @@ case "$rc" in
   *) exit "$rc" ;;
 esac
 
+# THE SECURITY PINS ARE OWNED BY devops, and this is what holds the copies here to them.
+# project/BryzekPins.scala declares the Jackson 2, Jackson 3 and logback versions every lib-*
+# build resolves, and the pin specs assert them as behaviour of the resolved jars. All of them are
+# byte-identical copies of devops's templates/scala-libs, read off devops's main with
+# `dev repo cat` (no fetch of our own, ISS-2232), so an advisory bump is one edit there and a copy
+# that is not taken fails here rather than drifting into a per-repo floor. A read that fails
+# leaves the diff comparing against nothing, which fails too. ISS-15715
+pins=(
+  "project/BryzekPins.scala project/BryzekPins.scala"
+  "test/JacksonPinSpec.scala test/scala/com/bryzek/pins/JacksonPinSpec.scala"
+  "test/LogbackPinSpec.scala test/scala/com/bryzek/pins/LogbackPinSpec.scala"
+)
+for pair in "${pins[@]}"; do
+  read -r template copy <<<"$pair"
+  if ! diff -u <(dev repo cat devops "templates/scala-libs/$template") "$copy"; then
+    echo "ci/build.sh: sync it -- dev repo cat devops templates/scala-libs/$template > $copy" >&2
+    exit 1
+  fi
+done
+
 # One sbt invocation, in this order deliberately: sbt aborts the remaining tasks
 # on the first failure, so a badly formatted PR is told so in seconds rather than
 # after a cold compile.

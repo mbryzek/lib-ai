@@ -22,70 +22,16 @@ ThisBuild / sonatypeRepository := "https://central.sonatype.com/api/v1/publisher
 
 ThisBuild / scalaVersion := "3.8.4"
 
-// Every Jackson artifact in this build resolves to one version.
+// The Jackson 2, Jackson 3 and logback security pins are DECLARED in project/BryzekPins.scala, a
+// copy of devops's templates/scala-libs/project/BryzekPins.scala that ci/build.sh holds
+// byte-identical to it, together with the pin specs under test/scala/com/bryzek/pins. That
+// file carries why each floor is what it is; an advisory bump is edited there and copied here.
 //
-// Jackson's own compatibility rule is that a release train moves together: the datatype and
-// dataformat modules compile against databind's internal serializer/deserializer SPI, and
-// jackson-module-scala additionally asserts its databind version at runtime and refuses to
-// register outside its own minor line. Only that last one fails loudly; a datatype module left
-// behind on an older line links fine and throws AbstractMethodError or NoSuchMethodError on
-// whichever serializer path first touches a changed SPI method. `JacksonPinSpec` asserts the pair
-// registers, so a partial bump fails by name here rather than opaquely in a consumer.
-//
-// Drift is the default here rather than an accident. play-json and pekko-serialization-jackson
-// contribute the whole family transitively at one version, so pinning a single coordinate wins the
-// conflict only for that artifact and the ones it depends on, leaving cbor/jdk8/jsr310/
-// parameter-names behind. Overriding the whole family is what makes one version true of all of
-// them.
-//
-// The floor is a security one and six advisories set it, so it is stated as a range rather than a
-// single number. jackson-core below 2.15.0 has no nesting-depth limit and throws StackOverflowError
-// on deeply nested input rather than rejecting it (GHSA-h46c-h94j-95f3), and that is the version
-// play-json resolves. jackson-databind below 2.18.8 -- and again on 2.19.0 through 2.21.3 --
-// validates a type id carrying generics by the substring before the `<` and then resolves the type
-// arguments out of the rest of it without ever offering them to the PolymorphicTypeValidator, so an
-// allow-list naming one safe container admits any type smuggled into that container's parameter
-// position (GHSA-j3rv-43j4-c7qm). Databind over that same range also answers
-// `allowIfSubTypeIsArray` on `clazz.isArray()` alone and never validates the array's component
-// type, so a denied class named as the element of an array is admitted and instantiated with no
-// further check (GHSA-rmj7-2vxq-3g9f). jackson-core over that same range applies maxNumberLength to
-// the digits within each chunk fed to the non-blocking parser rather than to the number accumulated
-// across feeds, so a number split across `feedInput` calls is not bounded at all and no chunk ever
-// has to exceed the limit (GHSA-r7wm-3cxj-wff9).
-//
-// jackson-databind carries two more, fixed on each release line separately: below 2.18.11, on
-// 2.19.0 through 2.21.6, and on 2.22.0 through 2.22.2 it completes forward object-id references in
-// time quadratic in their number (GHSA-cxp5-3px4-pw24), and retains every unknown raw type id it
-// is handed (GHSA-wv8q-qhhj-9h54).
-//
-// Those two are the binding ones, and they are why the first is not the number to read off this
-// comment: the lowest this pin may state is 2.18.11, anything chosen on the 2.19-2.21 lines must be
-// 2.21.7 or above, and anything on the 2.22 line must be 2.22.3 or above. 2.22.3 is the head of the
-// Jackson 2 line and the version platform and acumen pin, so a consumer that pins too resolves one
-// Jackson rather than two.
-//
-// This governs THIS build's resolution only -- sbt writes no `dependencyOverrides` into the
-// published POM -- so it decides what this repo compiles and tests against and imposes no floor on
-// a consumer. A consumer states its own, as platform and acumen do.
-//
-// jackson-annotations publishes no patch versions on its 2.20+ lines (maven-metadata.xml runs
-// 2.19.4, 2.20, 2.21, 2.22), so it carries its own version and a patch number there is a 404 that
-// fails the whole resolution.
-lazy val jacksonVersion = "2.22.3"
-lazy val jacksonAnnotationsVersion = "2.22"
-
-ThisBuild / dependencyOverrides ++= Seq(
-  "com.fasterxml.jackson.core" % "jackson-databind" % jacksonVersion,
-  "com.fasterxml.jackson.core" % "jackson-core" % jacksonVersion,
-  "com.fasterxml.jackson.core" % "jackson-annotations" % jacksonAnnotationsVersion,
-  "com.fasterxml.jackson.dataformat" % "jackson-dataformat-cbor" % jacksonVersion,
-  "com.fasterxml.jackson.datatype" % "jackson-datatype-jdk8" % jacksonVersion,
-  "com.fasterxml.jackson.datatype" % "jackson-datatype-jsr310" % jacksonVersion,
-  "com.fasterxml.jackson.module" % "jackson-module-parameter-names" % jacksonVersion,
-  "com.fasterxml.jackson.module" %% "jackson-module-scala" % jacksonVersion,
-)
-
-lazy val logbackVersion = "1.6.5"
+// Applied as `dependencyOverrides`, which governs THIS build's resolution only -- sbt writes none
+// of it into the published POM -- so it decides what this repo compiles and tests against and
+// imposes no floor on a consumer. No Jackson 3 resolves here. logback is
+// both DECLARED (below, so the floor reaches consumers) and overridden, so the pair cannot split.
+ThisBuild / dependencyOverrides ++= BryzekPins.jackson2 ++ BryzekPins.logback
 
 // at.yawk.lz4:lz4-java resolves to 1.11.2 or above, in every subproject.
 //
@@ -210,58 +156,19 @@ lazy val root = project
     // it rather than about this suite. platform and acumen pin theirs for the same reason.
     Test / javaOptions += "-Xmx4g",
     scalacOptions ++= allScalacOptions,
+    // logback-classic and logback-core, at `BryzekPins.logbackVersion`, DECLARED rather than only
+    // overridden.
+    //
+    // `PlayScala` puts play-logback on this library at compile scope, so it is in the published POM
+    // and logback reaches every consumer through it, at whatever version play-logback names.
+    // Declaring the pair keeps the floor this library's own statement rather than a property of
+    // whichever Play release is pinned in plugins.sbt, and keeps core and classic on one version. A
+    // `dependencyOverrides` is resolution-local, so on its own it would fix this build's classpath
+    // and leave every consumer inheriting the advisory from a library that reads as fixed; a direct
+    // compile-scope dependency is what reaches them.
+    libraryDependencies ++= BryzekPins.logback,
     libraryDependencies ++= Seq(
       ws,
-      // logback-classic and logback-core, at one version at or above 1.5.34, DECLARED rather than
-      // overridden.
-      //
-      // `PlayScala` puts play-logback on this library at compile scope, so it is in the published
-      // POM and logback reaches every consumer through it, at whatever version play-logback names
-      // (1.6.4 for play-logback 3.0.12). Declaring the pair here keeps the floor this library's own
-      // statement rather than a property of whichever Play release is pinned in plugins.sbt, and
-      // keeps core and classic on one version. A `dependencyOverrides` is resolution-local: sbt
-      // writes none of it into the POM, so it would fix this build's own classpath and leave every
-      // consumer inheriting the advisory from a library that reads as fixed. A direct compile-scope
-      // dependency is what reaches them.
-      //
-      // The floor is a security one, and TWO advisories set it. Through 1.5.32, logback-core's
-      // `HardenedObjectInputStream` -- the deserializer behind `SimpleSocketServer` and
-      // `SimpleSSLSocketServer` -- decided what a socket-delivered logging event may instantiate by
-      // PREFIX: a class name beginning `java.lang` or `java.util` was admitted whatever class it
-      // actually named. From 1.5.33 the same decision is an equality test against sixteen named
-      // classes, and everything else in those packages is refused with `InvalidClassException`
-      // (GHSA-p47f-322f-whfh).
-      //
-      // 1.5.33 IS ITSELF AFFECTED, which is why the floor is 1.5.34 and not 1.5.33. That check
-      // bounds what a stream may NAME; through 1.5.33 nothing bounded what the stream may have the
-      // JVM SYNTHESISE, because `HardenedObjectInputStream` left `resolveProxyClass` to
-      // `ObjectInputStream`, which defines a proxy class for whatever interfaces the stream names
-      // before any name check can run -- a proxy has no resolved class name until it has been
-      // defined (GHSA-jhq6-gfmj-v8fx). Whether the proxy then materialises turns on the whitelist
-      // naming `java.lang.reflect.Proxy` and the handler's own class; logback's built-in socket
-      // whitelist names neither, which is why the advisory calls the injection heavily restricted,
-      // but a caller-supplied whitelist can name both, and then the stream chooses the interfaces
-      // AND the `InvocationHandler` behind them. 1.5.34 overrides `resolveProxyClass` to refuse
-      // unconditionally, so no whitelist re-admits a proxy.
-      //
-      // `LogbackPinSpec` asserts both refusals against the resolved jar, because a pin that has
-      // stopped applying resolves cleanly and says nothing -- and it asserts the proxy one through
-      // a whitelist naming both classes an affected version stops at, since a case with an empty
-      // whitelist passes on 1.5.33 and proves nothing.
-      //
-      // BOTH COORDINATES, AT ONE VERSION. logback-core is named as well as logback-classic even
-      // though classic carries it, so the artifact the advisories are actually against states its
-      // own floor rather than depending on which classic wins a consumer's conflict resolution. And
-      // naming core alone is the failure this states rather than one it prevents: the two publish as
-      // one release train and classic compiles against core's internals, so the 1.5.33 fix changed
-      // `HardenedObjectInputStream`'s constructors to take a `Context` and logback-classic 1.5.32's
-      // `HardenedLoggingEventInputStream` calls the two-argument one its superclass no longer has.
-      // That combination resolves cleanly and throws NoSuchMethodError at class initialization.
-      //
-      // The version is `logbackVersion` in both lines rather than a literal, so the pair cannot be
-      // moved apart by editing one of them.
-      "ch.qos.logback" % "logback-classic" % logbackVersion,
-      "ch.qos.logback" % "logback-core" % logbackVersion,
       "joda-time" % "joda-time" % "2.15.0",
       "com.google.inject" % "guice" % "5.1.0",
       "org.playframework" %% "play-json" % "3.0.6",
