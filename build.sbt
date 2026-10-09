@@ -33,7 +33,14 @@ ThisBuild / scalaVersion := "3.8.4"
 // both DECLARED (below, so the floor reaches consumers) and overridden, so the pair cannot split.
 ThisBuild / dependencyOverrides ++= BryzekPins.jackson2 ++ BryzekPins.logback
 
-// at.yawk.lz4:lz4-java resolves to 1.11.2 or above, in every subproject.
+// at.yawk.lz4:lz4-java resolves to 1.11.4 or above, in every subproject.
+//
+// Below 1.11.4 three defects reach a caller: LZ4BlockInputStream with stopOnEmptyBlock=false
+// recurses once per empty block, so a stream of empty blocks ends in a StackOverflowError
+// (GHSA-343h-94h5-c4wr); LZ4FrameInputStream reallocates its block buffers for every frame, so a
+// small input of many frames amplifies CPU and GC (GHSA-gm45-99xc-r7wv); and the native library
+// is extracted to a shared temporary directory where another local user can replace it before
+// it is loaded (GHSA-mcr4-qmvw-px4g).
 //
 // Below 1.11.1 the JNI-backed XXHash implementations hand a caller-supplied byte array and its
 // `off`/`len` to native code without first proving the range is inside the array: the streaming
@@ -47,8 +54,8 @@ ThisBuild / dependencyOverrides ++= BryzekPins.jackson2 ++ BryzekPins.logback
 // It is not declared anywhere in this build: play_3 depends on it directly and pins 1.11.0, so an
 // override is the only thing that moves it and there is no `libraryDependencies` line to edit
 // instead. Drop this pin once the Play version this build resolves ships a lz4-java at or above
-// 1.11.1 of its own.
-ThisBuild / dependencyOverrides += "at.yawk.lz4" % "lz4-java" % "1.11.2"
+// 1.11.4 of its own.
+ThisBuild / dependencyOverrides += "at.yawk.lz4" % "lz4-java" % "1.11.4"
 
 // Keep the unused browser-automation stack off the test classpath.
 //
