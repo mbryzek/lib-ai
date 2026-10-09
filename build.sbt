@@ -1,6 +1,6 @@
 name := "lib-ai"
 
-version := "0.2.6"
+version := "0.2.7"
 
 ThisBuild / javacOptions ++= Seq("-source", "17", "-target", "17")
 
