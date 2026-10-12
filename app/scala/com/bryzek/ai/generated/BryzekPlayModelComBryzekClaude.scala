@@ -107,13 +107,14 @@ sealed trait ClaudeModel extends _root_.scala.Product with _root_.scala.Serializ
 
 object ClaudeModel {
   case object ClaudeSonnet5 extends ClaudeModel { override def toString: String = "claude-sonnet-5" }
+  case object ClaudeSonnet55 extends ClaudeModel { override def toString: String = "claude-sonnet-5-5" }
   case object ClaudeHaiku45 extends ClaudeModel { override def toString: String = "claude-haiku-4-5" }
   case object ClaudeOpus5 extends ClaudeModel { override def toString: String = "claude-opus-5" }
   case object ClaudeOpus55 extends ClaudeModel { override def toString: String = "claude-opus-5-5" }
   case object ClaudeFable5 extends ClaudeModel { override def toString: String = "claude-fable-5" }
   final case class UNDEFINED(description: String) extends ClaudeModel { override def toString: String = description }
 
-  val all: scala.List[ClaudeModel] = scala.List(ClaudeSonnet5, ClaudeHaiku45, ClaudeOpus5, ClaudeOpus55, ClaudeFable5)
+  val all: scala.List[ClaudeModel] = scala.List(ClaudeSonnet5, ClaudeSonnet55, ClaudeHaiku45, ClaudeOpus5, ClaudeOpus55, ClaudeFable5)
   private val byName: Map[String, ClaudeModel] = all.map(x => x.toString.toLowerCase -> x).toMap
   def apply(value: String): ClaudeModel = fromString(value).getOrElse(UNDEFINED(value))
   def fromString(value: String): _root_.scala.Option[ClaudeModel] = byName.get(value.toLowerCase)
@@ -204,9 +205,10 @@ sealed trait ClaudeThinkingType extends _root_.scala.Product with _root_.scala.S
 object ClaudeThinkingType {
   case object Disabled extends ClaudeThinkingType { override def toString: String = "disabled" }
   case object Adaptive extends ClaudeThinkingType { override def toString: String = "adaptive" }
+  case object BetweenTools extends ClaudeThinkingType { override def toString: String = "between_tools" }
   final case class UNDEFINED(description: String) extends ClaudeThinkingType { override def toString: String = description }
 
-  val all: scala.List[ClaudeThinkingType] = scala.List(Disabled, Adaptive)
+  val all: scala.List[ClaudeThinkingType] = scala.List(Disabled, Adaptive, BetweenTools)
   private val byName: Map[String, ClaudeThinkingType] = all.map(x => x.toString.toLowerCase -> x).toMap
   def apply(value: String): ClaudeThinkingType = fromString(value).getOrElse(UNDEFINED(value))
   def fromString(value: String): _root_.scala.Option[ClaudeThinkingType] = byName.get(value.toLowerCase)
@@ -245,11 +247,12 @@ object ClaudeToolChoiceType {
 sealed trait ClaudeToolType extends _root_.scala.Product with _root_.scala.Serializable
 
 object ClaudeToolType {
+  case object WebSearch20250305 extends ClaudeToolType { override def toString: String = "web_search_20250305" }
   case object WebSearch20260209 extends ClaudeToolType { override def toString: String = "web_search_20260209" }
   case object WebFetch20260209 extends ClaudeToolType { override def toString: String = "web_fetch_20260209" }
   final case class UNDEFINED(description: String) extends ClaudeToolType { override def toString: String = description }
 
-  val all: scala.List[ClaudeToolType] = scala.List(WebSearch20260209, WebFetch20260209)
+  val all: scala.List[ClaudeToolType] = scala.List(WebSearch20250305, WebSearch20260209, WebFetch20260209)
   private val byName: Map[String, ClaudeToolType] = all.map(x => x.toString.toLowerCase -> x).toMap
   def apply(value: String): ClaudeToolType = fromString(value).getOrElse(UNDEFINED(value))
   def fromString(value: String): _root_.scala.Option[ClaudeToolType] = byName.get(value.toLowerCase)
@@ -1887,6 +1890,10 @@ object KnownClaudeModel {
     override def toString: String = _root_.com.bryzek.claude.models.ClaudeModel.ClaudeSonnet5.toString
     override def toClaudeModel: _root_.com.bryzek.claude.models.ClaudeModel = _root_.com.bryzek.claude.models.ClaudeModel.ClaudeSonnet5
   }
+  case object ClaudeSonnet55 extends KnownClaudeModel {
+    override def toString: String = _root_.com.bryzek.claude.models.ClaudeModel.ClaudeSonnet55.toString
+    override def toClaudeModel: _root_.com.bryzek.claude.models.ClaudeModel = _root_.com.bryzek.claude.models.ClaudeModel.ClaudeSonnet55
+  }
   case object ClaudeHaiku45 extends KnownClaudeModel {
     override def toString: String = _root_.com.bryzek.claude.models.ClaudeModel.ClaudeHaiku45.toString
     override def toClaudeModel: _root_.com.bryzek.claude.models.ClaudeModel = _root_.com.bryzek.claude.models.ClaudeModel.ClaudeHaiku45
@@ -1904,11 +1911,12 @@ object KnownClaudeModel {
     override def toClaudeModel: _root_.com.bryzek.claude.models.ClaudeModel = _root_.com.bryzek.claude.models.ClaudeModel.ClaudeFable5
   }
 
-  val all: scala.List[KnownClaudeModel] = scala.List(ClaudeSonnet5, ClaudeHaiku45, ClaudeOpus5, ClaudeOpus55, ClaudeFable5)
+  val all: scala.List[KnownClaudeModel] = scala.List(ClaudeSonnet5, ClaudeSonnet55, ClaudeHaiku45, ClaudeOpus5, ClaudeOpus55, ClaudeFable5)
 
   def validate(value: _root_.com.bryzek.claude.models.ClaudeModel): _root_.cats.data.ValidatedNec[String, KnownClaudeModel] = {
     value match {
     case _root_.com.bryzek.claude.models.ClaudeModel.ClaudeSonnet5 => _root_.cats.data.Validated.validNec(KnownClaudeModel.ClaudeSonnet5)
+    case _root_.com.bryzek.claude.models.ClaudeModel.ClaudeSonnet55 => _root_.cats.data.Validated.validNec(KnownClaudeModel.ClaudeSonnet55)
     case _root_.com.bryzek.claude.models.ClaudeModel.ClaudeHaiku45 => _root_.cats.data.Validated.validNec(KnownClaudeModel.ClaudeHaiku45)
     case _root_.com.bryzek.claude.models.ClaudeModel.ClaudeOpus5 => _root_.cats.data.Validated.validNec(KnownClaudeModel.ClaudeOpus5)
     case _root_.com.bryzek.claude.models.ClaudeModel.ClaudeOpus55 => _root_.cats.data.Validated.validNec(KnownClaudeModel.ClaudeOpus55)
@@ -2091,13 +2099,18 @@ object KnownClaudeThinkingType {
     override def toString: String = _root_.com.bryzek.claude.models.ClaudeThinkingType.Adaptive.toString
     override def toClaudeThinkingType: _root_.com.bryzek.claude.models.ClaudeThinkingType = _root_.com.bryzek.claude.models.ClaudeThinkingType.Adaptive
   }
+  case object BetweenTools extends KnownClaudeThinkingType {
+    override def toString: String = _root_.com.bryzek.claude.models.ClaudeThinkingType.BetweenTools.toString
+    override def toClaudeThinkingType: _root_.com.bryzek.claude.models.ClaudeThinkingType = _root_.com.bryzek.claude.models.ClaudeThinkingType.BetweenTools
+  }
 
-  val all: scala.List[KnownClaudeThinkingType] = scala.List(Disabled, Adaptive)
+  val all: scala.List[KnownClaudeThinkingType] = scala.List(Disabled, Adaptive, BetweenTools)
 
   def validate(value: _root_.com.bryzek.claude.models.ClaudeThinkingType): _root_.cats.data.ValidatedNec[String, KnownClaudeThinkingType] = {
     value match {
     case _root_.com.bryzek.claude.models.ClaudeThinkingType.Disabled => _root_.cats.data.Validated.validNec(KnownClaudeThinkingType.Disabled)
     case _root_.com.bryzek.claude.models.ClaudeThinkingType.Adaptive => _root_.cats.data.Validated.validNec(KnownClaudeThinkingType.Adaptive)
+    case _root_.com.bryzek.claude.models.ClaudeThinkingType.BetweenTools => _root_.cats.data.Validated.validNec(KnownClaudeThinkingType.BetweenTools)
     case _root_.com.bryzek.claude.models.ClaudeThinkingType.UNDEFINED(desc) => _root_.cats.data.Validated.invalidNec(s"Invalid value '${desc}' for ClaudeThinkingType")
     }
   }
@@ -2178,6 +2191,10 @@ sealed trait KnownClaudeToolType extends _root_.scala.Product with _root_.scala.
 }
 
 object KnownClaudeToolType {
+  case object WebSearch20250305 extends KnownClaudeToolType {
+    override def toString: String = _root_.com.bryzek.claude.models.ClaudeToolType.WebSearch20250305.toString
+    override def toClaudeToolType: _root_.com.bryzek.claude.models.ClaudeToolType = _root_.com.bryzek.claude.models.ClaudeToolType.WebSearch20250305
+  }
   case object WebSearch20260209 extends KnownClaudeToolType {
     override def toString: String = _root_.com.bryzek.claude.models.ClaudeToolType.WebSearch20260209.toString
     override def toClaudeToolType: _root_.com.bryzek.claude.models.ClaudeToolType = _root_.com.bryzek.claude.models.ClaudeToolType.WebSearch20260209
@@ -2187,10 +2204,11 @@ object KnownClaudeToolType {
     override def toClaudeToolType: _root_.com.bryzek.claude.models.ClaudeToolType = _root_.com.bryzek.claude.models.ClaudeToolType.WebFetch20260209
   }
 
-  val all: scala.List[KnownClaudeToolType] = scala.List(WebSearch20260209, WebFetch20260209)
+  val all: scala.List[KnownClaudeToolType] = scala.List(WebSearch20250305, WebSearch20260209, WebFetch20260209)
 
   def validate(value: _root_.com.bryzek.claude.models.ClaudeToolType): _root_.cats.data.ValidatedNec[String, KnownClaudeToolType] = {
     value match {
+    case _root_.com.bryzek.claude.models.ClaudeToolType.WebSearch20250305 => _root_.cats.data.Validated.validNec(KnownClaudeToolType.WebSearch20250305)
     case _root_.com.bryzek.claude.models.ClaudeToolType.WebSearch20260209 => _root_.cats.data.Validated.validNec(KnownClaudeToolType.WebSearch20260209)
     case _root_.com.bryzek.claude.models.ClaudeToolType.WebFetch20260209 => _root_.cats.data.Validated.validNec(KnownClaudeToolType.WebFetch20260209)
     case _root_.com.bryzek.claude.models.ClaudeToolType.UNDEFINED(desc) => _root_.cats.data.Validated.invalidNec(s"Invalid value '${desc}' for ClaudeToolType")
@@ -2523,7 +2541,7 @@ package object Bindables {
   private val claudeToolType: generated.binders.Bindable[com.bryzek.claude.models.ClaudeToolType] = new generated.binders.Bindable[com.bryzek.claude.models.ClaudeToolType] {
     override def fromString(value: String): com.bryzek.claude.models.ClaudeToolType = com.bryzek.claude.models.ClaudeToolType.fromString(value).getOrElse(com.bryzek.claude.models.ClaudeToolType(value))
     override def toString(value: com.bryzek.claude.models.ClaudeToolType): String = value.toString
-    override def example: com.bryzek.claude.models.ClaudeToolType = com.bryzek.claude.models.ClaudeToolType.WebSearch20260209
+    override def example: com.bryzek.claude.models.ClaudeToolType = com.bryzek.claude.models.ClaudeToolType.WebSearch20250305
     override def validValues: Seq[com.bryzek.claude.models.ClaudeToolType] = com.bryzek.claude.models.ClaudeToolType.all
     override def bind(key: String, value: String): Either[String, com.bryzek.claude.models.ClaudeToolType] = {
       com.bryzek.claude.models.ClaudeToolType.fromString(value) match {

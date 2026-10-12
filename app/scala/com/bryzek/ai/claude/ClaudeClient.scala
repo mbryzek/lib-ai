@@ -155,22 +155,7 @@ case class AiRequest(
           ClaudeOutputConfig(effort = sentEffort, format = None, taskBudget = budget)
         )
       },
-      thinking = KnownClaudeModel.validate(model).toOption match {
-        case Some(KnownClaudeModel.ClaudeFable5 | KnownClaudeModel.ClaudeOpus55) =>
-          // Fable 5 and Opus 5.5 reject every explicit thinking config except adaptive (thinking is always on, and
-          // `disabled` is a 400 at every effort level); omitting the field runs adaptive, so a Disabled request cannot
-          // be honored on these models. Effort is the only control.
-          None
-        case Some(KnownClaudeModel.ClaudeHaiku45) =>
-          // Haiku 4.5 predates adaptive thinking and rejects it ("adaptive thinking is not
-          // supported on this model"). Its only thinking mode is a budget-based config we don't
-          // model, so omit the field and the request runs without thinking.
-          None
-        case Some(KnownClaudeModel.ClaudeSonnet5 | KnownClaudeModel.ClaudeOpus5) | None =>
-          // Opus 5 thinks by default; an explicit Disabled is accepted only at effort high or
-          // below, so pairing Disabled with xhigh/max is rejected by the API as a caller error.
-          Some(ClaudeThinking(thinking))
-      }
+      thinking = AiRequest.thinkingFor(model, thinking)
     )
   }
 }
@@ -204,8 +189,8 @@ object AiRequest {
       // model that does not take it loses the whole request.
       case None => false
       case Some(
-            KnownClaudeModel.ClaudeSonnet5 | KnownClaudeModel.ClaudeOpus5 | KnownClaudeModel.ClaudeOpus55 |
-            KnownClaudeModel.ClaudeFable5
+            KnownClaudeModel.ClaudeSonnet5 | KnownClaudeModel.ClaudeSonnet55 | KnownClaudeModel.ClaudeOpus5 |
+            KnownClaudeModel.ClaudeOpus55 | KnownClaudeModel.ClaudeFable5
           ) =>
         true
     }
@@ -213,19 +198,66 @@ object AiRequest {
     Option.when(supported && total >= MinTaskBudget)(ClaudeTaskBudget(total = total))
   }
 
+  /** The `thinking` actually sent for a request. A caller says whether it wants thinking ([[ClaudeThinkingType]]
+    * `Adaptive`) or not (`Disabled`); no single wire value says either on every model, so the translation lives here.
+    */
+  private[claude] def thinkingFor(model: ClaudeModel, thinking: ClaudeThinkingType): Option[ClaudeThinking] =
+    KnownClaudeModel.validate(model).toOption match {
+      case Some(KnownClaudeModel.ClaudeFable5 | KnownClaudeModel.ClaudeOpus55) =>
+        // Fable 5 and Opus 5.5 reject every explicit thinking config except adaptive (thinking is always on, and
+        // `disabled` is a 400 at every effort level); omitting the field runs adaptive, so a Disabled request cannot
+        // be honored on these models. Effort is the only control.
+        None
+      case Some(KnownClaudeModel.ClaudeHaiku45) =>
+        // Haiku 4.5 predates adaptive thinking and rejects it ("adaptive thinking is not
+        // supported on this model"). Its only thinking mode is a budget-based config we don't
+        // model, so omit the field and the request runs without thinking.
+        None
+      case Some(KnownClaudeModel.ClaudeSonnet55) =>
+        // Sonnet 5.5 answers 400 to `disabled` and names `between_tools` as how thinking is turned off on it, so a
+        // caller that asked for no thinking gets that. `between_tools` is accepted only at effort high or below:
+        // pairing Disabled with xhigh/max is rejected by the API as a caller error, as on Opus 5.
+        Some(
+          ClaudeThinking(if (wantsThinking(thinking)) ClaudeThinkingType.Adaptive else ClaudeThinkingType.BetweenTools)
+        )
+      case Some(KnownClaudeModel.ClaudeSonnet5 | KnownClaudeModel.ClaudeOpus5) | None =>
+        // Opus 5 thinks by default; an explicit Disabled is accepted only at effort high or
+        // below, so pairing Disabled with xhigh/max is rejected by the API as a caller error. `between_tools` is a 400
+        // on both, and means what Disabled means, so it is sent as Disabled.
+        Some(ClaudeThinking(if (wantsThinking(thinking)) ClaudeThinkingType.Adaptive else ClaudeThinkingType.Disabled))
+    }
+
+  /** Whether a thinking type asks the model to think before it answers. A value this client does not know is sent as
+    * the library's default, adaptive, rather than guessed at.
+    */
+  private def wantsThinking(thinking: ClaudeThinkingType): Boolean =
+    KnownClaudeThinkingType.validate(thinking).toOption match {
+      case Some(KnownClaudeThinkingType.Disabled | KnownClaudeThinkingType.BetweenTools) => false
+      case Some(KnownClaudeThinkingType.Adaptive) | None => true
+    }
+
   /** The `effort` actually sent for a request. An unset effort means `high` everywhere in this library -- it is what
-    * [[ClaudeClient.lowerEffort]] steps down from and what the step-down log line names -- and on every model but one
-    * that is also the API's own default, so leaving the field off says the same thing.
+    * [[ClaudeClient.lowerEffort]] steps down from and what the step-down log line names -- and on every model that
+    * takes an effort but one that is also the API's own default, so leaving the field off says the same thing.
     *
     * Opus 5.5 is the exception: its API default is `medium`, one rung lower. Sending nothing there would silently hand
     * every caller that never chose an effort a less capable run, with no diff anywhere to point at, and the step-down
     * would then retry at the effort that had just failed. So the library says `high` out loud on that model. A caller
     * that wants `medium` asks for it.
+    *
+    * Haiku 4.5 takes no effort at all: it answers 400 "This model does not support the effort parameter" at every
+    * level. So the field is dropped there, which is what lets one [[AiRequest]] carry an effort down a model list that
+    * has Haiku in it.
     */
   private[claude] def effortFor(model: ClaudeModel, effort: Option[ClaudeEffort]): Option[ClaudeEffort] =
     KnownClaudeModel.validate(model).toOption match {
       case Some(KnownClaudeModel.ClaudeOpus55) => effort.orElse(Some(ClaudeEffort.High))
-      case _ => effort
+      case Some(KnownClaudeModel.ClaudeHaiku45) => None
+      case Some(
+            KnownClaudeModel.ClaudeSonnet5 | KnownClaudeModel.ClaudeSonnet55 | KnownClaudeModel.ClaudeOpus5 |
+            KnownClaudeModel.ClaudeFable5
+          ) | None =>
+        effort
     }
 }
 
