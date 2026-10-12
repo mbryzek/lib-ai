@@ -102,6 +102,38 @@ object ClaudeTools {
     )
   }
 
+  /** The basic generation of Anthropic-hosted web search (`web_search_20250305`): the model runs a search and reads
+    * every result it returned, with none of [[webSearch]]'s dynamic filtering.
+    *
+    * It is the web search to hand a request whose model list includes claude-haiku-4-5. Every model accepts it as
+    * built here, where `web_search_20260209` is a 400 on Haiku the moment it is sent without `allowed_callers:
+    * [direct]`. It has no programmatic calling to opt in to, so it takes no `allowedCallers`. On a model that supports
+    * [[webSearch]], prefer that.
+    *
+    * `maxUses`, `allowedDomains` and `blockedDomains` mean what they mean on [[webSearch]], and the results are read
+    * the same way, through [[ClaudeServerToolResults]].
+    */
+  def webSearchBasic(
+    maxUses: Option[Long] = None,
+    allowedDomains: Seq[String] = Nil,
+    blockedDomains: Seq[String] = Nil,
+    cacheControl: Option[ClaudeCacheControl] = None
+  ): ClaudeTool = {
+    require(
+      allowedDomains.isEmpty || blockedDomains.isEmpty,
+      "web_search accepts allowedDomains or blockedDomains, not both"
+    )
+    serverTool(
+      WebSearchName,
+      ClaudeToolType.WebSearch20250305,
+      maxUses,
+      allowedDomains,
+      blockedDomains,
+      allowedCallers = Nil,
+      cacheControl
+    )
+  }
+
   /** Anthropic-hosted web fetch. Retrieves a URL and puts the page into the model's context.
     *
     * It fetches only URLs ALREADY PRESENT in the conversation -- a page the caller named, or one web search turned up.

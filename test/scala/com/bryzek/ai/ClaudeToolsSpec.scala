@@ -109,6 +109,120 @@ class ClaudeToolsSpec extends AnyWordSpec with Matchers {
     }
   }
 
+  "ClaudeTools.webSearchBasic" should {
+    "send the basic tool version with the API's fixed name and nothing else" in {
+      // The exact tool object api.anthropic.com answered 200 to on claude-haiku-4-5 and on claude-sonnet-5-5.
+      Json.toJson(ClaudeTools.webSearchBasic(maxUses = Some(1))) mustBe Json.obj(
+        "name" -> "web_search",
+        "type" -> "web_search_20250305",
+        "max_uses" -> 1
+      )
+    }
+
+    "carry no allowed_callers, description or input_schema" in {
+      val tool = ClaudeTools.webSearchBasic()
+
+      // The basic version has no programmatic calling, so there is nothing to restrict and Haiku accepts it bare --
+      // unlike web_search_20260209, which Haiku answers 400 to without `allowed_callers: [direct]`.
+      tool.allowedCallers mustBe None
+      // Recorded: `tools.0.web_search_20250305.description: Extra inputs are not permitted`.
+      tool.description mustBe None
+      tool.inputSchema mustBe None
+      ClaudeTools.isCustom(tool) mustBe false
+    }
+
+    "carry a domain filter, and refuse both at once" in {
+      ClaudeTools.webSearchBasic(allowedDomains = Seq("scala-lang.org")).allowedDomains mustBe Some(
+        Seq("scala-lang.org")
+      )
+      ClaudeTools.webSearchBasic().blockedDomains mustBe None
+      an[IllegalArgumentException] must be thrownBy
+        ClaudeTools.webSearchBasic(allowedDomains = Seq("a.com"), blockedDomains = Seq("b.com"))
+    }
+
+    "have its recorded response read like any other web search" in {
+      // Recorded from api.anthropic.com: claude-haiku-4-5 with web_search_20250305, max_uses 1. Cut to two of its
+      // ten hits, with the opaque encrypted fields truncated.
+      val recorded = Json
+        .parse(
+          """
+        {
+          "model": "claude-haiku-4-5-20251001",
+          "id": "msg_011CfxTwXDZG5kzTvd2UPzng",
+          "type": "message",
+          "role": "assistant",
+          "content": [
+            {
+              "type": "server_tool_use",
+              "id": "srvtoolu_011hSdcDShyGUCkwj1AqVXsj",
+              "name": "web_search",
+              "input": { "query": "latest stable Scala 3 version" }
+            },
+            {
+              "type": "web_search_tool_result",
+              "tool_use_id": "srvtoolu_011hSdcDShyGUCkwj1AqVXsj",
+              "content": [
+                {
+                  "type": "web_search_result",
+                  "title": "All Available Versions",
+                  "url": "https://www.scala-lang.org/download/all.html",
+                  "encrypted_content": "EoIJCioIFBgCIiQ1ZTFjZjUzNi0zNmZk",
+                  "page_age": "1223 days ago"
+                },
+                {
+                  "type": "web_search_result",
+                  "title": "Install",
+                  "url": "https://www.scala-lang.org/download/",
+                  "encrypted_content": "EsUKCioIFBgCIiQ1ZTFjZjUzNi0zNmZk",
+                  "page_age": "1231 days ago"
+                }
+              ],
+              "caller": { "type": "direct" }
+            },
+            {
+              "citations": [
+                {
+                  "type": "web_search_result_location",
+                  "cited_text": "Current 3.9.x release: 3.9.0 Released on September 3, 2026.",
+                  "url": "https://www.scala-lang.org/download/all.html",
+                  "title": "All Available Versions",
+                  "encrypted_index": "Eo8BCioIFBgCIiQ1ZTFjZjUzNi0zNmZk"
+                }
+              ],
+              "type": "text",
+              "text": "The latest stable Scala 3 version is 3.9.0, which was released on September 3, 2026."
+            }
+          ],
+          "container": null,
+          "stop_reason": "end_turn",
+          "stop_sequence": null,
+          "stop_details": null,
+          "usage": {
+            "input_tokens": 14803,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "cache_creation": { "ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": 0 },
+            "output_tokens": 109,
+            "service_tier": "standard",
+            "inference_geo": "not_available",
+            "server_tool_use": { "web_search_requests": 1, "web_fetch_requests": 0 }
+          },
+          "diagnostics": null
+        }
+        """
+        )
+        .as[ClaudeResponse]
+
+      ClaudeServerToolResults.searchResults(recorded).map(_.url) mustBe Seq(
+        "https://www.scala-lang.org/download/all.html",
+        "https://www.scala-lang.org/download/"
+      )
+      ClaudeServerToolResults.errors(recorded) mustBe empty
+      ClaudeContent.text(recorded) mustBe
+        "The latest stable Scala 3 version is 3.9.0, which was released on September 3, 2026."
+    }
+  }
+
   "ClaudeTools.webFetch" should {
     "carry its own options alongside the shared server-tool ones" in {
       val tool = ClaudeTools.webFetch(maxUses = Some(2), citations = Some(true), maxContentTokens = Some(10000))

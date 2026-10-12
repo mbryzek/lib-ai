@@ -309,13 +309,14 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       out.outputConfig.flatMap(_.taskBudget).map(_.`type`) mustBe Some(ClaudeTaskBudgetType.Tokens)
       out.maxTokens mustBe 128000L
 
-      Seq(ClaudeModel.ClaudeOpus5, ClaudeModel.ClaudeOpus55, ClaudeModel.ClaudeFable5).foreach { model =>
-        AiRequest(messages = Nil, maxTokens = 128000L)
-          .toClaudeRequest(model)
-          .outputConfig
-          .flatMap(_.taskBudget)
-          .map(_.total) mustBe Some(96000L)
-      }
+      Seq(ClaudeModel.ClaudeSonnet55, ClaudeModel.ClaudeOpus5, ClaudeModel.ClaudeOpus55, ClaudeModel.ClaudeFable5)
+        .foreach { model =>
+          AiRequest(messages = Nil, maxTokens = 128000L)
+            .toClaudeRequest(model)
+            .outputConfig
+            .flatMap(_.taskBudget)
+            .map(_.total) mustBe Some(96000L)
+        }
     }
 
     "toClaudeRequest omits the task budget where it would be rejected" in {
@@ -435,6 +436,120 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       AiRequest(messages = Nil, thinking = ClaudeThinkingType.Disabled)
         .toClaudeRequest(ClaudeModel.ClaudeHaiku45)
         .thinking mustBe None
+    }
+
+    "toClaudeRequest omits effort entirely for Haiku 4.5" in {
+      // Recorded from api.anthropic.com for claude-haiku-4-5 with output_config.effort at low, medium and high alike:
+      //   400 {"type":"error","error":{"type":"invalid_request_error",
+      //        "message":"This model does not support the effort parameter."}}
+      // So an effort the caller chose for the rest of its model list is dropped here rather than sent.
+      Seq(ClaudeEffort.Low, ClaudeEffort.Medium, ClaudeEffort.High, ClaudeEffort.Xhigh, ClaudeEffort.Max).foreach {
+        effort =>
+          val out = AiRequest(messages = Nil, effort = Some(effort)).toClaudeRequest(ClaudeModel.ClaudeHaiku45)
+          // No task budget on Haiku either, so nothing is left for output_config to carry and the field is absent.
+          out.outputConfig mustBe None
+          (Json.toJson(out) \ "output_config").toOption mustBe None
+      }
+
+      // The same request still carries its effort to every other model in the list.
+      AiRequest(messages = Nil, effort = Some(ClaudeEffort.Medium))
+        .toClaudeRequest(ClaudeModel.ClaudeSonnet5)
+        .outputConfig
+        .flatMap(_.effort) mustBe Some(ClaudeEffort.Medium)
+    }
+
+    "toClaudeRequest sends adaptive thinking and the caller's effort on Sonnet 5.5" in {
+      // The shape api.anthropic.com answered 200 to for claude-sonnet-5-5: thinking adaptive, effort medium, and a
+      // task budget under the task-budgets beta header.
+      val out =
+        AiRequest(messages = Nil, effort = Some(ClaudeEffort.Medium)).toClaudeRequest(ClaudeModel.ClaudeSonnet55)
+      val js = Json.toJson(out)
+
+      (js \ "model").as[String] mustBe "claude-sonnet-5-5"
+      (js \ "thinking").as[play.api.libs.json.JsValue] mustBe Json.obj("type" -> "adaptive")
+      (js \ "output_config" \ "effort").as[String] mustBe "medium"
+      (js \ "output_config" \ "task_budget" \ "total").as[Long] mustBe 22500L
+
+      // Every level is passed through as chosen, and none is invented: the API default on Sonnet 5.5 is high, which
+      // is what an unset effort means in this library.
+      Seq(ClaudeEffort.Low, ClaudeEffort.High, ClaudeEffort.Xhigh, ClaudeEffort.Max).foreach { effort =>
+        AiRequest(messages = Nil, effort = Some(effort))
+          .toClaudeRequest(ClaudeModel.ClaudeSonnet55)
+          .outputConfig
+          .flatMap(_.effort) mustBe Some(effort)
+      }
+      AiRequest(messages = Nil).toClaudeRequest(ClaudeModel.ClaudeSonnet55).outputConfig.flatMap(_.effort) mustBe None
+    }
+
+    "toClaudeRequest turns thinking off on Sonnet 5.5 with between_tools, never disabled" in {
+      // Recorded from api.anthropic.com for claude-sonnet-5-5 with thinking {"type":"disabled"}:
+      //   400 {"type":"error","error":{"type":"invalid_request_error","message":"To turn thinking off on this
+      //        model, send \"thinking\": {\"type\": \"between_tools\"} instead of {\"type\": \"disabled\"}. ..."}}
+      val out =
+        AiRequest(messages = Nil, thinking = ClaudeThinkingType.Disabled).toClaudeRequest(ClaudeModel.ClaudeSonnet55)
+      (Json.toJson(out) \ "thinking").as[play.api.libs.json.JsValue] mustBe Json.obj("type" -> "between_tools")
+
+      AiRequest(messages = Nil, thinking = ClaudeThinkingType.BetweenTools)
+        .toClaudeRequest(ClaudeModel.ClaudeSonnet55)
+        .thinking
+        .map(_.`type`) mustBe Some(ClaudeThinkingType.BetweenTools)
+    }
+
+    "toClaudeRequest never sends between_tools to a model that rejects it" in {
+      // Recorded for claude-sonnet-5 and claude-opus-5-5 alike:
+      //   400 "\"thinking.type.between_tools\" is not supported for this model."
+      // It means what Disabled means, so it is sent as whatever Disabled is sent as on that model.
+      Seq(ClaudeModel.ClaudeSonnet5, ClaudeModel.ClaudeOpus5).foreach { model =>
+        AiRequest(messages = Nil, thinking = ClaudeThinkingType.BetweenTools)
+          .toClaudeRequest(model)
+          .thinking
+          .map(_.`type`) mustBe Some(ClaudeThinkingType.Disabled)
+      }
+      Seq(ClaudeModel.ClaudeOpus55, ClaudeModel.ClaudeFable5, ClaudeModel.ClaudeHaiku45).foreach { model =>
+        AiRequest(messages = Nil, thinking = ClaudeThinkingType.BetweenTools)
+          .toClaudeRequest(model)
+          .thinking mustBe None
+      }
+    }
+
+    "parses a response recorded from Sonnet 5.5" in {
+      // Recorded from api.anthropic.com (claude-sonnet-5-5, thinking adaptive); the signature is truncated.
+      val response = Json
+        .parse(
+          """
+        {
+          "model": "claude-sonnet-5-5",
+          "id": "msg_011CfxTvrFkdzGXEMhhzCVck",
+          "type": "message",
+          "role": "assistant",
+          "content": [
+            { "type": "thinking", "thinking": "", "signature": "CAQSuQgKEAgSGAI4AUIIdGhpbmtpbmcS" },
+            { "type": "text", "text": "**440.10**" }
+          ],
+          "container": null,
+          "stop_reason": "end_turn",
+          "stop_sequence": null,
+          "stop_details": null,
+          "usage": {
+            "input_tokens": 81,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "cache_creation": { "ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": 0 },
+            "output_tokens": 284,
+            "output_tokens_details": { "thinking_tokens": 277 },
+            "service_tier": "standard",
+            "inference_geo": "global"
+          },
+          "diagnostics": null
+        }
+        """
+        )
+        .as[ClaudeResponse]
+
+      // The model id decodes to the enum value rather than UNDEFINED, which is what lets a caller record it.
+      response.model mustBe ClaudeModel.ClaudeSonnet55
+      response.stopReason mustBe ClaudeStopReason.EndTurn
+      ClaudeContent.text(response) mustBe "**440.10**"
     }
 
     "toClaudeRequest sets effort in output_config when provided" in {
