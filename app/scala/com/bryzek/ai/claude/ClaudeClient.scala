@@ -394,6 +394,43 @@ object ClaudeClient {
   private[claude] def finalizeTextInstruction: ClaudeMessage =
     makeClaudeMessage(ClaudeRole.User, "Write your final answer now, for the person who asked.")
 
+  /** What the finalize turn says when the tool-call budget, not the model, ended the loop. Without it the finalize turn
+    * ends on tool results with `tool_choice: none` and nothing explaining why, and a model mid-task answers with the
+    * tool call it can no longer make: replayed against the live API, an empty `end_turn` turn or a one-line "let me
+    * fetch more", which a text loop reports as [[ClaudeContent.noTextError]] (ISS-18797). It is appended as a text
+    * block to the trailing user message (see [[withBudgetSpentNotice]]), so it never needs a user turn of its own.
+    */
+  private[claude] val BudgetSpentNotice: String =
+    "The tool-call budget for this task is spent: no further tool calls will run. Answer from the tool results " +
+      "already above, and say plainly what you could not look up."
+
+  private[claude] def budgetSpentInstruction: ClaudeMessage =
+    makeClaudeMessage(
+      ClaudeRole.User,
+      s"$BudgetSpentNotice Return your final answer now as a single JSON object matching the required schema."
+    )
+
+  private[claude] def budgetSpentTextInstruction: ClaudeMessage =
+    makeClaudeMessage(ClaudeRole.User, s"$BudgetSpentNotice Write your final answer now, for the person who asked.")
+
+  /** Puts `notice` in the transcript's trailing user message rather than after it. The finalize-by-budget transcript
+    * ends in the tool results, and two consecutive user messages are merged or refused by the API, so the notice rides
+    * in the same message as text blocks after the `tool_result` blocks (which the API requires to come first). A
+    * transcript ending anywhere else gets the notice as its own user turn.
+    */
+  private[claude] def withBudgetSpentNotice(messages: Seq[ClaudeMessage], notice: ClaudeMessage): Seq[ClaudeMessage] =
+    messages.lastOption match {
+      case Some(last) if last.role == ClaudeRole.User =>
+        messages.init :+ last.copy(content = last.content ++ notice.content)
+      case _ => messages :+ notice
+    }
+
+  /** The `tool_result` content answering a `tool_use` the budget would not run. Every `tool_use` block must be answered
+    * in the next message, so a call past the budget is answered with this as an error result rather than dropped.
+    */
+  private[claude] val BudgetSkippedResult: String =
+    "Not run: the tool-call budget for this task was spent by the other calls in this turn."
+
   /** An ephemeral breakpoint at `ttl`.
     *
     * [[ClaudeCacheTtl.FiveMinutes]] sends no `ttl` at all rather than the equivalent `"5m"`, so a caller that has not
@@ -673,7 +710,10 @@ case class ClaudeClient(
 
   /** Agentic tool loop. Sends `request` with `tools` and lets the model call them; every `tool_use` block is executed
     * via `execute`, and all results for a turn are returned in ONE user message (splitting degrades parallel tool
-    * calling). Budget-capped at `maxCalls` tool executions; a run of [[ClaudeClient.MaxConsecutiveFailedTurns]]
+    * calling). Budget-capped at `maxCalls` tool executions, counted per call: a turn asking for more calls than remain
+    * runs the first ones that fit and answers the rest with an error result ([[ClaudeClient.BudgetSkippedResult]]).
+    * The turn after the budget is spent tells the model no more tools will run ([[ClaudeClient.budgetSpentInstruction]]).
+    * A run of [[ClaudeClient.MaxConsecutiveFailedTurns]]
     * consecutive fully-failed tool turns aborts. The final turn forces `tool_choice: none` + structured output so the
     * answer parses into `T` without regex-and-nudge. Every request/response is journaled via the store with `context`.
     *
@@ -698,7 +738,9 @@ case class ClaudeClient(
     ec: ExecutionContext,
     reads: Reads[T]
   ): Future[ValidatedNec[ClaudeError, ClaudeToolLoopResult[T]]] =
-    runLoop[T](request, tools, models, maxCalls, finalizeInstruction, context, feature)(execute) { (base, messages) =>
+    runLoop[T](request, tools, models, maxCalls, finalizeInstruction, budgetSpentInstruction, context, feature)(
+      execute
+    ) { (base, messages) =>
       // `tools` stays on the request and `tool_choice: none` does the forbidding. Dropping the tools would change
       // the very front of the prefix and throw away the tools+system cache on the most expensive turn of the loop.
       val req = base.copy(
@@ -753,6 +795,7 @@ case class ClaudeClient(
       models,
       maxCalls,
       finalizeTextInstruction,
+      budgetSpentTextInstruction,
       context,
       feature,
       answerFrom =
@@ -770,7 +813,11 @@ case class ClaudeClient(
 
   /** The tool loop itself, shared by [[runToolLoop]] and [[runToolLoopText]], which differ only in how the last turn
     * asks for the answer. `finalizeTurn` receives the cached base request and the transcript to answer from; the
-    * `finalizeWith` message is the trailing user turn appended when the model stops calling tools on its own.
+    * `finalizeWith` message is the trailing user turn appended when the model stops calling tools on its own, and
+    * `budgetSpentWith` the notice merged into the trailing user message when the `maxCalls` budget ended the loop.
+    *
+    * `maxCalls` bounds calls RUN, not turns started: a turn is executed only up to the calls that remain, and every
+    * call past that is answered with [[ClaudeClient.BudgetSkippedResult]] without being run.
     *
     * `answerFrom` is asked, of the turn the model stopped on, whether that turn ALREADY carries the answer -- in which
     * case the loop returns it and pays for no finalize turn. It defaults to "no": a structured caller's answer never
@@ -782,6 +829,7 @@ case class ClaudeClient(
     models: Seq[ClaudeModel],
     maxCalls: Int,
     finalizeWith: ClaudeMessage,
+    budgetSpentWith: ClaudeMessage,
     context: Option[String],
     feature: Option[String],
     answerFrom: ClaudeResponse => Option[T] = (_: ClaudeResponse) => None
@@ -813,7 +861,7 @@ case class ClaudeClient(
           turns: Int
         ): Future[ValidatedNec[ClaudeError, ClaudeToolLoopResult[T]]] = {
           if (callsUsed >= maxCalls) {
-            finalize(messages, invocations, turns)
+            finalize(withBudgetSpentNotice(messages, budgetSpentWith), invocations, turns)
           } else {
             val req = base.copy(
               messages = cacheConversation(messages, ttl),
@@ -833,7 +881,8 @@ case class ClaudeClient(
                 // call is the right outcome too: a tool that cannot read partial input says so as an
                 // error result, which the model recovers from on the next turn.
                 if (uses.nonEmpty) {
-                  Future.traverse(uses)(u => runTool(execute, u)).flatMap { newInvocations =>
+                  val (runnable, skipped) = uses.splitAt(math.max(0, maxCalls - callsUsed))
+                  Future.traverse(runnable)(u => runTool(execute, u)).flatMap { newInvocations =>
                     val allErrored = newInvocations.forall(_.output.isError)
                     val streak = if (allErrored) consecutiveErrors + 1 else 0
                     if (streak >= MaxConsecutiveFailedTurns) {
@@ -846,11 +895,12 @@ case class ClaudeClient(
                       val assistantMsg = ClaudeMessage(ClaudeRole.Assistant, rm.response.content)
                       val resultMsg = ClaudeMessage(
                         ClaudeRole.User,
-                        newInvocations.map(i => toolResultBlock(i.use.id, i.output))
+                        newInvocations.map(i => toolResultBlock(i.use.id, i.output)) ++
+                          skipped.map(u => toolResultBlock(u.id, ClaudeToolOutput(BudgetSkippedResult, isError = true)))
                       )
                       loop(
                         messages :+ assistantMsg :+ resultMsg,
-                        callsUsed + uses.size,
+                        callsUsed + runnable.size,
                         streak,
                         invocations ++ newInvocations,
                         turns + 1

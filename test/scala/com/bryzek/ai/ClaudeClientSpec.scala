@@ -947,6 +947,105 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       unansweredToolUses(sent.requests.last.messages) mustBe empty
     }
 
+    // A finalize turn that ends on tool results with tool_choice none and nothing saying why reads, to a model
+    // mid-task, as its cue for the next call; live it answered with an empty end_turn (ISS-18797). These pin that the
+    // budget route tells it, and that the notice rides in the tool-results message rather than a second user turn.
+    "tell the finalize turn the tool-call budget is spent, in the same message as the tool results" in {
+      val sent = scriptedClient(asksFor("toolu_a"), answered)
+      val result = await(
+        sent.client.runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 1) { _ =>
+          scala.concurrent.Future.successful(ClaudeToolOutput(content = """{"total": 42}"""))
+        }
+      )(using timeout)
+
+      result.isValid mustBe true
+      sent.requests.size mustBe 2
+      val finalizeTurn = sent.requests.last
+      finalizeTurn.toolChoice.map(_.`type`) mustBe Some(ClaudeToolChoiceType.None)
+      noConsecutiveUserTurns(finalizeTurn.messages)
+      val last = finalizeTurn.messages.last
+      last.role mustBe ClaudeRole.User
+      last.content.map(_.`type`) mustBe Seq(ClaudeContentType.ToolResult, ClaudeContentType.Text)
+      last.content.last.text.get must include("no further tool calls will run")
+      last.content.last.text.get must include("for the person who asked")
+    }
+
+    "enforce maxCalls per call, answering the calls past it without running them" in {
+      val sent = scriptedClient(asksFor("toolu_a", "toolu_b", "toolu_c"), answered)
+      val executed = scala.collection.mutable.Buffer.empty[String]
+      val result = await(
+        sent.client.runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 2) { use =>
+          executed.synchronized(executed += use.id)
+          scala.concurrent.Future.successful(ClaudeToolOutput(content = """{"total": 42}"""))
+        }
+      )(using timeout)
+
+      result.isValid mustBe true
+      executed.synchronized(executed.toSeq) mustBe Seq("toolu_a", "toolu_b")
+      result.toOption.get.invocations.map(_.use.id) mustBe Seq("toolu_a", "toolu_b")
+      // Two calls: the turn spent the budget, so the next request is the finalize turn, not another tool turn.
+      sent.requests.size mustBe 2
+      unansweredToolUses(sent.requests.last.messages) mustBe empty
+      val skipped = sent.requests.last.messages.last.content.find(_.toolUseId.contains("toolu_c")).get
+      skipped.isError mustBe Some(true)
+      skipped.content mustBe Some(play.api.libs.json.JsString(ClaudeClient.BudgetSkippedResult))
+    }
+
+    "carry the budget notice on a zero budget, merged into the caller's own message" in {
+      val sent = scriptedClient(answered)
+      await(
+        sent.client.runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 0) { _ =>
+          sys.error("the budget is zero")
+        }
+      )(using timeout).isValid mustBe true
+
+      val messages = sent.requests.last.messages
+      messages.size mustBe 1
+      messages.head.content.flatMap(_.text) mustBe Seq(
+        "How full were the sessions?",
+        ClaudeClient.budgetSpentTextInstruction.content.head.text.get
+      )
+    }
+
+    "leave the model-stopped finalize turn on its own instruction, with no budget notice" in {
+      val sent = scriptedClient(asksFor("toolu_a"), truncatedAnswer, answered)
+      await(
+        sent.client.runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 25) { _ =>
+          scala.concurrent.Future.successful(ClaudeToolOutput(content = """{"total": 42}"""))
+        }
+      )(using timeout).isValid mustBe true
+
+      val texts = sent.requests.last.messages.flatMap(_.content.flatMap(_.text))
+      texts.exists(_.contains("no further tool calls will run")) mustBe false
+      texts.last mustBe ClaudeClient.finalizeTextInstruction.content.head.text.get
+    }
+
+    "runToolLoop tells its finalize turn the budget is spent, and still asks for the schema" in {
+      val structured = answered.copy(
+        content = Seq(
+          ClaudeClient.textBlock(Json.stringify(Json.obj("steps" -> Json.arr(), "insight" -> "You are doing amazing")))
+        )
+      )
+      val sent = scriptedClient(asksFor("toolu_a"), structured)
+      val result = await(
+        sent.client.runToolLoop[SingleInsightResponse](
+          request,
+          tools = Seq(tool),
+          models = models,
+          maxCalls = 1,
+          finalFormat = ClaudeOutputFormats.SingleInsight
+        ) { _ =>
+          scala.concurrent.Future.successful(ClaudeToolOutput(content = """{"total": 42}"""))
+        }
+      )(using timeout)
+
+      result.isValid mustBe true
+      noConsecutiveUserTurns(sent.requests.last.messages)
+      val notice = sent.requests.last.messages.last.content.last.text.get
+      notice must include("no further tool calls will run")
+      notice must include("JSON object matching the required schema")
+    }
+
     "runToolLoop keeps its finalize turn: prose is not the parseable object its callers need" in {
       val prose = answered.copy(content = Seq(ClaudeClient.textBlock("Here is what I found, in prose.")))
       val structured = answered.copy(
@@ -1368,6 +1467,18 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       uses.filterNot(answered.contains)
     }
   }
+
+  /** A turn asking for the named tool calls, as the model ends one: `stop_reason=tool_use`. */
+  private def asksFor(ids: String*): ClaudeResponse =
+    budgetExhausted.copy(
+      id = s"msg_asks_${ids.mkString("_")}",
+      content = ids.map(toolUseBlock),
+      stopReason = ClaudeStopReason.ToolUse
+    )
+
+  /** The API merges or refuses two user messages in a row, so a finalize transcript must alternate roles. */
+  private def noConsecutiveUserTurns(messages: Seq[ClaudeMessage]): Unit =
+    messages.map(_.role).sliding(2).foreach(pair => pair must not be Seq(ClaudeRole.User, ClaudeRole.User))
 
   /** A turn that spent the whole output budget on thinking: `stop_reason=max_tokens` and no text block. */
   private val budgetExhausted: ClaudeResponse = ClaudeResponse(
