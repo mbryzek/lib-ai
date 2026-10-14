@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# dev-script: targets=local
+#
+# THE FORMAT CHECK, ADVISORY (ISS-19427). Prints every file this repository's own
+# formatters (scalafmt, ocamlformat through dune, prettier) would rewrite, one
+# line each in the hygiene sweep's finding shape, and exits 0 whatever it finds:
+# formatting never fails a build. `ci/build.sh` declares it with a
+# `# ci-advisory: scripts/check-format` line, so `dev ci hygiene` runs it over
+# `main` every 14 days and files what it finds as one issue for the repository.
+#
+# Exit 1 only when a formatter this repository configures could not answer, so
+# the sweep files nothing rather than a partial list. This file is a copy of
+# devops templates/ci/check-format; the logic is `dev fmt report`.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+exec dev fmt report "$@"
