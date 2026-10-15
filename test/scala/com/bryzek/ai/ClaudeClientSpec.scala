@@ -23,7 +23,8 @@ import com.bryzek.claude.response.models.{CommentsResponse, RecommendationRespon
 import com.bryzek.claude.response.models.json.*
 import generated.errors.ClaudeErrorResponseResponse
 import generated.mock.MockWSResponse
-import helpers.FutureHelpers
+import com.bryzek.ai.UnlimitedAiBudget
+import helpers.{FutureHelpers, TestAiFeature}
 import play.api.libs.json.Json
 import org.apache.pekko.util.Timeout
 import org.scalatest.matchers.must.Matchers
@@ -41,7 +42,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
 
   private val testClient: ClaudeClient = {
     val factory = app.injector.instanceOf[ClaudeClientFactory]
-    factory.instance(ClaudeEnvironment.Sandbox, "test-api-key")(NoopClaudeStore)
+    factory.instance(ClaudeEnvironment.Sandbox, "test-api-key")(NoopClaudeStore, new UnlimitedAiBudget())
   }
   private implicit val timeout: Timeout = FiniteDuration(30, SECONDS)
 
@@ -55,31 +56,31 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
 
     "chatComments" in {
       await(
-        testClient.chatComments(request, models)
+        testClient.chatComments(request, models, feature = TestAiFeature)
       )(using timeout)
     }
 
     "chatRecommendations" in {
       await(
-        testClient.chatRecommendations(request, models)
+        testClient.chatRecommendations(request, models, feature = TestAiFeature)
       )(using timeout)
     }
 
     "chatInsight" in {
       await(
-        testClient.chatInsight(request, models)
+        testClient.chatInsight(request, models, feature = TestAiFeature)
       )(using timeout)
     }
 
     "chatSingleInsight" in {
       await(
-        testClient.chatSingleInsight(request, models)
+        testClient.chatSingleInsight(request, models, feature = TestAiFeature)
       )(using timeout)
     }
 
     "chatText" in {
       val result = await(
-        testClient.chatText(request, models)
+        testClient.chatText(request, models, feature = TestAiFeature)
       )(using timeout)
       result.isValid mustBe true
       result.toOption.get.content must not be empty
@@ -104,7 +105,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
         )
       )
 
-      val result = await(client.chatText(request, models))(using timeout)
+      val result = await(client.chatText(request, models, feature = TestAiFeature))(using timeout)
 
       result.isInvalid mustBe true
       val message = result.swap.toOption.get.toNonEmptyList.head.message
@@ -129,7 +130,9 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       )
 
       // Effort is already at the floor, so this is the refusal itself rather than the step-down below.
-      val result = await(truncated.chatText(request.copy(effort = Some(ClaudeEffort.Low)), models))(using timeout)
+      val result = await(
+        truncated.chatText(request.copy(effort = Some(ClaudeEffort.Low)), models, feature = TestAiFeature)
+      )(using timeout)
 
       result.isInvalid mustBe true
       val error = result.swap.toOption.get.toNonEmptyList.head
@@ -150,7 +153,11 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       }
 
       val result = await(
-        client.chatText(request.copy(effort = Some(ClaudeEffort.High), maxTokens = 128000L), models)
+        client.chatText(
+          request.copy(effort = Some(ClaudeEffort.High), maxTokens = 128000L),
+          models,
+          feature = TestAiFeature
+        )
       )(using timeout)
 
       result.isValid mustBe true
@@ -177,7 +184,8 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
         truncated.chatCompletion[SingleInsightResponse](
           request.copy(effort = Some(ClaudeEffort.Low)),
           ClaudeOutputFormats.SingleInsight,
-          models
+          models,
+          feature = TestAiFeature
         )
       )(using timeout)
 
@@ -260,17 +268,18 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
           }
         }
       }
-      val client = ClaudeClient(perModel, ClaudeConfig("test-api-key"), NoopClaudeStore)
+      val client = ClaudeClient(perModel, ClaudeConfig("test-api-key"), NoopClaudeStore, new UnlimitedAiBudget())
 
       val result = await(
-        client.chatText(request, Seq(ClaudeModel.ClaudeFable5, ClaudeModel.ClaudeOpus5))
+        client.chatText(request, Seq(ClaudeModel.ClaudeFable5, ClaudeModel.ClaudeOpus5), feature = TestAiFeature)
       )(using timeout)
 
       result.isValid mustBe true
       result.toOption.get.content mustBe "fallback answer"
 
       // A refusal on the LAST model in the chain still surfaces as a self-diagnosing error
-      val exhausted = await(client.chatText(request, Seq(ClaudeModel.ClaudeFable5)))(using timeout)
+      val exhausted =
+        await(client.chatText(request, Seq(ClaudeModel.ClaudeFable5), feature = TestAiFeature))(using timeout)
       exhausted.isInvalid mustBe true
       exhausted.swap.toOption.get.toNonEmptyList.head.message must include("stop_reason=refusal")
     }
@@ -348,7 +357,11 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       }
 
       val result = await(
-        client.chatText(request.copy(effort = Some(ClaudeEffort.High), maxTokens = 128000L), models)
+        client.chatText(
+          request.copy(effort = Some(ClaudeEffort.High), maxTokens = 128000L),
+          models,
+          feature = TestAiFeature
+        )
       )(using timeout)
 
       result.isValid mustBe true
@@ -364,7 +377,11 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       val client = respondingClient(seen)(_ => budgetExhausted)
 
       val result = await(
-        client.chatText(request.copy(effort = Some(ClaudeEffort.High), maxTokens = 128000L), models)
+        client.chatText(
+          request.copy(effort = Some(ClaudeEffort.High), maxTokens = 128000L),
+          models,
+          feature = TestAiFeature
+        )
       )(using timeout)
 
       result.isInvalid mustBe true
@@ -377,7 +394,11 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       val client = respondingClient(seen)(_ => budgetExhausted)
 
       val result = await(
-        client.chatText(request.copy(effort = Some(ClaudeEffort.Low), maxTokens = 128000L), models)
+        client.chatText(
+          request.copy(effort = Some(ClaudeEffort.Low), maxTokens = 128000L),
+          models,
+          feature = TestAiFeature
+        )
       )(using timeout)
 
       result.isInvalid mustBe true
@@ -390,7 +411,8 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
         if (req.outputConfig.flatMap(_.effort).contains(ClaudeEffort.Medium)) answered else budgetExhausted
       }
 
-      val result = await(client.chatText(request.copy(maxTokens = 128000L), models))(using timeout)
+      val result =
+        await(client.chatText(request.copy(maxTokens = 128000L), models, feature = TestAiFeature))(using timeout)
 
       result.isValid mustBe true
       seen.result() mustBe List(None, Some(ClaudeEffort.Medium))
@@ -714,7 +736,8 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
           tools = Seq(tool),
           models = models,
           maxCalls = 25,
-          finalFormat = ClaudeOutputFormats.SingleInsight
+          finalFormat = ClaudeOutputFormats.SingleInsight,
+          feature = TestAiFeature
         ) { use =>
           executed += 1
           use.name mustBe "get_metric"
@@ -740,7 +763,8 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
           tools = Seq(tool),
           models = models,
           maxCalls = 0,
-          finalFormat = ClaudeOutputFormats.SingleInsight
+          finalFormat = ClaudeOutputFormats.SingleInsight,
+          feature = TestAiFeature
         ) { _ =>
           executed += 1
           scala.concurrent.Future.successful(ClaudeToolOutput(content = "unused"))
@@ -769,11 +793,12 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
     "run the same tool loop and return the final turn's prose" in {
       var executed = 0
       val result = await(
-        testClient.runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 25) { use =>
-          executed += 1
-          use.name mustBe "get_metric"
-          scala.concurrent.Future.successful(ClaudeToolOutput(content = """{"total": 42}"""))
-        }
+        testClient
+          .runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 25, feature = TestAiFeature) { use =>
+            executed += 1
+            use.name mustBe "get_metric"
+            scala.concurrent.Future.successful(ClaudeToolOutput(content = """{"total": 42}"""))
+          }
       )(using timeout)
 
       result.isValid mustBe true
@@ -790,9 +815,10 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
     "finalize directly when the tool-call budget is zero" in {
       var executed = 0
       val result = await(
-        testClient.runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 0) { _ =>
-          executed += 1
-          scala.concurrent.Future.successful(ClaudeToolOutput(content = "unused"))
+        testClient.runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 0, feature = TestAiFeature) {
+          _ =>
+            executed += 1
+            scala.concurrent.Future.successful(ClaudeToolOutput(content = "unused"))
         }
       )(using timeout)
 
@@ -808,9 +834,10 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
     "answer from the turn the model stopped on, paying for no finalize turn" in {
       val sent = scriptedClient(answered)
       val result = await(
-        sent.client.runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 25) { _ =>
-          sys.error("the model never asked for a tool")
-        }
+        sent.client
+          .runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 25, feature = TestAiFeature) { _ =>
+            sys.error("the model never asked for a tool")
+          }
       )(using timeout)
 
       result.isValid mustBe true
@@ -831,9 +858,10 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       )
       val sent = scriptedClient(truncated, answered)
       val result = await(
-        sent.client.runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 25) { _ =>
-          sys.error("the model never asked for a tool")
-        }
+        sent.client
+          .runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 25, feature = TestAiFeature) { _ =>
+            sys.error("the model never asked for a tool")
+          }
       )(using timeout)
 
       result.isValid mustBe true
@@ -850,9 +878,10 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       )
       val sent = scriptedClient(thinkingOnly, answered)
       val result = await(
-        sent.client.runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 25) { _ =>
-          sys.error("the model never asked for a tool")
-        }
+        sent.client
+          .runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 25, feature = TestAiFeature) { _ =>
+            sys.error("the model never asked for a tool")
+          }
       )(using timeout)
 
       result.isValid mustBe true
@@ -873,7 +902,8 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
           request.copy(effort = Some(ClaudeEffort.Low)),
           tools = Seq(tool),
           models = models,
-          maxCalls = 25
+          maxCalls = 25,
+          feature = TestAiFeature
         ) { _ =>
           sys.error("the model never asked for a tool")
         }
@@ -889,9 +919,10 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       )
       val sent = scriptedClient(thinkingOnly, thinkingOnly)
       val result = await(
-        sent.client.runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 25) { _ =>
-          sys.error("the model never asked for a tool")
-        }
+        sent.client
+          .runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 25, feature = TestAiFeature) { _ =>
+            sys.error("the model never asked for a tool")
+          }
       )(using timeout)
 
       result.isInvalid mustBe true
@@ -912,10 +943,11 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       val sent = scriptedClient(truncatedChoice, answered)
       val executed = scala.collection.mutable.Buffer.empty[String]
       val result = await(
-        sent.client.runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 25) { use =>
-          executed.synchronized(executed += use.id)
-          scala.concurrent.Future.successful(ClaudeToolOutput(content = """{"total": 42}"""))
-        }
+        sent.client
+          .runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 25, feature = TestAiFeature) { use =>
+            executed.synchronized(executed += use.id)
+            scala.concurrent.Future.successful(ClaudeToolOutput(content = """{"total": 42}"""))
+          }
       )(using timeout)
 
       result.isValid mustBe true
@@ -937,9 +969,10 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       )
       val sent = scriptedClient(unknown, answered)
       val result = await(
-        sent.client.runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 25) { _ =>
-          scala.concurrent.Future.successful(ClaudeToolOutput(content = """{"total": 42}"""))
-        }
+        sent.client
+          .runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 25, feature = TestAiFeature) { _ =>
+            scala.concurrent.Future.successful(ClaudeToolOutput(content = """{"total": 42}"""))
+          }
       )(using timeout)
 
       result.isValid mustBe true
@@ -953,9 +986,10 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
     "tell the finalize turn the tool-call budget is spent, in the same message as the tool results" in {
       val sent = scriptedClient(asksFor("toolu_a"), answered)
       val result = await(
-        sent.client.runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 1) { _ =>
-          scala.concurrent.Future.successful(ClaudeToolOutput(content = """{"total": 42}"""))
-        }
+        sent.client
+          .runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 1, feature = TestAiFeature) { _ =>
+            scala.concurrent.Future.successful(ClaudeToolOutput(content = """{"total": 42}"""))
+          }
       )(using timeout)
 
       result.isValid mustBe true
@@ -974,10 +1008,11 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       val sent = scriptedClient(asksFor("toolu_a", "toolu_b", "toolu_c"), answered)
       val executed = scala.collection.mutable.Buffer.empty[String]
       val result = await(
-        sent.client.runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 2) { use =>
-          executed.synchronized(executed += use.id)
-          scala.concurrent.Future.successful(ClaudeToolOutput(content = """{"total": 42}"""))
-        }
+        sent.client
+          .runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 2, feature = TestAiFeature) { use =>
+            executed.synchronized(executed += use.id)
+            scala.concurrent.Future.successful(ClaudeToolOutput(content = """{"total": 42}"""))
+          }
       )(using timeout)
 
       result.isValid mustBe true
@@ -994,9 +1029,10 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
     "carry the budget notice on a zero budget, merged into the caller's own message" in {
       val sent = scriptedClient(answered)
       await(
-        sent.client.runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 0) { _ =>
-          sys.error("the budget is zero")
-        }
+        sent.client
+          .runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 0, feature = TestAiFeature) { _ =>
+            sys.error("the budget is zero")
+          }
       )(using timeout).isValid mustBe true
 
       val messages = sent.requests.last.messages
@@ -1010,9 +1046,10 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
     "leave the model-stopped finalize turn on its own instruction, with no budget notice" in {
       val sent = scriptedClient(asksFor("toolu_a"), truncatedAnswer, answered)
       await(
-        sent.client.runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 25) { _ =>
-          scala.concurrent.Future.successful(ClaudeToolOutput(content = """{"total": 42}"""))
-        }
+        sent.client
+          .runToolLoopText(request, tools = Seq(tool), models = models, maxCalls = 25, feature = TestAiFeature) { _ =>
+            scala.concurrent.Future.successful(ClaudeToolOutput(content = """{"total": 42}"""))
+          }
       )(using timeout).isValid mustBe true
 
       val texts = sent.requests.last.messages.flatMap(_.content.flatMap(_.text))
@@ -1033,7 +1070,8 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
           tools = Seq(tool),
           models = models,
           maxCalls = 1,
-          finalFormat = ClaudeOutputFormats.SingleInsight
+          finalFormat = ClaudeOutputFormats.SingleInsight,
+          feature = TestAiFeature
         ) { _ =>
           scala.concurrent.Future.successful(ClaudeToolOutput(content = """{"total": 42}"""))
         }
@@ -1060,7 +1098,8 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
           tools = Seq(tool),
           models = models,
           maxCalls = 25,
-          finalFormat = ClaudeOutputFormats.SingleInsight
+          finalFormat = ClaudeOutputFormats.SingleInsight,
+          feature = TestAiFeature
         ) { _ =>
           sys.error("the model never asked for a tool")
         }
@@ -1227,7 +1266,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
 
     "resumes a paused turn and returns the finished answer" in {
       val sent = scriptedClient(paused("I searched and found"), answered)
-      val result = await(sent.client.chatText(request, models))(using timeout)
+      val result = await(sent.client.chatText(request, models, feature = TestAiFeature))(using timeout)
 
       result.isValid mustBe true
       // The answer is the RESUMED turn's, not the partial prose the paused turn carried.
@@ -1238,7 +1277,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
     "resends the paused assistant content verbatim, with no extra user turn" in {
       val pausedTurn = paused("I searched and found")
       val sent = scriptedClient(pausedTurn, answered)
-      await(sent.client.chatText(request, models))(using timeout).isValid mustBe true
+      await(sent.client.chatText(request, models, feature = TestAiFeature))(using timeout).isValid mustBe true
 
       val resumed = sent.requests(1)
       // Exactly one message appended: the paused assistant turn. A "continue" user turn would both break the
@@ -1252,7 +1291,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
 
     "resumes repeatedly while the turn keeps pausing" in {
       val sent = scriptedClient(paused("first"), paused("second"), paused("third"), answered)
-      val result = await(sent.client.chatText(request, models))(using timeout)
+      val result = await(sent.client.chatText(request, models, feature = TestAiFeature))(using timeout)
 
       result.isValid mustBe true
       result.toOption.get.content mustBe "the draft"
@@ -1263,7 +1302,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       // Every turn pauses. The partial prose would parse as a perfectly good answer, which is exactly why
       // returning it is the wrong outcome -- a wrong answer presented as a right one.
       val sent = scriptedClient(Seq.fill(ClaudeClient.MaxPauseTurnResumes + 5)(paused("partial thought"))*)
-      val result = await(sent.client.chatText(request, models))(using timeout)
+      val result = await(sent.client.chatText(request, models, feature = TestAiFeature))(using timeout)
 
       result.isInvalid mustBe true
       val message = result.swap.toOption.get.toNonEmptyList.head.message
@@ -1274,7 +1313,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
 
     "leaves a turn that never pauses untouched" in {
       val sent = scriptedClient(answered)
-      val result = await(sent.client.chatText(request, models))(using timeout)
+      val result = await(sent.client.chatText(request, models, feature = TestAiFeature))(using timeout)
 
       result.isValid mustBe true
       sent.requests.size mustBe 1
@@ -1295,7 +1334,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
         else None
       }(calls)
 
-      val result = await(client.chatText(request, models))(using timeout)
+      val result = await(client.chatText(request, models, feature = TestAiFeature))(using timeout)
 
       result.isValid mustBe true
       calls.get mustBe 2
@@ -1307,7 +1346,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
         if (n == 1) Some(new IOException("Remotely closed")) else None
       }(calls)
 
-      val result = await(client.chatText(request, models))(using timeout)
+      val result = await(client.chatText(request, models, feature = TestAiFeature))(using timeout)
 
       result.isValid mustBe true
       calls.get mustBe 2
@@ -1317,7 +1356,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       val calls = new AtomicInteger(0)
       val client = flakyClient(_ => Some(new TimeoutException("Read timeout after 120000 ms")))(calls)
 
-      val result = await(client.chatText(request, models))(using timeout)
+      val result = await(client.chatText(request, models, feature = TestAiFeature))(using timeout)
 
       result.isInvalid mustBe true
       calls.get mustBe 3
@@ -1327,7 +1366,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       val calls = new AtomicInteger(0)
       val client = flakyClient(_ => Some(new SSLException("unable to find valid certification path")))(calls)
 
-      val result = await(client.chatText(request, models))(using timeout)
+      val result = await(client.chatText(request, models, feature = TestAiFeature))(using timeout)
 
       result.isInvalid mustBe true
       calls.get mustBe 1
@@ -1342,7 +1381,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       val client = flakyClient(_ => Some(new TimeoutException("Request timeout after 120000 ms")))(calls)
       val large = request.copy(maxTokens = 64000L)
 
-      val result = await(client.chatText(large, models))(using timeout)
+      val result = await(client.chatText(large, models, feature = TestAiFeature))(using timeout)
 
       result.isInvalid mustBe true
       calls.get mustBe 3
@@ -1366,7 +1405,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       val unregistered = ClaudeOutputFormats.create("not_a_registered_format", Json.obj(), Nil)
 
       val result = await(
-        testClient.chatCompletion[CommentsResponse](request, unregistered, models)
+        testClient.chatCompletion[CommentsResponse](request, unregistered, models, feature = TestAiFeature)
       )(using timeout)
 
       result.isInvalid mustBe true
@@ -1384,7 +1423,8 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       // reproduce what Anthropic does -- so they are deliberately not marked simulated, and this is what a genuine
       // provider failure reads like.
       val result = await(
-        erroringClient(400, "bad model", Map("request-id" -> Seq("req_011CSprovider"))).chatText(request, models)
+        erroringClient(400, "bad model", Map("request-id" -> Seq("req_011CSprovider")))
+          .chatText(request, models, feature = TestAiFeature)
       )(using timeout)
 
       result.isInvalid mustBe true
@@ -1399,7 +1439,9 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
     }
 
     "say nothing about a provider id when the response carried none" in {
-      val result = await(erroringClient(400, "bad model", Map.empty).chatText(request, models))(using timeout)
+      val result = await(
+        erroringClient(400, "bad model", Map.empty).chatText(request, models, feature = TestAiFeature)
+      )(using timeout)
 
       val message = result.swap.toOption.get.toNonEmptyList.head.message
       message must include("bad model")
@@ -1435,7 +1477,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       ): scala.concurrent.Future[ClaudeResponse] =
         scala.concurrent.Future.failed(ClaudeErrorResponseResponse(response))
     }
-    ClaudeClient(failing, ClaudeConfig("test-api-key"), NoopClaudeStore)
+    ClaudeClient(failing, ClaudeConfig("test-api-key"), NoopClaudeStore, new UnlimitedAiBudget())
   }
 
   /** A client whose nth call (1-based) fails with `failure(n)` when defined, delegating to the sandbox TestClaudeClient
@@ -1552,7 +1594,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
         scala.concurrent.Future.successful(respond(body))
       }
     }
-    ClaudeClient(recording, ClaudeConfig("test-api-key"), NoopClaudeStore)
+    ClaudeClient(recording, ClaudeConfig("test-api-key"), NoopClaudeStore, new UnlimitedAiBudget())
   }
 
   /** A [[scriptedClient]] and the requests it received, in order — so a test can assert on what was RESENT, which for a
@@ -1577,7 +1619,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
         scala.concurrent.Future.successful(responses(math.min(index, responses.size - 1)))
       }
     }
-    Scripted(ClaudeClient(scripted, ClaudeConfig("test-api-key"), NoopClaudeStore), recorded)
+    Scripted(ClaudeClient(scripted, ClaudeConfig("test-api-key"), NoopClaudeStore, new UnlimitedAiBudget()), recorded)
   }
 
   private def fixedClient(response: ClaudeResponse): ClaudeClient = {
@@ -1587,7 +1629,7 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
         requestHeaders: Seq[(String, String)]
       ): scala.concurrent.Future[ClaudeResponse] = scala.concurrent.Future.successful(response)
     }
-    ClaudeClient(fixed, ClaudeConfig("test-api-key"), NoopClaudeStore)
+    ClaudeClient(fixed, ClaudeConfig("test-api-key"), NoopClaudeStore, new UnlimitedAiBudget())
   }
 
   private def flakyClient(failure: Int => Option[Throwable])(calls: AtomicInteger): ClaudeClient = {
@@ -1603,6 +1645,6 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
         }
       }
     }
-    ClaudeClient(flaky, ClaudeConfig("test-api-key"), NoopClaudeStore)
+    ClaudeClient(flaky, ClaudeConfig("test-api-key"), NoopClaudeStore, new UnlimitedAiBudget())
   }
 }

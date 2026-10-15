@@ -64,6 +64,7 @@ object ClaudePricing {
     "claude-opus-5" -> Rate.standardCacheRead(inputPerM = BigDecimal(5), outputPerM = BigDecimal(25)),
     // $2/$10 is the standard price, not an introductory one: the increase to $3/$15 once announced for
     // September 2026 was cancelled (ISS-13608).
+    "claude-sonnet-5-5" -> Rate.standardCacheRead(inputPerM = BigDecimal(2), outputPerM = BigDecimal(10)),
     "claude-sonnet-5" -> Rate.standardCacheRead(inputPerM = BigDecimal(2), outputPerM = BigDecimal(10)),
     "claude-haiku-4-5" -> Rate.standardCacheRead(inputPerM = BigDecimal(1), outputPerM = BigDecimal(5)),
     // Cache reads at $0.25/MTok are 0.025x the input rate, against claude-fable-5's standard 0.1x at the same

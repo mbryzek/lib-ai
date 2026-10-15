@@ -1,7 +1,8 @@
 package com.bryzek.ai.claude
 
 import com.bryzek.claude.models.{ClaudeModel, ClaudeRequest, ClaudeResponse, ClaudeRole, ClaudeStopReason}
-import helpers.FutureHelpers
+import com.bryzek.ai.UnlimitedAiBudget
+import helpers.{FutureHelpers, TestAiFeature}
 import org.apache.pekko.stream.scaladsl.Source
 import org.apache.pekko.util.{ByteString, Timeout}
 import org.scalatest.matchers.must.Matchers
@@ -219,10 +220,11 @@ class ClaudeStreamingClientSpec extends AnyWordSpec with Matchers with GuiceOneA
     "flow a streamed answer up through ClaudeClient unchanged" in {
       withServer(_ => eventStream(CompleteStream)) { (client, _) =>
         val result = await(
-          ClaudeClient(client, ClaudeConfig("test-api-key"), NoopClaudeStore)
+          ClaudeClient(client, ClaudeConfig("test-api-key"), NoopClaudeStore, new UnlimitedAiBudget())
             .chatText(
               aiRequest,
-              Seq(ClaudeModel.ClaudeSonnet5)
+              Seq(ClaudeModel.ClaudeSonnet5),
+              feature = TestAiFeature
             )
         )(using timeout)
 
@@ -237,10 +239,11 @@ class ClaudeStreamingClientSpec extends AnyWordSpec with Matchers with GuiceOneA
         eventStream(if (model.contains("claude-sonnet-5")) overloaded else CompleteStream)
       } { (client, _) =>
         val result = await(
-          ClaudeClient(client, ClaudeConfig("test-api-key"), NoopClaudeStore)
+          ClaudeClient(client, ClaudeConfig("test-api-key"), NoopClaudeStore, new UnlimitedAiBudget())
             .chatText(
               aiRequest,
-              Seq(ClaudeModel.ClaudeSonnet5, ClaudeModel.ClaudeOpus5)
+              Seq(ClaudeModel.ClaudeSonnet5, ClaudeModel.ClaudeOpus5),
+              feature = TestAiFeature
             )
         )(using timeout)
 
