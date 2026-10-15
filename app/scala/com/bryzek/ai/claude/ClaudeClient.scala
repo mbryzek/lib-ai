@@ -3,6 +3,7 @@ package com.bryzek.ai.claude
 import cats.data.{NonEmptyChain, ValidatedNec}
 import cats.data.Validated.{Invalid, Valid}
 import cats.implicits.*
+import com.bryzek.ai.{AiBudget, AiFeature}
 import com.bryzek.claude.response.models.*
 import com.bryzek.claude.response.models.json.*
 import com.bryzek.claude.client.IClient
@@ -283,12 +284,11 @@ case class ClaudeRequestMetadata(
   // reading it as a provider id cost (ISS-2542).
   id: String,
   request: ClaudeRequest,
-  context: Option[String] = None,
-  // Which product feature/pipeline stage issued this request (e.g. "insight_investigate",
-  // "sms_onboarding"), for cost/usage attribution. Distinct from `context`, which is a free-text
-  // per-call identifier (e.g. a run/stage id) -- `feature` is the low-cardinality label a store
-  // persists and rolls up by.
-  feature: Option[String] = None
+  // Which AI feature issued this request, from the app's catalog: the low-cardinality label a store persists
+  // and rolls spend up by, and what the call's budget is counted against. Required, so an unlabeled call does
+  // not compile. Distinct from `context`, which is a free-text per-call identifier (e.g. a run/stage id).
+  feature: AiFeature,
+  context: Option[String] = None
 ) {
   val start: Long = System.currentTimeMillis()
 
@@ -303,6 +303,25 @@ case class ClaudeRequestMetadata(
 
 case class ClaudeResponseMetadata[T](request: ClaudeRequestMetadata, response: ClaudeResponse, content: T) {
   val duration: Long = System.currentTimeMillis() - request.start
+
+  /** What this response cost in dollars, priced as it is received (see [[ClaudeResponseMetadata.costOf]]). A store
+    * persists it, and it is what the call spent against its feature's budget.
+    */
+  val costUsd: BigDecimal = ClaudeResponseMetadata.costOf(request.request.model, response)
+}
+
+object ClaudeResponseMetadata {
+
+  /** The dollar cost of `response`, priced by the model the API echoed back and, should that id be one the table does
+    * not know, by the model that was asked for -- which [[ClaudeClient]] has already refused to call unless it is
+    * priced, so a response this client returns always has a real cost. $0 only for a response neither id prices, which
+    * only a response constructed outside this client can be.
+    */
+  def costOf(requested: ClaudeModel, response: ClaudeResponse): BigDecimal =
+    ClaudePricing
+      .costUsd(response.model.toString, response.usage)
+      .orElse(ClaudePricing.costUsd(requested.toString, response.usage))
+      .getOrElse(BigDecimal(0))
 }
 
 /** Persists the full request/response audit. `context` on the request metadata carries the run-stage id so transcripts
@@ -322,8 +341,8 @@ case object NoopClaudeStore extends ClaudeStore {
 
 @ImplementedBy(classOf[ClaudeClientFactoryImpl])
 trait ClaudeClientFactory {
-  final def instance(env: ClaudeEnvironment, apiKey: String)(store: ClaudeStore): ClaudeClient = {
-    ClaudeClient(getClient(env), ClaudeConfig(apiKey), store)
+  final def instance(env: ClaudeEnvironment, apiKey: String)(store: ClaudeStore, budget: AiBudget): ClaudeClient = {
+    ClaudeClient(getClient(env), ClaudeConfig(apiKey), store, budget)
   }
 
   def getClient(env: ClaudeEnvironment): IClient
@@ -583,10 +602,19 @@ final case class ClaudeOutputFormat(
   )
 }
 
+/** The Claude client. Every call names the [[AiFeature]] it is for and is checked against that feature's daily budget
+  * before it is sent: `budget` is asked before every request -- each tool-loop turn and each `pause_turn` resume
+  * included -- and a feature with nothing left fails the call's `Future` with
+  * [[com.bryzek.ai.AiBudgetExceeded]] (or [[com.bryzek.ai.AiBudgetUnavailable]] when today's spend has never been
+  * read). Nothing is sent, stored or retried for a refused call. Each response that comes back is priced
+  * ([[ClaudeResponseMetadata.costUsd]]) and its cost handed to [[AiBudget.spent]], so the call that crosses the line
+  * completes and the next one is refused.
+  */
 case class ClaudeClient(
   client: IClient,
   config: ClaudeConfig,
-  store: ClaudeStore
+  store: ClaudeStore,
+  budget: AiBudget
 ) {
   import ClaudeClient.*
 
@@ -602,20 +630,20 @@ case class ClaudeClient(
   def chatComments(
     request: AiRequest,
     models: Seq[ClaudeModel],
-    context: Option[String] = None,
-    feature: Option[String] = None
+    feature: AiFeature,
+    context: Option[String] = None
   )(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[String]]] = {
-    chatCompletion[CommentsResponse](request, ClaudeOutputFormats.CommentsResponse, models, context, feature)(using ec)
+    chatCompletion[CommentsResponse](request, ClaudeOutputFormats.CommentsResponse, models, feature, context)(using ec)
       .map(_.map(_.content.comments))
   }
 
   def chatRecommendations(
     request: AiRequest,
     models: Seq[ClaudeModel],
-    context: Option[String] = None,
-    feature: Option[String] = None
+    feature: AiFeature,
+    context: Option[String] = None
   )(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, RecommendationResponse]] = {
@@ -623,8 +651,8 @@ case class ClaudeClient(
       request,
       ClaudeOutputFormats.RecommendationsResponse,
       models,
-      context,
-      feature
+      feature,
+      context
     )(using
       ec
     )
@@ -634,23 +662,23 @@ case class ClaudeClient(
   def chatInsight(
     request: AiRequest,
     models: Seq[ClaudeModel],
-    context: Option[String] = None,
-    feature: Option[String] = None
+    feature: AiFeature,
+    context: Option[String] = None
   )(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[String]]] = {
-    chatComments(request, models, context, feature)(using ec)
+    chatComments(request, models, feature, context)(using ec)
   }
 
   def chatSingleInsight(
     request: AiRequest,
     models: Seq[ClaudeModel],
-    context: Option[String] = None,
-    feature: Option[String] = None
+    feature: AiFeature,
+    context: Option[String] = None
   )(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, String]] = {
-    chatCompletion[SingleInsightResponse](request, ClaudeOutputFormats.SingleInsight, models, context, feature)(using
+    chatCompletion[SingleInsightResponse](request, ClaudeOutputFormats.SingleInsight, models, feature, context)(using
       ec
     )
       .map(_.map(_.content.insight))
@@ -659,8 +687,8 @@ case class ClaudeClient(
   def chatInsightSections(
     request: AiRequest,
     models: Seq[ClaudeModel],
-    context: Option[String] = None,
-    feature: Option[String] = None
+    feature: AiFeature,
+    context: Option[String] = None
   )(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, Seq[InsightSection]]] = {
@@ -668,8 +696,8 @@ case class ClaudeClient(
       request,
       ClaudeOutputFormats.InsightSectionsResponse,
       models,
-      context,
-      feature
+      feature,
+      context
     )(using
       ec
     )
@@ -679,8 +707,8 @@ case class ClaudeClient(
   def chatText(
     request: AiRequest,
     models: Seq[ClaudeModel],
-    context: Option[String] = None,
-    feature: Option[String] = None
+    feature: AiFeature,
+    context: Option[String] = None
   )(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[String]]] = {
@@ -695,8 +723,8 @@ case class ClaudeClient(
     request: AiRequest,
     outputFormat: ClaudeOutputFormat,
     models: Seq[ClaudeModel],
-    context: Option[String] = None,
-    feature: Option[String] = None
+    feature: AiFeature,
+    context: Option[String] = None
   )(implicit
     ec: ExecutionContext,
     reads: Reads[T]
@@ -732,8 +760,8 @@ case class ClaudeClient(
     models: Seq[ClaudeModel],
     maxCalls: Int,
     finalFormat: ClaudeOutputFormat,
-    context: Option[String] = None,
-    feature: Option[String] = None
+    feature: AiFeature,
+    context: Option[String] = None
   )(execute: ClaudeToolUse => Future[ClaudeToolOutput])(implicit
     ec: ExecutionContext,
     reads: Reads[T]
@@ -784,8 +812,8 @@ case class ClaudeClient(
     tools: Seq[ClaudeTool],
     models: Seq[ClaudeModel],
     maxCalls: Int,
-    context: Option[String] = None,
-    feature: Option[String] = None
+    feature: AiFeature,
+    context: Option[String] = None
   )(execute: ClaudeToolUse => Future[ClaudeToolOutput])(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, ClaudeToolLoopResult[String]]] =
@@ -831,7 +859,7 @@ case class ClaudeClient(
     finalizeWith: ClaudeMessage,
     budgetSpentWith: ClaudeMessage,
     context: Option[String],
-    feature: Option[String],
+    feature: AiFeature,
     answerFrom: ClaudeResponse => Option[T] = (_: ClaudeResponse) => None
   )(execute: ClaudeToolUse => Future[ClaudeToolOutput])(
     finalizeTurn: (ClaudeRequest, Seq[ClaudeMessage]) => Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]]
@@ -1032,21 +1060,44 @@ case class ClaudeClient(
     * through this client funnels through, so putting it anywhere else would mean every entry point — `chatText`,
     * `chatCompletion`, both tool loops — needing its own copy of the same loop, and the first one written without it
     * silently truncating.
+    *
+    * It is also why the budget is checked here: every request this client sends -- each tool-loop turn and each resume
+    * -- passes this point first. A refused call fails the `Future` with the refusal before anything is stored or sent;
+    * a model [[ClaudePricing]] cannot price is journaled and answered with an error without being sent, so nothing is
+    * ever spent that cannot be counted. Every response that comes back is priced and handed to [[AiBudget.spent]]
+    * whatever happens to it afterwards, a paused turn and a response that then fails to parse included, because the
+    * API charged for it either way.
     */
   private def send(
     request: ClaudeRequest,
     headers: Seq[(String, String)],
     context: Option[String],
-    feature: Option[String],
+    feature: AiFeature,
     resumesRemaining: Int = MaxPauseTurnResumes
   )(implicit
     ec: ExecutionContext
+  ): Future[(ClaudeRequestMetadata, ValidatedNec[ClaudeError, ClaudeResponse])] =
+    budget.check(feature) match {
+      case Left(refusal) => Future.failed(refusal)
+      case Right(_) =>
+        val rm = ClaudeRequestMetadata(client, randomId(ClaudeErrorLabels.LocalIdPrefix), request, feature, context)
+        store.storeRequest(rm)
+        if (ClaudePricing.isPriced(request.model)) sendPriced(rm, headers, resumesRemaining)
+        else Future.successful((rm, unpricedModelError(rm).invalidNec))
+    }
+
+  private def sendPriced(rm: ClaudeRequestMetadata, headers: Seq[(String, String)], resumesRemaining: Int)(implicit
+    ec: ExecutionContext
   ): Future[(ClaudeRequestMetadata, ValidatedNec[ClaudeError, ClaudeResponse])] = {
-    val rm = ClaudeRequestMetadata(client, randomId(ClaudeErrorLabels.LocalIdPrefix), request, context, feature)
-    store.storeRequest(rm)
+    val request = rm.request
+    val context = rm.context
+    val feature = rm.feature
     ClaudeRetries
       .withRetries(client.createMessage(request, headers))
-      .map(response => (rm, response.validNec))
+      .map { response =>
+        budget.spent(feature, ClaudeResponseMetadata.costOf(request.model, response))
+        (rm, response.validNec)
+      }
       .recover {
         case r: ClaudeErrorResponseResponse => (rm, errorFrom(rm, r).invalidNec)
         case NonFatal(e) => (rm, rm.error(e.getMessage).invalidNec)
@@ -1059,6 +1110,12 @@ case class ClaudeClient(
         case settled => Future.successful(settled)
       }
   }
+
+  /** The error a request for a model [[ClaudePricing]] does not price becomes. Refused rather than sent: a call whose
+    * cost would read as $0 is a call no budget can count, so a new model is priced before it is used.
+    */
+  private def unpricedModelError(rm: ClaudeRequestMetadata): ClaudeError =
+    rm.error(s"Model[${rm.request.model}] has no price in ClaudePricing, so it is not called until it is priced")
 
   /** The error a turn still paused after [[MaxPauseTurnResumes]] resumes becomes.
     *
@@ -1090,7 +1147,7 @@ case class ClaudeClient(
     request: ClaudeRequest,
     headers: Seq[(String, String)],
     context: Option[String],
-    feature: Option[String]
+    feature: AiFeature
   )(
     parse: (ClaudeRequestMetadata, ClaudeResponse) => ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]
   )(implicit ec: ExecutionContext): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]] = {
@@ -1106,7 +1163,7 @@ case class ClaudeClient(
     request: ClaudeRequest,
     headers: Seq[(String, String)],
     context: Option[String],
-    feature: Option[String]
+    feature: AiFeature
   )(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[ClaudeResponse]]] =
@@ -1116,7 +1173,7 @@ case class ClaudeClient(
     originalRequest: ClaudeRequest,
     outputFormat: ClaudeOutputFormat,
     context: Option[String],
-    feature: Option[String]
+    feature: AiFeature
   )(implicit
     ec: ExecutionContext,
     reads: Reads[T]
@@ -1127,7 +1184,7 @@ case class ClaudeClient(
     sendAndStore[T](request, structuredHeaders(outputFormat), context, feature)((rm, resp) => parseText[T](rm, resp))
   }
 
-  private def chatTextSingle(originalRequest: ClaudeRequest, context: Option[String], feature: Option[String])(implicit
+  private def chatTextSingle(originalRequest: ClaudeRequest, context: Option[String], feature: AiFeature)(implicit
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[String]]] = {
     sendAndStore[String](originalRequest, defaultHeaders, context, feature)(textAnswer)
