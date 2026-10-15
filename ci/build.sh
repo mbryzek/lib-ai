@@ -69,6 +69,17 @@
 # reason, exactly as platform and acumen do.
 #
 # ci-needs: heap:4G
+#
+# TEST HEALTH READS THE NEXT TWO LINES (ISS-19887, design DES-18577 "Every repository
+# with CI"). The first is where sbt leaves a JUnit report per suite, which is what the
+# fleet writes the test ledger from: `TEST-<suite>.xml` is the build's run of a suite,
+# `FIRST-<suite>.xml` the first run of one the build reran. The second says this build
+# runs with the lists platform holds: whatever starts it fetches them first and exports
+# the file as `CI_TEST_LISTS`. ci/test-health.sh and the three project/Ci*.scala files
+# are the runner half, copies of devops templates/sbt-test-health held to it below.
+#
+# ci-test-reports: target/test-reports/*.xml
+# ci-test-lists: required
 set -euo pipefail
 
 echo "building ${CI_REPO:-?} @ ${CI_SHA:-?} (${CI_EVENT:-?}, clean=${CI_CLEAN_BUILD:-?})"
@@ -112,15 +123,22 @@ esac
 # `dev repo cat` (no fetch of our own, ISS-2232), so an advisory bump is one edit there and a copy
 # that is not taken fails here rather than drifting into a per-repo floor. A read that fails
 # leaves the diff comparing against nothing, which fails too. ISS-15715
-pins=(
-  "project/BryzekPins.scala project/BryzekPins.scala"
-  "test/JacksonPinSpec.scala test/scala/com/bryzek/pins/JacksonPinSpec.scala"
-  "test/LogbackPinSpec.scala test/scala/com/bryzek/pins/LogbackPinSpec.scala"
+#
+# THE TEST HEALTH RUNNER IS OWNED THE SAME WAY (ISS-19887): templates/sbt-test-health holds the
+# lists filter, the rerun and the shell half every sbt repository runs its suite through.
+synced=(
+  "scala-libs/project/BryzekPins.scala project/BryzekPins.scala"
+  "scala-libs/test/JacksonPinSpec.scala test/scala/com/bryzek/pins/JacksonPinSpec.scala"
+  "scala-libs/test/LogbackPinSpec.scala test/scala/com/bryzek/pins/LogbackPinSpec.scala"
+  "sbt-test-health/project/CiTestLists.scala project/CiTestLists.scala"
+  "sbt-test-health/project/CiTestListsPlugin.scala project/CiTestListsPlugin.scala"
+  "sbt-test-health/project/CiTestRerunPlugin.scala project/CiTestRerunPlugin.scala"
+  "sbt-test-health/ci/test-health.sh ci/test-health.sh"
 )
-for pair in "${pins[@]}"; do
+for pair in "${synced[@]}"; do
   read -r template copy <<<"$pair"
-  if ! diff -u <(dev repo cat devops "templates/scala-libs/$template") "$copy"; then
-    echo "ci/build.sh: sync it -- dev repo cat devops templates/scala-libs/$template > $copy" >&2
+  if ! diff -u <(dev repo cat devops "templates/$template") "$copy"; then
+    echo "ci/build.sh: sync it -- dev repo cat devops templates/$template > $copy" >&2
     exit 1
   fi
 done
@@ -128,4 +146,11 @@ done
 # ci-advisory: scripts/check-format
 scripts/check-format || echo "check-format: could not measure this tree — advisory, nothing fails on it"
 
-sbt test
+# THE SUITE, WITH TEST HEALTH (ISS-19887). `ci_test_health_sbt` prints the `ci-lists:` line for
+# the lists `CI_TEST_LISTS` names (exiting 75 on a file that is not one, or on `CI_SLOW_SPECS=1`
+# with none), and `ciTest` runs every spec the lists leave in -- the slow ones alone under
+# `CI_SLOW_SPECS=1` -- then reruns each spec that failed once, printing `ci-flake:` per spec that
+# passed the second time and `ci-rerun: done`. A spec that fails twice fails the build.
+source ci/test-health.sh
+ci_test_health_sbt
+sbt -Dsbt.log.noformat=true "${ci_sbt_test_commands[@]}"
