@@ -15,7 +15,7 @@ import scala.util.control.NonFatal
   *     `CI_SLOW_SPECS=1` run the slow specs alone;
   *   - `ciListsUnknown`, which prints `ci-lists: unknown <spec>` for a listed spec no subproject
   *     defines, and never fails, since `ci/build.sh` runs it ahead of `test` in one invocation;
-  *   - `ciProof [<runs>]`, which runs each `proof` spec `<runs>` times alone and `<runs>` times with
+  *   - `ciProof [<alone> <beside>]`, which runs each `proof` spec `<alone>` times alone and `<beside>` times with
   *     the rest of its subproject's specs, leaves a report per run and fails if any run failed.
   *
   * An AutoPlugin on every project, for the reason `TestDatabasePlugin` is one: a subproject added
@@ -99,8 +99,11 @@ object CiTestListsPlugin extends AutoPlugin {
     }
   }
 
-  private def ciProof: Command = Command.args("ciProof", "[<runs>]") { (state, args) =>
-    val runs = args.headOption.map(_.toInt).getOrElse(CiTestLists.ProofRuns)
+  private def ciProof: Command = Command.args("ciProof", "[<alone> <beside>]") { (state, args) =>
+    val runs = args match {
+      case Seq(alone, beside) => (alone.toInt, beside.toInt)
+      case _ => (CiTestLists.ProofRunsAlone, CiTestLists.ProofRunsBeside)
+    }
     lists.filter(_.proof.nonEmpty) match {
       case None =>
         println("ci-proof: no proof specs")
@@ -122,7 +125,7 @@ object CiTestListsPlugin extends AutoPlugin {
   /** Stops at the first run that fails: one failed run is a red build, and the runs after it
     * would spend up to an hour of a runner to say so again.
     */
-  private def proveAll(state: State, plan: Seq[(String, String)], runs: Int): State = {
+  private def proveAll(state: State, plan: Seq[(String, String)], runs: (Int, Int)): State = {
     val (last, failed) = plan.foldLeft((state, false)) {
       case ((current, true), _) => (current, true)
       case ((current, false), (project, spec)) =>
@@ -133,7 +136,7 @@ object CiTestListsPlugin extends AutoPlugin {
       println("ci-proof: FAILED")
       last.fail
     } else {
-      println(s"ci-proof: passed ${plan.size} spec(s), $runs alone and $runs under load each")
+      println(s"ci-proof: passed ${plan.size} spec(s), ${runs._1} alone and ${runs._2} beside each")
       last
     }
   }
@@ -142,13 +145,13 @@ object CiTestListsPlugin extends AutoPlugin {
     * after it, so what the build's suite run left is still what the ledger reads for every other
     * spec, and the proof's reports land beside them under their own names.
     */
-  private def prove(state: State, project: String, spec: String, runs: Int): (State, Boolean) = {
+  private def prove(state: State, project: String, spec: String, runs: (Int, Int)): (State, Boolean) = {
     val extracted = Project.extract(state)
     val ref = extracted.structure.allProjectRefs.find(_.project == project).getOrElse(sys.error(s"no project $project"))
     val reports = extracted.get(ref / target) / "test-reports"
     val aside = extracted.get(ref / target) / "test-reports.suite"
     val kept = extracted.get(ref / target) / "proof-reports"
-    println(s"ci-proof: $spec in $project: $runs alone, $runs with the rest of $project's specs")
+    println(s"ci-proof: $spec in $project: ${runs._1} alone, ${runs._2} with the rest of $project's specs")
 
     def run(mode: String, index: Int, current: State): (State, Boolean) = {
       IO.delete(reports)
@@ -160,11 +163,12 @@ object CiTestListsPlugin extends AutoPlugin {
       val xml = if (report.isFile) IO.read(report) else CiTestLists.missingReport(spec)
       IO.write(kept / CiTestLists.proofReportName(mode, index, spec), xml)
       val passed = CiTestLists.reportPassed(xml)
-      println(s"ci-proof: $spec $mode $index/$runs ${if (passed) "passed" else "failed"}")
+      val of = if (mode == "alone") runs._1 else runs._2
+      println(s"ci-proof: $spec $mode $index/$of ${if (passed) "passed" else "failed"}")
       (next, passed)
     }
 
-    val attempts = for { mode <- Seq("alone", "load"); index <- 1 to runs } yield (mode, index)
+    val attempts = CiTestLists.proofAttempts(runs._1, runs._2)
     IO.delete(Seq(aside, kept))
     if (reports.exists) IO.move(reports, aside)
     try {
