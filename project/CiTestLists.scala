@@ -18,8 +18,20 @@ import java.nio.file.Files
   */
 object CiTestLists {
 
-  /** How many times a proof runs a spec alone, and how many times with the rest of its subproject. */
-  val ProofRuns: Int = 20
+  /** How many times a proof runs a spec alone. */
+  val ProofRunsAlone: Int = 5
+
+  /** How many times a proof runs a spec with the rest of its subproject. */
+  val ProofRunsBeside: Int = 3
+
+  /** The runs of one spec's proof, in the order they run: every run alone, then every run beside
+    * the rest of its subproject. Each is its mode, as [[proofReportName]] takes it, and its index
+    * from 1. Alone comes first so that the cheap runs find a flake before the subproject's suite
+    * is spent on it, and so that a build's passing `proof` rows can only number both halves
+    * together when both ran in full.
+    */
+  def proofAttempts(alone: Int, beside: Int): Seq[(String, Int)] =
+    (1 to alone).map(i => ("alone", i)) ++ (1 to beside).map(i => ("load", i))
 
   final case class Lists(version: String, quarantined: Set[String], slow: Set[String], proof: Set[String]) {
     def listed: Set[String] = quarantined ++ slow ++ proof
