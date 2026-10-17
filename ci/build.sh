@@ -121,8 +121,13 @@ esac
 # build resolves, and the pin specs assert them as behaviour of the resolved jars. All of them are
 # byte-identical copies of devops's templates/scala-libs, read off devops's main with
 # `dev repo cat` (no fetch of our own, ISS-2232), so an advisory bump is one edit there and a copy
-# that is not taken fails here rather than drifting into a per-repo floor. A read that fails
-# leaves the diff comparing against nothing, which fails too. ISS-15715
+# that is not taken fails here rather than drifting into a per-repo floor. ISS-15715
+#
+# A READ THAT FAILS IS NOT A DRIFT (ISS-21067). Each template is read into a file and the read is
+# checked before anything is compared: diffed straight off a process substitution, a read that
+# answered nothing is an empty template and the whole copy reads as drift. A read is retried once,
+# and one that fails twice exits 75 -- this box could not measure the copy, which says nothing
+# about the branch.
 #
 # THE TEST HEALTH RUNNER IS OWNED THE SAME WAY (ISS-19887): templates/sbt-test-health holds the
 # lists filter, the rerun and the shell half every sbt repository runs its suite through.
@@ -135,13 +140,24 @@ synced=(
   "sbt-test-health/project/CiTestRerunPlugin.scala project/CiTestRerunPlugin.scala"
   "sbt-test-health/ci/test-health.sh ci/test-health.sh"
 )
+template_bytes=$(mktemp -t ci-template)
 for pair in "${synced[@]}"; do
   read -r template copy <<<"$pair"
-  if ! diff -u <(dev repo cat devops "templates/$template") "$copy"; then
+  read_rc=0
+  dev repo cat devops "templates/$template" >"$template_bytes" ||
+    dev repo cat devops "templates/$template" >"$template_bytes" || read_rc=$?
+  if [ "$read_rc" -ne 0 ]; then
+    echo "ci/build.sh: could not read devops templates/$template (dev repo cat exit $read_rc, twice) -- a read failure, not a drift in $copy; nothing was measured" >&2
+    rm -f "$template_bytes"
+    exit 75
+  fi
+  if ! diff -u "$template_bytes" "$copy"; then
     echo "ci/build.sh: sync it -- dev repo cat devops templates/$template > $copy" >&2
+    rm -f "$template_bytes"
     exit 1
   fi
 done
+rm -f "$template_bytes"
 
 # ci-advisory: scripts/check-format
 scripts/check-format || echo "check-format: could not measure this tree — advisory, nothing fails on it"
