@@ -140,7 +140,7 @@ synced=(
   "sbt-test-health/project/CiTestRerunPlugin.scala project/CiTestRerunPlugin.scala"
   "sbt-test-health/ci/test-health.sh ci/test-health.sh"
 )
-template_bytes=$(mktemp -t ci-template)
+template_bytes=$(mktemp "${TMPDIR:-/tmp}/ci-template.XXXXXX")
 for pair in "${synced[@]}"; do
   read -r template copy <<<"$pair"
   read_rc=0
