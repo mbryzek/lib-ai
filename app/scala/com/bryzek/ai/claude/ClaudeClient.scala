@@ -18,7 +18,12 @@ import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
 import scala.util.Try
 
-case class ClaudeConfig(key: String, anthropicVersion: String, betaHeaders: Seq[String] = Seq.empty) {
+case class ClaudeConfig(
+  key: String,
+  anthropicVersion: String,
+  betaHeaders: Seq[String] = Seq.empty,
+  backoff: ClaudeBackoff = ClaudeBackoff.Default
+) {
 
   /** Authentication and version headers, which every call to the API carries whether it is a message or a batch.
     *
@@ -1093,7 +1098,7 @@ case class ClaudeClient(
     val context = rm.context
     val feature = rm.feature
     ClaudeRetries
-      .withRetries(client.createMessage(request, headers))
+      .withRetries(config.backoff)(client.createMessage(request, headers))
       .map { response =>
         budget.spent(feature, ClaudeResponseMetadata.costOf(request.model, response))
         (rm, response.validNec)

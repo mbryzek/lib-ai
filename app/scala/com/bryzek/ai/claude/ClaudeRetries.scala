@@ -53,11 +53,12 @@ private[claude] object ClaudeRetries {
     * on [[ClaudeStreamingClient.IdleTimeout]] in minutes rather than burning its whole ceiling, so a large request can
     * afford its retries as easily as a small one -- and, being large, has more to lose by not having them.
     */
-  def withRetries[T](attempt: => Future[T])(implicit ec: ExecutionContext): Future[T] = {
+  def withRetries[T](backoff: ClaudeBackoff)(attempt: => Future[T])(implicit ec: ExecutionContext): Future[T] = {
     def loop(n: Int): Future[T] =
       attempt.recoverWith {
         case NonFatal(e) if n < MaxHttpAttempts =>
-          retryDelay(e) match {
+          retryDelay(e, backoff) match {
+            case Some(d) if d.length <= 0 => loop(n + 1)
             case Some(d) => delay(d).flatMap(_ => loop(n + 1))
             case None => Future.failed(e)
           }
@@ -65,38 +66,56 @@ private[claude] object ClaudeRetries {
     loop(1)
   }
 
-  private def retryDelay(e: Throwable): Option[FiniteDuration] = e match {
+  private def retryDelay(e: Throwable, backoff: ClaudeBackoff): Option[FiniteDuration] = e match {
     case r: ClaudeErrorResponseResponse =>
       r.response.status match {
-        case 429 => Some(retryAfter(r.response.header("Retry-After")))
-        case s if s >= 500 => Some(jitter())
+        case 429 => Some(retryAfter(r.response.header("Retry-After"), backoff))
+        case s if s >= 500 => Some(backoff.next())
         case _ => None
       }
     // The streaming transport reports statuses through its own exception rather than a WSResponse (a streamed
     // response has no materialized body to hand back), so it gets the same status-driven decision.
     case s: ClaudeStreamException =>
       s.status match {
-        case 429 => Some(retryAfter(s.retryAfter))
-        case c if c >= 500 => Some(jitter())
+        case 429 => Some(retryAfter(s.retryAfter, backoff))
+        case c if c >= 500 => Some(backoff.next())
         case _ => None
       }
-    case a: ApiException if a.response.status >= 500 => Some(jitter())
+    case a: ApiException if a.response.status >= 500 => Some(backoff.next())
     // AsyncHttpClient surfaces read/request timeouts as j.u.c.TimeoutException and dropped connections as
     // IOException; both are transient transport failures, not API rejections. Known-permanent IOException
     // subtypes (TLS/config, DNS, thread interrupt) fail fast instead of burning retries -- an exclusion
     // list, because the transient drops we do want to retry surface as bare IOException (e.g. AHC's
     // "Remotely closed") with no dedicated subtype to allow-list.
     case _: SSLException | _: UnknownHostException | _: ClosedByInterruptException => None
-    case _: TimeoutException => Some(jitter())
-    case _: IOException => Some(jitter())
+    case _: TimeoutException => Some(backoff.next())
+    case _: IOException => Some(backoff.next())
     case _ => None
   }
 
-  private def retryAfter(header: Option[String]): FiniteDuration =
+  private def retryAfter(header: Option[String], backoff: ClaudeBackoff): FiniteDuration =
     header
       .flatMap(h => Try(h.trim.toLong).toOption)
       .map(s => FiniteDuration(s, TimeUnit.SECONDS))
-      .getOrElse(jitter())
+      .getOrElse(backoff.next())
+}
 
-  private def jitter(): FiniteDuration = FiniteDuration(500L + Random.nextInt(500), MILLISECONDS)
+/** How long to wait before retrying a failure the API did not put a `Retry-After` on: `base` plus a uniformly random
+  * share of `spread`, so a burst of callers that failed together does not retry together.
+  *
+  * A `Retry-After` the API sends is honored as sent whatever this says -- it is the server's instruction, not a guess.
+  */
+case class ClaudeBackoff(base: FiniteDuration, spread: FiniteDuration) {
+  def next(): FiniteDuration =
+    if (spread.toMillis <= 0) base
+    else base + FiniteDuration(Random.nextLong(spread.toMillis), MILLISECONDS)
+}
+
+object ClaudeBackoff {
+
+  /** 500ms to 1s. */
+  val Default: ClaudeBackoff = ClaudeBackoff(FiniteDuration(500, MILLISECONDS), FiniteDuration(500, MILLISECONDS))
+
+  /** Retry at once. For tests, which exercise the retry DECISIONS and gain nothing by waiting between them. */
+  val Immediate: ClaudeBackoff = ClaudeBackoff(FiniteDuration(0, MILLISECONDS), FiniteDuration(0, MILLISECONDS))
 }

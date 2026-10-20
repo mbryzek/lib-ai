@@ -240,7 +240,7 @@ case class ClaudeBatchClient(
     KnownClaudeBatchProcessingStatus.validate(batch.processingStatus).toOption match {
       case Some(KnownClaudeBatchProcessingStatus.Ended) =>
         ClaudeRetries
-          .withRetries(client.fetchBatchResults(batch, defaultHeaders))
+          .withRetries(config.backoff)(client.fetchBatchResults(batch, defaultHeaders))
           .map(parseLines)
           .recover(toError)
       case Some(KnownClaudeBatchProcessingStatus.InProgress | KnownClaudeBatchProcessingStatus.Canceling) | None =>
@@ -286,7 +286,7 @@ case class ClaudeBatchClient(
   private def call[T](
     attempt: => Future[T]
   )(implicit ec: ExecutionContext): Future[ValidatedNec[ClaudeError, T]] =
-    ClaudeRetries.withRetries(attempt).map(_.validNec).recover(toError)
+    ClaudeRetries.withRetries(config.backoff)(attempt).map(_.validNec).recover(toError)
 
   /** A non-2xx body parsed into a [[ClaudeError]]; a malformed body (an HTML error page from a proxy, say) throws
     * inside the generated wrapper, so fall back to the status rather than letting it escape the Validated channel.
