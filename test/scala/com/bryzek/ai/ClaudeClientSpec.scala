@@ -1386,6 +1386,15 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       result.isInvalid mustBe true
       calls.get mustBe 3
     }
+
+    "wait between 500ms and 1s by default, and not at all when told to retry at once" in {
+      ClaudeConfig("test-api-key").backoff mustBe ClaudeBackoff.Default
+      (1 to 200).map(_ => ClaudeBackoff.Default.next().toMillis).foreach { ms =>
+        ms must be >= 500L
+        ms must be < 1000L
+      }
+      ClaudeBackoff.Immediate.next().toMillis mustBe 0L
+    }
   }
 
   /** Which id a failure carries, and whether it reached the API at all.
@@ -1645,6 +1654,9 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
         }
       }
     }
-    ClaudeClient(flaky, ClaudeConfig("test-api-key"), NoopClaudeStore, new UnlimitedAiBudget())
+    // Immediate backoff: these tests count the attempts the retry layer makes, and the real 500ms-1s wait between
+    // them measured nothing while costing the spec most of its runtime (ISS-22500).
+    val config = ClaudeConfig("test-api-key").copy(backoff = ClaudeBackoff.Immediate)
+    ClaudeClient(flaky, config, NoopClaudeStore, new UnlimitedAiBudget())
   }
 }
