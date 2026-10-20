@@ -3,13 +3,15 @@ package com.bryzek.ai.claude
 import com.bryzek.claude.models.{ClaudeModel, ClaudeRequest, ClaudeResponse, ClaudeRole, ClaudeStopReason}
 import com.bryzek.ai.UnlimitedAiBudget
 import helpers.{FutureHelpers, TestAiFeature}
+import org.apache.pekko.actor.ActorSystem
+import org.apache.pekko.stream.Materializer
 import org.apache.pekko.stream.scaladsl.Source
 import org.apache.pekko.util.{ByteString, Timeout}
+import org.scalatest.BeforeAndAfterAll
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
-import org.scalatestplus.play.guice.GuiceOneAppPerSuite
 import play.api.libs.json.{JsObject, JsValue, Json}
-import play.api.libs.ws.WSClient
+import play.api.libs.ws.ahc.AhcWSClient
 import play.api.mvc.{Request, Result, Results}
 import play.api.routing.Router
 import play.api.routing.sird.*
@@ -26,10 +28,22 @@ import scala.concurrent.duration.{FiniteDuration, MILLISECONDS, SECONDS}
   * [[ClaudeStreamSpec]] covers what the events mean; this covers getting them off a socket, and the error shapes that
   * [[ClaudeClient]]'s retry and model-fallback logic depends on.
   */
-class ClaudeStreamingClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuite with FutureHelpers {
+class ClaudeStreamingClientSpec extends AnyWordSpec with Matchers with BeforeAndAfterAll with FutureHelpers {
 
   private implicit val timeout: Timeout = FiniteDuration(30, SECONDS)
-  private implicit lazy val mat: org.apache.pekko.stream.Materializer = app.materializer
+
+  /** A bare WS client rather than a whole Play application: the client under test needs nothing else, and booting a
+    * Guice application per suite costs seconds the tests never use.
+    */
+  private val system: ActorSystem = ActorSystem("ClaudeStreamingClientSpec")
+  private implicit val mat: Materializer = Materializer(system)
+  private val ws: AhcWSClient = AhcWSClient()
+
+  override def afterAll(): Unit = {
+    ws.close()
+    await(system.terminate())(using timeout)
+    super.afterAll()
+  }
 
   private val aiRequest =
     AiRequest(messages = Seq(ClaudeClient.makeClaudeMessage(ClaudeRole.User, "hello")), maxTokens = 64000L)
@@ -71,7 +85,8 @@ class ClaudeStreamingClientSpec extends AnyWordSpec with Matchers with GuiceOneA
     * client actually sent so a test can assert on it.
     */
   private def withServer(
-    handler: Request[JsValue] => Result
+    handler: Request[JsValue] => Result,
+    idleTimeout: FiniteDuration = FiniteDuration(750, MILLISECONDS)
   )(f: (ClaudeStreamingClient, AtomicReference[JsObject]) => Unit): Unit = {
     val sent = new AtomicReference[JsObject](Json.obj())
     Server.withRouterFromComponents(LoopbackConfig) { components =>
@@ -82,18 +97,31 @@ class ClaudeStreamingClientSpec extends AnyWordSpec with Matchers with GuiceOneA
         }
       }: Router.Routes
     } { implicit port =>
-      val ws = app.injector.instanceOf[WSClient]
       f(
         new ClaudeStreamingClient(
           ws,
           baseUrl = s"http://127.0.0.1:${port.value}",
           requestTimeout = FiniteDuration(20, SECONDS),
-          idleTimeout = FiniteDuration(750, MILLISECONDS)
+          idleTimeout = idleTimeout
         ),
         sent
       )
     }
   }
+
+  /** The whole client, with retries that do not wait: the tests below exercise what is retried and what falls back,
+    * and gain nothing from the production backoff of up to a second between attempts.
+    */
+  private def claudeClient(client: ClaudeStreamingClient): ClaudeClient =
+    ClaudeClient(
+      client,
+      ClaudeConfig("test-api-key").copy(backoff = ClaudeBackoff.Immediate),
+      NoopClaudeStore,
+      new UnlimitedAiBudget()
+    )
+
+  /** The idle timeout the two timing tests run under, kept short so they cost well under a second each. */
+  private val ShortIdle: FiniteDuration = FiniteDuration(400, MILLISECONDS)
 
   private def eventStream(body: String): Result =
     Results.Ok.chunked(Source.single(ByteString(body))).as("text/event-stream")
@@ -193,15 +221,15 @@ class ClaudeStreamingClientSpec extends AnyWordSpec with Matchers with GuiceOneA
       // timeout and would have died against any fixed wall-clock ceiling of that size; it survives because it
       // is never silent. Total duration is not a limit on a streaming request -- silence is.
       val paced = Source(CompleteStream.split("(?<=\n\n)").toList.map(ByteString(_)))
-        .throttle(1, FiniteDuration(400, MILLISECONDS))
-      withServer(_ => Results.Ok.chunked(paced).as("text/event-stream")) { (client, _) =>
+        .throttle(1, FiniteDuration(150, MILLISECONDS))
+      withServer(_ => Results.Ok.chunked(paced).as("text/event-stream"), idleTimeout = ShortIdle) { (client, _) =>
         val started = System.currentTimeMillis()
         val response = await(client.createMessage(request))(using timeout)
         val elapsed = System.currentTimeMillis() - started
 
         response.content.flatMap(_.text) mustBe Seq("hello world")
-        // The harness runs a 750ms idle timeout; this took several times that in total and still completed.
-        elapsed must be > 2000L
+        // Seven events 150ms apart under a 400ms idle timeout: twice that in total, and it still completed.
+        elapsed must be > 2 * ShortIdle.toMillis
       }
     }
 
@@ -209,7 +237,7 @@ class ClaudeStreamingClientSpec extends AnyWordSpec with Matchers with GuiceOneA
       // The one timeout that binds on a streaming request. `Source.never` keeps the connection open and
       // sends nothing, which is what a dead peer looks like.
       val stalled = Source.single(ByteString("event: x\n")).concat(Source.never[ByteString])
-      withServer(_ => Results.Ok.chunked(stalled).as("text/event-stream")) { (client, _) =>
+      withServer(_ => Results.Ok.chunked(stalled).as("text/event-stream"), idleTimeout = ShortIdle) { (client, _) =>
         a[TimeoutException] must be thrownBy await(client.createMessage(request))(using timeout)
       }
     }
@@ -220,7 +248,7 @@ class ClaudeStreamingClientSpec extends AnyWordSpec with Matchers with GuiceOneA
     "flow a streamed answer up through ClaudeClient unchanged" in {
       withServer(_ => eventStream(CompleteStream)) { (client, _) =>
         val result = await(
-          ClaudeClient(client, ClaudeConfig("test-api-key"), NoopClaudeStore, new UnlimitedAiBudget())
+          claudeClient(client)
             .chatText(
               aiRequest,
               Seq(ClaudeModel.ClaudeSonnet5),
@@ -239,7 +267,7 @@ class ClaudeStreamingClientSpec extends AnyWordSpec with Matchers with GuiceOneA
         eventStream(if (model.contains("claude-sonnet-5")) overloaded else CompleteStream)
       } { (client, _) =>
         val result = await(
-          ClaudeClient(client, ClaudeConfig("test-api-key"), NoopClaudeStore, new UnlimitedAiBudget())
+          claudeClient(client)
             .chatText(
               aiRequest,
               Seq(ClaudeModel.ClaudeSonnet5, ClaudeModel.ClaudeOpus5),
