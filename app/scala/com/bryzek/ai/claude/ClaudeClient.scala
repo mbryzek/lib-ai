@@ -3,7 +3,7 @@ package com.bryzek.ai.claude
 import cats.data.{NonEmptyChain, ValidatedNec}
 import cats.data.Validated.{Invalid, Valid}
 import cats.implicits.*
-import com.bryzek.ai.{AiBudget, AiFeature}
+import com.bryzek.ai.{AiBudget, AiBudgetRefusal, AiFeature}
 import com.bryzek.claude.response.models.*
 import com.bryzek.claude.response.models.json.*
 import com.bryzek.claude.client.IClient
@@ -331,16 +331,33 @@ object ClaudeResponseMetadata {
 
 /** Persists the full request/response audit. `context` on the request metadata carries the run-stage id so transcripts
   * correlate to the pipeline stage that produced them (rallyd's proven pattern).
+  *
+  * Every request stored through [[storeRequest]] gets exactly one outcome, and every response the API charged for
+  * reaches the store exactly once, so a ledger that sums [[ClaudeResponseMetadata.costUsd]] off this store counts
+  * every charge:
+  *   - [[storeResponseSuccess]] for a response handed back to the caller, and for a `pause_turn` turn the client
+  *     resumed (its content is the paused response itself);
+  *   - [[storeResponseError]] for everything else. `charged` is the response when the API answered and charged for it
+  *     but the client could not use it -- its content failed to parse, or the turn was still paused after the last
+  *     resume -- and `None` when nothing was charged (a transport or API error, a refusal before a retry).
   */
 trait ClaudeStore {
   def storeRequest(request: ClaudeRequestMetadata): Unit
-  def storeResponseError(request: ClaudeRequestMetadata, errors: Seq[ClaudeError]): Unit
+  def storeResponseError(
+    request: ClaudeRequestMetadata,
+    errors: Seq[ClaudeError],
+    charged: Option[ClaudeResponseMetadata[ClaudeResponse]]
+  ): Unit
   def storeResponseSuccess[T](response: ClaudeResponseMetadata[T]): Unit
 }
 
 case object NoopClaudeStore extends ClaudeStore {
   override def storeRequest(request: ClaudeRequestMetadata): Unit = ()
-  override def storeResponseError(request: ClaudeRequestMetadata, errors: Seq[ClaudeError]): Unit = ()
+  override def storeResponseError(
+    request: ClaudeRequestMetadata,
+    errors: Seq[ClaudeError],
+    charged: Option[ClaudeResponseMetadata[ClaudeResponse]]
+  ): Unit = ()
   override def storeResponseSuccess[T](response: ClaudeResponseMetadata[T]): Unit = ()
 }
 
@@ -366,6 +383,15 @@ class ClaudeClientFactoryImpl @Inject() (
 }
 
 object ClaudeClient {
+
+  /** What one request came to: its metadata, the response the API charged for when it answered (whatever then became
+    * of it), and the envelope the caller's parse runs over.
+    */
+  private[claude] final case class Sent(
+    rm: ClaudeRequestMetadata,
+    charged: Option[ClaudeResponse],
+    envelope: ValidatedNec[ClaudeError, ClaudeResponse]
+  )
 
   /** This many consecutive fully-failed tool turns aborts the loop rather than looping into more failures. */
   private val MaxConsecutiveFailedTurns = 3
@@ -611,7 +637,8 @@ final case class ClaudeOutputFormat(
   * before it is sent: `budget` is asked before every request -- each tool-loop turn and each `pause_turn` resume
   * included -- and a feature with nothing left fails the call's `Future` with
   * [[com.bryzek.ai.AiBudgetExceeded]] (or [[com.bryzek.ai.AiBudgetUnavailable]] when today's spend has never been
-  * read). Nothing is sent, stored or retried for a refused call. Each response that comes back is priced
+  * read). Nothing is sent or stored for a call refused before its first attempt; a retry refused after an earlier attempt
+  * failed stores that request's error and fails the `Future` the same way. Each response that comes back is priced
   * ([[ClaudeResponseMetadata.costUsd]]) and its cost handed to [[AiBudget.spent]], so the call that crosses the line
   * completes and the next one is refused.
   */
@@ -1071,7 +1098,8 @@ case class ClaudeClient(
     * a model [[ClaudePricing]] cannot price is journaled and answered with an error without being sent, so nothing is
     * ever spent that cannot be counted. Every response that comes back is priced and handed to [[AiBudget.spent]]
     * whatever happens to it afterwards, a paused turn and a response that then fails to parse included, because the
-    * API charged for it either way.
+    * API charged for it either way -- and reaches the [[ClaudeStore]] for the same reason, so the ledger a cache
+    * refresh reads counts it too (a refresh replaces the process's own running total with the ledger's).
     */
   private def send(
     request: ClaudeRequest,
@@ -1081,37 +1109,50 @@ case class ClaudeClient(
     resumesRemaining: Int = MaxPauseTurnResumes
   )(implicit
     ec: ExecutionContext
-  ): Future[(ClaudeRequestMetadata, ValidatedNec[ClaudeError, ClaudeResponse])] =
+  ): Future[Sent] =
     budget.check(feature) match {
       case Left(refusal) => Future.failed(refusal)
       case Right(_) =>
         val rm = ClaudeRequestMetadata(client, randomId(ClaudeErrorLabels.LocalIdPrefix), request, feature, context)
         store.storeRequest(rm)
         if (ClaudePricing.isPriced(request.model)) sendPriced(rm, headers, resumesRemaining)
-        else Future.successful((rm, unpricedModelError(rm).invalidNec))
+        else Future.successful(Sent(rm, None, unpricedModelError(rm).invalidNec))
     }
 
+  /** The HTTP half of [[send]]. Every retry asks the budget again before it goes out (a 429's wait is long enough for
+    * another call to exhaust the feature); a refusal there is stored as this request's outcome and fails the `Future`
+    * with the typed refusal, exactly as a refusal before the first attempt does.
+    *
+    * A `pause_turn` turn that is resumed is stored here, as its own request's success, because nothing downstream ever
+    * sees it: the caller receives the turn that finally settled, and the paused one's charge would otherwise reach no
+    * store.
+    */
   private def sendPriced(rm: ClaudeRequestMetadata, headers: Seq[(String, String)], resumesRemaining: Int)(implicit
     ec: ExecutionContext
-  ): Future[(ClaudeRequestMetadata, ValidatedNec[ClaudeError, ClaudeResponse])] = {
+  ): Future[Sent] = {
     val request = rm.request
     val context = rm.context
     val feature = rm.feature
     ClaudeRetries
-      .withRetries(config.backoff)(client.createMessage(request, headers))
+      .withRetries(config.backoff, () => budget.check(feature).left.toOption)(client.createMessage(request, headers))
       .map { response =>
         budget.spent(feature, ClaudeResponseMetadata.costOf(request.model, response))
-        (rm, response.validNec)
+        Sent(rm, Some(response), response.validNec)
       }
       .recover {
-        case r: ClaudeErrorResponseResponse => (rm, errorFrom(rm, r).invalidNec)
-        case NonFatal(e) => (rm, rm.error(e.getMessage).invalidNec)
+        case r: ClaudeErrorResponseResponse => Sent(rm, None, errorFrom(rm, r).invalidNec)
+        case NonFatal(e) if !e.isInstanceOf[AiBudgetRefusal] => Sent(rm, None, rm.error(e.getMessage).invalidNec)
+      }
+      .recoverWith { case refusal: AiBudgetRefusal =>
+        store.storeResponseError(rm, Seq(rm.error(s"Refused before a retry: ${refusal.getMessage}")), None)
+        Future.failed(refusal)
       }
       .flatMap {
-        case (_, Valid(paused)) if paused.stopReason == ClaudeStopReason.PauseTurn && resumesRemaining > 0 =>
+        case Sent(_, _, Valid(paused)) if paused.stopReason == ClaudeStopReason.PauseTurn && resumesRemaining > 0 =>
+          store.storeResponseSuccess(ClaudeResponseMetadata(rm, paused, paused))
           send(resume(request, paused), headers, context, feature, resumesRemaining - 1)
-        case (meta, Valid(paused)) if paused.stopReason == ClaudeStopReason.PauseTurn =>
-          Future.successful((meta, pauseTurnExhaustedError(meta).invalidNec))
+        case Sent(meta, charged, Valid(paused)) if paused.stopReason == ClaudeStopReason.PauseTurn =>
+          Future.successful(Sent(meta, charged, pauseTurnExhaustedError(meta).invalidNec))
         case settled => Future.successful(settled)
       }
   }
@@ -1156,9 +1197,9 @@ case class ClaudeClient(
   )(
     parse: (ClaudeRequestMetadata, ClaudeResponse) => ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]
   )(implicit ec: ExecutionContext): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]] = {
-    send(request, headers, context, feature).map { case (rm, envelope) =>
+    send(request, headers, context, feature).map { case Sent(rm, charged, envelope) =>
       val result = envelope.andThen(resp => parse(rm, resp))
-      storeResponse(rm, result)
+      storeResponse(rm, charged, result)
       result
     }
   }
@@ -1195,12 +1236,17 @@ case class ClaudeClient(
     sendAndStore[String](originalRequest, defaultHeaders, context, feature)(textAnswer)
   }
 
+  /** Records `request`'s one outcome. An error carries the `charged` response when the API answered, so a response
+    * that failed to parse still reaches the store with its usage and cost.
+    */
   private def storeResponse[T](
     request: ClaudeRequestMetadata,
+    charged: Option[ClaudeResponse],
     response: ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]
   ): Unit = {
     response match {
-      case Invalid(e) => store.storeResponseError(request, e.toList)
+      case Invalid(e) =>
+        store.storeResponseError(request, e.toList, charged.map(r => ClaudeResponseMetadata(request, r, r)))
       case Valid(r) => store.storeResponseSuccess(r)
     }
   }

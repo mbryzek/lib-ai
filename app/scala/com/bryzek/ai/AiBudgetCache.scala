@@ -29,8 +29,9 @@ trait AiBudgetSource {
   def refresh(feature: AiFeature, day: LocalDate, counts: Seq[AiBudgetCounts]): AiBudgetReading
 
   /** The first refusal of `exceeded.feature` on its day in this process -- the moment the day's over-budget fact is
-    * written, with the spend and the budget as they stood. Every process calls this once per feature per day, so the
-    * write must be idempotent (a unique key on feature and day).
+    * written, with the spend and the budget as they stood. Every process calls this once per feature per day until it
+    * succeeds -- a write that throws is tried again on the next refusal, refresh or [[AiBudgetCache.flush]] after the
+    * cache's failure backoff, on its own day -- so the write must be idempotent (a unique key on feature and day).
     */
   def wentOverBudget(day: LocalDate, exceeded: AiBudgetExceeded): Unit
 }
@@ -60,8 +61,12 @@ class AiBudgetCache(
     var reading: Option[AiBudgetStanding.Known] = None
     var readAt: Instant = Instant.EPOCH
     var failedAt: Option[Instant] = None
-    var refusedDay: Option[LocalDate] = None
     var pending: Map[LocalDate, AiBudgetCounts] = Map.empty
+    // The day's first refusal, held until [[AiBudgetSource.wentOverBudget]] has written it; then the day is recorded
+    // as written, so later refusals that day write nothing.
+    var overBudget: Map[LocalDate, AiBudgetExceeded] = Map.empty
+    var overBudgetWritten: Option[LocalDate] = None
+    var overBudgetFailedAt: Option[Instant] = None
   }
 
   private val entries = new ConcurrentHashMap[String, (AiFeature, Entry)]()
@@ -77,10 +82,16 @@ class AiBudgetCache(
       val fresh = entry.reading.exists(_.day == today) && now.isBefore(entry.readAt.plusMillis(ttl.toMillis))
       val backingOff = entry.failedAt.exists(at => now.isBefore(at.plusMillis(retryAfterFailure.toMillis)))
       if (!fresh && !backingOff) refreshLocked(feature, entry, today, now)
+      writeOverBudgetLocked(entry, now)
       entry.reading.filter(_.day == today).getOrElse(AiBudgetStanding.Unknown)
     }
   }
 
+  /** Adds `costUsd` to the reading of today, so this process's own calls count at once. With no reading yet there is
+    * nothing to add to and nothing is kept: the next [[remaining]] reads the ledger, which a call's
+    * [[com.bryzek.ai.claude.ClaudeStore]] has already written that cost to, so keeping it here too would count it
+    * twice. The running total is only ever a bridge to the next refresh, which replaces it with the ledger's.
+    */
   override def spent(feature: AiFeature, costUsd: BigDecimal): Unit = {
     val entry = entryFor(feature)
     entry.synchronized {
@@ -91,18 +102,12 @@ class AiBudgetCache(
   override def refused(exceeded: AiBudgetExceeded): Unit = {
     val entry = entryFor(exceeded.feature)
     val day = AiBudgetDay.today(clock)
-    val first = entry.synchronized {
+    entry.synchronized {
       count(entry, day, refused = 1, deferred = 0)
-      val isFirst = !entry.refusedDay.contains(day)
-      entry.refusedDay = Some(day)
-      isFirst
-    }
-    if (first) {
-      try source.wentOverBudget(day, exceeded)
-      catch {
-        case NonFatal(e) =>
-          println(s"AiBudgetCache: recording that AI feature[${exceeded.feature.name}] went over budget failed: $e")
+      if (!entry.overBudgetWritten.contains(day) && !entry.overBudget.contains(day)) {
+        entry.overBudget = entry.overBudget.updated(day, exceeded)
       }
+      writeOverBudgetLocked(entry, clock.instant())
     }
   }
 
@@ -111,14 +116,16 @@ class AiBudgetCache(
     entry.synchronized(count(entry, AiBudgetDay.today(clock), refused = 0, deferred = 1))
   }
 
-  /** Refreshes every feature holding counts not yet on the ledger. A refusing loop that stops making calls never asks
+  /** Refreshes every feature holding counts not yet on the ledger, and retries every over-budget fact not yet written. A refusing loop that stops making calls never asks
     * [[remaining]] again, so without this its last counts would wait for the feature's next call; an app runs it on a
     * schedule (every minute is plenty) to bound that wait.
     */
   def flush(): Unit =
     entries.values().asScala.toList.foreach { case (feature, entry) =>
       entry.synchronized {
-        if (entry.pending.nonEmpty) refreshLocked(feature, entry, AiBudgetDay.today(clock), clock.instant())
+        val now = clock.instant()
+        if (entry.pending.nonEmpty) refreshLocked(feature, entry, AiBudgetDay.today(clock), now)
+        writeOverBudgetLocked(entry, now)
       }
     }
 
@@ -134,6 +141,41 @@ class AiBudgetCache(
       day,
       current.copy(callsRefused = current.callsRefused + refused, tasksDeferred = current.tasksDeferred + deferred)
     )
+  }
+
+  /** Over-budget facts not yet written, per day -- for tests and for an app's own diagnostics. */
+  def pendingOverBudget(feature: AiFeature): Seq[LocalDate] = {
+    val entry = entryFor(feature)
+    entry.synchronized(entry.overBudget.keys.toSeq.sorted)
+  }
+
+  /** Called holding `entry`'s lock, so concurrent refusals make one write. Writes each held over-budget fact, oldest day
+    * first, and forgets it only once the write succeeds; a write that throws leaves it, and every later day's, for the
+    * next try after `retryAfterFailure`.
+    */
+  private def writeOverBudgetLocked(entry: Entry, now: Instant): Unit = {
+    val backingOff = entry.overBudgetFailedAt.exists(at => now.isBefore(at.plusMillis(retryAfterFailure.toMillis)))
+    if (entry.overBudget.nonEmpty && !backingOff) {
+      // `forall` stops at the first write that throws, leaving it and every later day for the next try.
+      entry.overBudget.toSeq.sortBy(_._1).forall { case (day, exceeded) =>
+        try {
+          source.wentOverBudget(day, exceeded)
+          entry.overBudget = entry.overBudget - day
+          entry.overBudgetWritten = Some(day)
+          entry.overBudgetFailedAt = None
+          true
+        } catch {
+          case NonFatal(e) =>
+            entry.overBudgetFailedAt = Some(now)
+            println(
+              s"AiBudgetCache: recording that AI feature[${exceeded.feature.name}] went over budget on $day " +
+                s"failed, will retry: $e"
+            )
+            false
+        }
+      }
+      ()
+    }
   }
 
   /** Called holding `entry`'s lock. On success the counts handed over are off the books; on failure they stay for the
