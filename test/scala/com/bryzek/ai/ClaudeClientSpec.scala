@@ -46,6 +46,21 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
   }
   private implicit val timeout: Timeout = FiniteDuration(30, SECONDS)
 
+  "ClaudeBatchClientFactory" should {
+
+    "resolve through Guice and hand back a working sandbox client" in {
+      val fromFactory = app.injector
+        .instanceOf[ClaudeBatchClientFactory]
+        .instance(ClaudeEnvironment.Sandbox, "test-api-key")
+      val item = ClaudeBatchItem(
+        customId = "alpha",
+        request = AiRequest(messages = Seq(ClaudeClient.makeClaudeMessage(ClaudeRole.User, "hello"))),
+        model = ClaudeModel.ClaudeSonnet5
+      )
+      await(fromFactory.submit(Seq(item))).toOption.get.requestCounts.succeeded mustBe 1L
+    }
+  }
+
   "ClaudeClient" should {
     val models = Seq(ClaudeModel.ClaudeSonnet5)
     val request = AiRequest(

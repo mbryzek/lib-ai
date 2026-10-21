@@ -17,13 +17,16 @@ import org.apache.pekko.util.Timeout
 import org.joda.time.DateTime
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
-import org.scalatestplus.play.guice.GuiceOneAppPerSuite
 
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 import scala.concurrent.duration.{FiniteDuration, SECONDS}
 
-class ClaudeBatchClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuite with FutureHelpers {
+/** Runs without a Play application: every test drives [[ClaudeBatchClient]] over an in-process [[TestClaudeClient]],
+  * and booting Guice per suite costs seconds the tests never use. That [[ClaudeBatchClientFactory]] resolves through
+  * Guice is asserted in [[ClaudeClientSpec]], which boots the application anyway.
+  */
+class ClaudeBatchClientSpec extends AnyWordSpec with Matchers with FutureHelpers {
 
   private implicit val timeout: Timeout = FiniteDuration(30, SECONDS)
 
@@ -56,16 +59,6 @@ class ClaudeBatchClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPe
         Future.successful(lines)
     }
     client(transport)
-  }
-
-  "ClaudeBatchClientFactory" should {
-
-    "resolve through Guice and hand back a working sandbox client" in {
-      val fromFactory = app.injector
-        .instanceOf[ClaudeBatchClientFactory]
-        .instance(ClaudeEnvironment.Sandbox, "test-api-key")
-      await(fromFactory.submit(Seq(item("alpha")))).toOption.get.requestCounts.succeeded mustBe 1L
-    }
   }
 
   "submit" should {
