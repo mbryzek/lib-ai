@@ -66,11 +66,26 @@ class ClaudeClientBudgetSpec extends AnyWordSpec with Matchers {
     stopReason = ClaudeStopReason.ToolUse
   )
 
-  private final class Transport(responses: ClaudeResponse*) extends IClient {
+  /** A paused server-tool turn, resumed by the client. Same usage as [[answer]], so it costs [[PerCallUsd]]. */
+  private val pausedTurn: ClaudeResponse = answer().copy(
+    content = Seq(
+      ClaudeClient.textBlock("I searched and found"),
+      ClaudeContentBlock(ClaudeContentType.ServerToolUse)
+        .copy(id = Some("srvtoolu_1"), name = Some("web_search"), input = Some(Json.obj("query" -> "q")))
+    ),
+    stopReason = ClaudeStopReason.PauseTurn
+  )
+
+  /** Answers each call with the next scripted response, or fails it with the next scripted throwable. `onCall` runs
+    * before each answer -- a test uses it to spend the budget while a call is in flight.
+    */
+  private final class Transport(responses: Either[Throwable, ClaudeResponse]*) extends IClient {
     val calls = new AtomicInteger(0)
+    var onCall: () => Unit = () => ()
     override def createMessage(body: ClaudeRequest, requestHeaders: Seq[(String, String)]): Future[ClaudeResponse] = {
       val i = calls.getAndIncrement()
-      Future.successful(responses(math.min(i, responses.size - 1)))
+      onCall()
+      responses(math.min(i, responses.size - 1)).fold(Future.failed, Future.successful)
     }
     private def unused[T]: Future[T] = Future.failed(new UnsupportedOperationException("not part of this test double"))
     override def createClaudeBatch(body: ClaudeBatchForm, requestHeaders: Seq[(String, String)]): Future[ClaudeBatch] =
@@ -83,9 +98,19 @@ class ClaudeClientBudgetSpec extends AnyWordSpec with Matchers {
     val requests: mutable.Buffer[ClaudeRequestMetadata] = mutable.Buffer.empty
     val successes: mutable.Buffer[ClaudeResponseMetadata[?]] = mutable.Buffer.empty
     val errors: mutable.Buffer[Seq[ClaudeError]] = mutable.Buffer.empty
+    val chargedErrors: mutable.Buffer[ClaudeResponseMetadata[ClaudeResponse]] = mutable.Buffer.empty
     override def storeRequest(request: ClaudeRequestMetadata): Unit = synchronized(requests += request)
-    override def storeResponseError(request: ClaudeRequestMetadata, e: Seq[ClaudeError]): Unit =
-      synchronized(errors += e)
+    override def storeResponseError(
+      request: ClaudeRequestMetadata,
+      e: Seq[ClaudeError],
+      charged: Option[ClaudeResponseMetadata[ClaudeResponse]]
+    ): Unit = synchronized {
+      errors += e
+      chargedErrors ++= charged
+    }
+
+    /** Every cost this store was handed: what a ledger summing it would read. */
+    def costs: Seq[BigDecimal] = synchronized((successes.map(_.costUsd) ++ chargedErrors.map(_.costUsd)).toSeq)
     override def storeResponseSuccess[T](response: ClaudeResponseMetadata[T]): Unit = synchronized(
       successes += response
     )
@@ -99,13 +124,16 @@ class ClaudeClientBudgetSpec extends AnyWordSpec with Matchers {
     budget: AiBudgetCache
   )
 
-  private def fixture(budget: BigDecimal, spent: BigDecimal, responses: ClaudeResponse*): Fixture = {
+  private def fixture(budget: BigDecimal, spent: BigDecimal, responses: ClaudeResponse*): Fixture =
+    scripted(budget, spent, (if (responses.isEmpty) Seq(answer()) else responses).map(Right(_))*)
+
+  private def scripted(budget: BigDecimal, spent: BigDecimal, outcomes: Either[Throwable, ClaudeResponse]*): Fixture = {
     val source = new FakeAiBudgetSource(AiBudgetReading(budget, spent))
     val cache = new AiBudgetCache(source, new MutableClock(Noon))
-    val scripted = if (responses.isEmpty) Seq(answer()) else responses
-    val transport = new Transport(scripted*)
+    val transport = new Transport(outcomes*)
     val store = new RecordingStore
-    Fixture(ClaudeClient(transport, ClaudeConfig("test-api-key"), store, cache), transport, store, source, cache)
+    val config = ClaudeConfig("test-api-key").copy(backoff = ClaudeBackoff.Immediate)
+    Fixture(ClaudeClient(transport, config, store, cache), transport, store, source, cache)
   }
 
   private val request = AiRequest(messages = Seq(ClaudeClient.makeClaudeMessage(ClaudeRole.User, "hello")))
@@ -174,6 +202,78 @@ class ClaudeClientBudgetSpec extends AnyWordSpec with Matchers {
       )
       result.left.map(_.getClass) mustBe Left(classOf[AiBudgetExceeded])
       f.transport.calls.get mustBe 1
+    }
+
+    "store a resumed pause_turn turn's charge, not only the turn that settled" in {
+      val f = fixture(budget = BigDecimal(2), spent = BigDecimal(0), pausedTurn, answer())
+      chat(f) match {
+        case Right(Valid(rm)) => rm.content mustBe "an answer"
+        case other => fail(s"expected an answer, got $other")
+      }
+      f.store.requests.size mustBe 2
+      f.store.successes.map(_.response.stopReason) mustBe Seq(ClaudeStopReason.PauseTurn, ClaudeStopReason.EndTurn)
+      f.store.costs mustBe Seq(PerCallUsd, PerCallUsd)
+      spentNow(f) mustBe PerCallUsd * 2
+    }
+
+    "store the charge of a response that failed to parse with its error" in {
+      // No text block: the turn ended and was charged, and there is no answer in it.
+      val textless = answer().copy(content = Seq.empty)
+      val f = fixture(budget = BigDecimal(2), spent = BigDecimal(0), textless)
+      chat(f) match {
+        case Right(Invalid(_)) => ()
+        case other => fail(s"expected an error, got $other")
+      }
+      f.store.successes mustBe empty
+      f.store.errors.size mustBe 1
+      f.store.costs mustBe Seq(PerCallUsd)
+      spentNow(f) mustBe PerCallUsd
+    }
+
+    "store the charge of a turn still paused after the last resume with its error" in {
+      val f = fixture(budget = BigDecimal(2), spent = BigDecimal(0), pausedTurn)
+      chat(f) match {
+        case Right(Invalid(errors)) => errors.head.message must include("after")
+        case other => fail(s"expected an error, got $other")
+      }
+      val attempts = ClaudeClient.MaxPauseTurnResumes + 1
+      f.store.requests.size mustBe attempts
+      f.store.errors.size mustBe 1
+      f.store.costs mustBe Seq.fill(attempts)(PerCallUsd)
+    }
+
+    "store no charge for an attempt that was never answered" in {
+      val f = scripted(budget = BigDecimal(2), spent = BigDecimal(0), Left(new IllegalStateException("boom")))
+      chat(f).isRight mustBe true
+      f.store.errors.size mustBe 1
+      f.store.costs mustBe empty
+    }
+
+    "check the budget again before a retry, and refuse it with the typed refusal" in {
+      val f = scripted(
+        budget = BigDecimal(2),
+        spent = BigDecimal(0),
+        Left(new java.io.IOException("Remotely closed")),
+        Right(answer())
+      )
+      // Another call exhausts the feature while the first attempt is failing.
+      f.transport.onCall = () => if (f.transport.calls.get == 1) f.budget.spent(TestAiFeature, BigDecimal(3))
+      chat(f).left.map(_.getClass) mustBe Left(classOf[AiBudgetExceeded])
+      f.transport.calls.get mustBe 1
+      f.store.requests.size mustBe 1
+      f.store.errors.size mustBe 1
+      f.store.errors.head.head.message must include("Refused before a retry")
+    }
+
+    "retry while the budget allows it" in {
+      val f = scripted(
+        budget = BigDecimal(2),
+        spent = BigDecimal(0),
+        Left(new java.io.IOException("Remotely closed")),
+        Right(answer())
+      )
+      chat(f).map(_.isValid) mustBe Right(true)
+      f.transport.calls.get mustBe 2
     }
 
     "refuse a model it cannot price without sending it" in {

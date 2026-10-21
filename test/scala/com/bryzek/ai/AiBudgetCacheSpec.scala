@@ -18,6 +18,7 @@ final class MutableClock(var now: Instant) extends Clock {
 /** A ledger a test scripts: what each refresh reads, whether it fails, and everything handed to it. */
 final class FakeAiBudgetSource(var reading: AiBudgetReading) extends AiBudgetSource {
   var failing: Boolean = false
+  var overBudgetFailing: Boolean = false
   val refreshes: mutable.Buffer[(LocalDate, Seq[AiBudgetCounts])] = mutable.Buffer.empty
   val overBudget: mutable.Buffer[(LocalDate, AiBudgetExceeded)] = mutable.Buffer.empty
 
@@ -27,7 +28,13 @@ final class FakeAiBudgetSource(var reading: AiBudgetReading) extends AiBudgetSou
     reading
   }
 
-  override def wentOverBudget(day: LocalDate, exceeded: AiBudgetExceeded): Unit = overBudget += ((day, exceeded))
+  val overBudgetAttempts: mutable.Buffer[LocalDate] = mutable.Buffer.empty
+
+  override def wentOverBudget(day: LocalDate, exceeded: AiBudgetExceeded): Unit = {
+    overBudgetAttempts += day
+    if (overBudgetFailing) throw new RuntimeException("ledger unavailable")
+    overBudget += ((day, exceeded))
+  }
 }
 
 class AiBudgetCacheSpec extends AnyWordSpec with Matchers {
@@ -87,6 +94,15 @@ class AiBudgetCacheSpec extends AnyWordSpec with Matchers {
       standing.spentUsd mustBe BigDecimal(4)
       standing.exhausted mustBe true
       source.refreshes.size mustBe 1
+    }
+
+    "count spend from before the first reading through the ledger, once" in {
+      val (_, source, cache) = fixture()
+      // A call's cost reaches its ClaudeStore, and so the ledger, as well as this cache. With no reading to add it
+      // to, the cache keeps nothing, and the first refresh reads it off the ledger.
+      cache.spent(feature, BigDecimal("1.50"))
+      source.reading = AiBudgetReading(BigDecimal(4), BigDecimal("1.50"))
+      known(cache.remaining(feature)).spentUsd mustBe BigDecimal("1.50")
     }
   }
 
@@ -149,6 +165,36 @@ class AiBudgetCacheSpec extends AnyWordSpec with Matchers {
       cache.check(feature).isLeft mustBe true
       source.overBudget.map(_._1) mustBe Seq(Day)
       source.overBudget.head._2.spentUsd mustBe BigDecimal(5)
+    }
+
+    "retry a failed over-budget write until it succeeds, then write it no more" in {
+      val (clock, source, cache) = fixture(spent = BigDecimal(5))
+      source.overBudgetFailing = true
+      cache.check(feature).isLeft mustBe true
+      cache.check(feature).isLeft mustBe true
+      source.overBudgetAttempts.size mustBe 1
+      cache.pendingOverBudget(feature) mustBe Seq(Day)
+
+      source.overBudgetFailing = false
+      clock.advanceSeconds(AiBudgetCache.DefaultRetryAfterFailure.toSeconds)
+      cache.check(feature).isLeft mustBe true
+      source.overBudget.map(_._1) mustBe Seq(Day)
+      cache.pendingOverBudget(feature) mustBe Nil
+
+      cache.check(feature).isLeft mustBe true
+      cache.flush()
+      source.overBudgetAttempts.size mustBe 2
+    }
+
+    "retry a failed over-budget write on flush, on the day it happened" in {
+      val (clock, source, cache) = fixture(spent = BigDecimal(5))
+      source.overBudgetFailing = true
+      cache.check(feature).isLeft mustBe true
+      source.overBudgetFailing = false
+      clock.now = Day.plusDays(1).atTime(0, 0, 30).toInstant(ZoneOffset.UTC)
+      cache.flush()
+      source.overBudget.map(_._1) mustBe Seq(Day)
+      cache.pendingOverBudget(feature) mustBe Nil
     }
 
     "be counted locally and carried to the next refresh, then cleared" in {

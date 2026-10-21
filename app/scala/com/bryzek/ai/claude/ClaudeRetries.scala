@@ -52,14 +52,24 @@ private[claude] object ClaudeRetries {
     * envelope to have any chance of finishing. Streaming makes that trade backwards: a failing streaming attempt fails
     * on [[ClaudeStreamingClient.IdleTimeout]] in minutes rather than burning its whole ceiling, so a large request can
     * afford its retries as easily as a small one -- and, being large, has more to lose by not having them.
+    *
+    * `beforeRetry` is asked immediately before every attempt after the first, once its delay has passed; a `Some`
+    * fails the call with that throwable instead of making the attempt. [[ClaudeClient]] passes its budget check, so a
+    * retry waiting out a 429 is not sent for a feature another call exhausted during the wait.
     */
-  def withRetries[T](backoff: ClaudeBackoff)(attempt: => Future[T])(implicit ec: ExecutionContext): Future[T] = {
+  def withRetries[T](backoff: ClaudeBackoff, beforeRetry: () => Option[Throwable] = () => None)(
+    attempt: => Future[T]
+  )(implicit ec: ExecutionContext): Future[T] = {
+    def retry(n: Int): Future[T] = beforeRetry() match {
+      case Some(stop) => Future.failed(stop)
+      case None => loop(n)
+    }
     def loop(n: Int): Future[T] =
       attempt.recoverWith {
         case NonFatal(e) if n < MaxHttpAttempts =>
           retryDelay(e, backoff) match {
-            case Some(d) if d.length <= 0 => loop(n + 1)
-            case Some(d) => delay(d).flatMap(_ => loop(n + 1))
+            case Some(d) if d.length <= 0 => retry(n + 1)
+            case Some(d) => delay(d).flatMap(_ => retry(n + 1))
             case None => Future.failed(e)
           }
       }
