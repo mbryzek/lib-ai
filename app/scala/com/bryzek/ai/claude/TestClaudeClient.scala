@@ -9,7 +9,7 @@ import com.bryzek.claude.client.IClient
 import com.bryzek.claude.models.*
 import com.bryzek.claude.models.json.*
 import org.joda.time.DateTime
-import play.api.libs.json.{JsValue, Json}
+import play.api.libs.json.{JsObject, JsValue, Json}
 
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
@@ -113,12 +113,42 @@ class TestClaudeClient extends IClient with ClaudeBatchResults with SimulatedCla
       val responseText = getHeader(requestHeaders, TestClaudeClient.OutputFormatNameHeader) match {
         case None =>
           "This is a test plain text response."
+        case Some(ClaudeQuestions.FormatName) =>
+          Json.prettyPrint(questionAnswers(body))
         case Some(name) =>
           val format = expectValid { validateOutputFormatByName(name) }
           Json.prettyPrint(postClaudeRequest(body, format, requestHeaders))
       }
       response(Seq(ClaudeClient.textBlock(responseText)), ClaudeStopReason.EndTurn)
     }
+  }
+
+  // --- Questions ---------------------------------------------------------------------------------------------------
+  //
+  // A question call ([[ClaudeQuestions]]) is answered from its own schema, so a feature tests against canned answers
+  // without registering a format. A question with a canned answer gets it; any other gets the first of its allowed
+  // answers in alphabetical order (so "no" for a yes/no), at high confidence. A canned answer is returned as given, even
+  // one the question does not allow -- that is how a feature's test drives its malformed-answer path.
+
+  private val cannedAnswers = new ConcurrentHashMap[String, (String, Confidence)]()
+
+  /** Every later question call answers the question keyed `questionKey` with `value` at `confidence`. */
+  def answer(questionKey: String, value: String, confidence: Confidence = Confidence.High): Unit = {
+    val _ = cannedAnswers.put(questionKey, (value, confidence))
+  }
+
+  /** Forgets every canned answer. */
+  def clearAnswers(): Unit = cannedAnswers.clear()
+
+  private def questionAnswers(body: ClaudeRequest): JsObject = {
+    val questions = body.outputConfig
+      .flatMap(_.format)
+      .flatMap(f => ClaudeQuestions.questionsIn(f.schema))
+      .getOrElse(sys.error("A question call must carry a question schema in output_config.format"))
+    JsObject(questions.map { case (key, allowed) =>
+      val (value, confidence) = Option(cannedAnswers.get(key)).getOrElse((allowed.sorted.head, Confidence.High))
+      key -> Json.obj("answer" -> value, "confidence" -> confidence.wireValue)
+    })
   }
 
   // --- Message Batches -------------------------------------------------------------------------------------------
@@ -209,6 +239,8 @@ class TestClaudeClient extends IClient with ClaudeBatchResults with SimulatedCla
     )
     val responseText = body.outputConfig.flatMap(_.format).map(_.schema) match {
       case None => "This is a test plain text response."
+      case Some(schema) if ClaudeQuestions.questionsIn(schema).isDefined =>
+        Json.prettyPrint(questionAnswers(body))
       case Some(schema) =>
         val format = ClaudeOutputFormats.all
           .find(_.toApi.schema == schema)
