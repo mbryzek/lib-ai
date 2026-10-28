@@ -934,10 +934,16 @@ package object json {
 
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeApiOutputFormat: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeApiOutputFormat] = {
-    for {
-      `type` <- (JsPath \ "type").readWithDefault[com.bryzek.claude.models.ClaudeOutputFormatType](com.bryzek.claude.models.ClaudeOutputFormatType.JsonSchema)
-      schema <- (JsPath \ "schema").read[_root_.play.api.libs.json.JsObject]
-    } yield com.bryzek.claude.models.ClaudeApiOutputFormat(`type`, schema)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "type").readWithDefault[com.bryzek.claude.models.ClaudeOutputFormatType](com.bryzek.claude.models.ClaudeOutputFormatType.JsonSchema)(using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeOutputFormatType).reads(js)
+      val r1 = (play.api.libs.json.JsPath \ "schema").read[_root_.play.api.libs.json.JsObject](using play.api.libs.json.Reads.JsObjectReads).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0, r1).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeApiOutputFormat(r0.get, r1.get))
+      }
+    }
   }
 
 
@@ -947,26 +953,34 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsClaudeApiOutputFormat(obj: com.bryzek.claude.models.ClaudeApiOutputFormat): play.api.libs.json.JsObject = {
-    play.api.libs.json.Json.obj(
-      "type" -> play.api.libs.json.JsString(obj.`type`.toString),
-      "schema" -> obj.schema
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("type", play.api.libs.json.JsString(obj.`type`.toString)),
+        ("schema", obj.schema)
+      )
     )
   }
 
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeBatch: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeBatch] = {
-    for {
-      id <- (JsPath \ "id").read[String]
-      `type` <- (JsPath \ "type").readWithDefault[String]("message_batch")
-      processingStatus <- (JsPath \ "processing_status").read[com.bryzek.claude.models.ClaudeBatchProcessingStatus]
-      requestCounts <- (JsPath \ "request_counts").read[com.bryzek.claude.models.ClaudeBatchRequestCounts]
-      createdAt <- (JsPath \ "created_at").read[_root_.org.joda.time.DateTime]
-      expiresAt <- (JsPath \ "expires_at").read[_root_.org.joda.time.DateTime]
-      endedAt <- (JsPath \ "ended_at").readNullable[_root_.org.joda.time.DateTime]
-      archivedAt <- (JsPath \ "archived_at").readNullable[_root_.org.joda.time.DateTime]
-      cancelInitiatedAt <- (JsPath \ "cancel_initiated_at").readNullable[_root_.org.joda.time.DateTime]
-      resultsUrl <- (JsPath \ "results_url").readNullable[String]
-    } yield com.bryzek.claude.models.ClaudeBatch(id, `type`, processingStatus, requestCounts, createdAt, expiresAt, endedAt, archivedAt, cancelInitiatedAt, resultsUrl)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "id").read[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r1 = (play.api.libs.json.JsPath \ "type").readWithDefault[String]("message_batch")(using play.api.libs.json.Reads.StringReads).reads(js)
+      val r2 = (play.api.libs.json.JsPath \ "processing_status").read[com.bryzek.claude.models.ClaudeBatchProcessingStatus](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeBatchProcessingStatus).reads(js)
+      val r3 = (play.api.libs.json.JsPath \ "request_counts").read[com.bryzek.claude.models.ClaudeBatchRequestCounts](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeBatchRequestCounts).reads(js)
+      val r4 = (play.api.libs.json.JsPath \ "created_at").read[_root_.org.joda.time.DateTime](using _root_.com.bryzek.claude.models.json.jsonReadsJodaDateTime).reads(js)
+      val r5 = (play.api.libs.json.JsPath \ "expires_at").read[_root_.org.joda.time.DateTime](using _root_.com.bryzek.claude.models.json.jsonReadsJodaDateTime).reads(js)
+      val r6 = (play.api.libs.json.JsPath \ "ended_at").readNullable[_root_.org.joda.time.DateTime](using _root_.com.bryzek.claude.models.json.jsonReadsJodaDateTime).reads(js)
+      val r7 = (play.api.libs.json.JsPath \ "archived_at").readNullable[_root_.org.joda.time.DateTime](using _root_.com.bryzek.claude.models.json.jsonReadsJodaDateTime).reads(js)
+      val r8 = (play.api.libs.json.JsPath \ "cancel_initiated_at").readNullable[_root_.org.joda.time.DateTime](using _root_.com.bryzek.claude.models.json.jsonReadsJodaDateTime).reads(js)
+      val r9 = (play.api.libs.json.JsPath \ "results_url").readNullable[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0, r1, r2, r3, r4, r5, r6, r7, r8, r9).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeBatch(r0.get, r1.get, r2.get, r3.get, r4.get, r5.get, r6.get, r7.get, r8.get, r9.get))
+      }
+    }
   }
 
 
@@ -976,25 +990,33 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsClaudeBatch(obj: com.bryzek.claude.models.ClaudeBatch): play.api.libs.json.JsObject = {
-    play.api.libs.json.Json.obj(
-      "id" -> play.api.libs.json.JsString(obj.id),
-      "type" -> play.api.libs.json.JsString(obj.`type`),
-      "processing_status" -> play.api.libs.json.JsString(obj.processingStatus.toString),
-      "request_counts" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeBatchRequestCounts(obj.requestCounts),
-      "created_at" -> play.api.libs.json.JsString(_root_.org.joda.time.format.ISODateTimeFormat.dateTime.print(obj.createdAt)),
-      "expires_at" -> play.api.libs.json.JsString(_root_.org.joda.time.format.ISODateTimeFormat.dateTime.print(obj.expiresAt))
-    ) ++
-      obj.endedAt.map { x => play.api.libs.json.Json.obj("ended_at" -> play.api.libs.json.JsString(_root_.org.joda.time.format.ISODateTimeFormat.dateTime.print(x))) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.archivedAt.map { x => play.api.libs.json.Json.obj("archived_at" -> play.api.libs.json.JsString(_root_.org.joda.time.format.ISODateTimeFormat.dateTime.print(x))) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.cancelInitiatedAt.map { x => play.api.libs.json.Json.obj("cancel_initiated_at" -> play.api.libs.json.JsString(_root_.org.joda.time.format.ISODateTimeFormat.dateTime.print(x))) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.resultsUrl.map { x => play.api.libs.json.Json.obj("results_url" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("id", play.api.libs.json.JsString(obj.id)),
+        ("type", play.api.libs.json.JsString(obj.`type`)),
+        ("processing_status", play.api.libs.json.JsString(obj.processingStatus.toString)),
+        ("request_counts", com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeBatchRequestCounts(obj.requestCounts)),
+        ("created_at", play.api.libs.json.JsString(_root_.org.joda.time.format.ISODateTimeFormat.dateTime.print(obj.createdAt))),
+        ("expires_at", play.api.libs.json.JsString(_root_.org.joda.time.format.ISODateTimeFormat.dateTime.print(obj.expiresAt)))
+      ) ++
+        obj.endedAt.map { x => ("ended_at", play.api.libs.json.JsString(_root_.org.joda.time.format.ISODateTimeFormat.dateTime.print(x))) } ++
+        obj.archivedAt.map { x => ("archived_at", play.api.libs.json.JsString(_root_.org.joda.time.format.ISODateTimeFormat.dateTime.print(x))) } ++
+        obj.cancelInitiatedAt.map { x => ("cancel_initiated_at", play.api.libs.json.JsString(_root_.org.joda.time.format.ISODateTimeFormat.dateTime.print(x))) } ++
+        obj.resultsUrl.map { x => ("results_url", play.api.libs.json.JsString(x)) }
+    )
   }
 
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeBatchForm: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeBatchForm] = {
-    for {
-      requests <- (JsPath \ "requests").read[Seq[com.bryzek.claude.models.ClaudeBatchRequestItem]]
-    } yield com.bryzek.claude.models.ClaudeBatchForm(requests)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "requests").read[Seq[com.bryzek.claude.models.ClaudeBatchRequestItem]](using play.api.libs.json.Reads.seq(using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeBatchRequestItem)).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeBatchForm(r0.get))
+      }
+    }
   }
 
 
@@ -1004,20 +1026,28 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsClaudeBatchForm(obj: com.bryzek.claude.models.ClaudeBatchForm): play.api.libs.json.JsObject = {
-    play.api.libs.json.Json.obj(
-      "requests" -> play.api.libs.json.Json.toJson(obj.requests)
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("requests", play.api.libs.json.JsArray(obj.requests.map { e0 => com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeBatchRequestItem(e0) }))
+      )
     )
   }
 
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeBatchRequestCounts: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeBatchRequestCounts] = {
-    for {
-      processing <- (JsPath \ "processing").read[Long]
-      succeeded <- (JsPath \ "succeeded").read[Long]
-      errored <- (JsPath \ "errored").read[Long]
-      canceled <- (JsPath \ "canceled").read[Long]
-      expired <- (JsPath \ "expired").read[Long]
-    } yield com.bryzek.claude.models.ClaudeBatchRequestCounts(processing, succeeded, errored, canceled, expired)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "processing").read[Long](using play.api.libs.json.Reads.LongReads).reads(js)
+      val r1 = (play.api.libs.json.JsPath \ "succeeded").read[Long](using play.api.libs.json.Reads.LongReads).reads(js)
+      val r2 = (play.api.libs.json.JsPath \ "errored").read[Long](using play.api.libs.json.Reads.LongReads).reads(js)
+      val r3 = (play.api.libs.json.JsPath \ "canceled").read[Long](using play.api.libs.json.Reads.LongReads).reads(js)
+      val r4 = (play.api.libs.json.JsPath \ "expired").read[Long](using play.api.libs.json.Reads.LongReads).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0, r1, r2, r3, r4).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeBatchRequestCounts(r0.get, r1.get, r2.get, r3.get, r4.get))
+      }
+    }
   }
 
 
@@ -1027,21 +1057,29 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsClaudeBatchRequestCounts(obj: com.bryzek.claude.models.ClaudeBatchRequestCounts): play.api.libs.json.JsObject = {
-    play.api.libs.json.Json.obj(
-      "processing" -> play.api.libs.json.JsNumber(obj.processing),
-      "succeeded" -> play.api.libs.json.JsNumber(obj.succeeded),
-      "errored" -> play.api.libs.json.JsNumber(obj.errored),
-      "canceled" -> play.api.libs.json.JsNumber(obj.canceled),
-      "expired" -> play.api.libs.json.JsNumber(obj.expired)
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("processing", play.api.libs.json.JsNumber(_root_.scala.math.BigDecimal(obj.processing))),
+        ("succeeded", play.api.libs.json.JsNumber(_root_.scala.math.BigDecimal(obj.succeeded))),
+        ("errored", play.api.libs.json.JsNumber(_root_.scala.math.BigDecimal(obj.errored))),
+        ("canceled", play.api.libs.json.JsNumber(_root_.scala.math.BigDecimal(obj.canceled))),
+        ("expired", play.api.libs.json.JsNumber(_root_.scala.math.BigDecimal(obj.expired)))
+      )
     )
   }
 
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeBatchRequestItem: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeBatchRequestItem] = {
-    for {
-      customId <- (JsPath \ "custom_id").read[String]
-      params <- (JsPath \ "params").read[com.bryzek.claude.models.ClaudeRequest]
-    } yield com.bryzek.claude.models.ClaudeBatchRequestItem(customId, params)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "custom_id").read[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r1 = (play.api.libs.json.JsPath \ "params").read[com.bryzek.claude.models.ClaudeRequest](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeRequest).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0, r1).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeBatchRequestItem(r0.get, r1.get))
+      }
+    }
   }
 
 
@@ -1051,18 +1089,26 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsClaudeBatchRequestItem(obj: com.bryzek.claude.models.ClaudeBatchRequestItem): play.api.libs.json.JsObject = {
-    play.api.libs.json.Json.obj(
-      "custom_id" -> play.api.libs.json.JsString(obj.customId),
-      "params" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeRequest(obj.params)
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("custom_id", play.api.libs.json.JsString(obj.customId)),
+        ("params", com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeRequest(obj.params))
+      )
     )
   }
 
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeBatchResult: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeBatchResult] = {
-    for {
-      customId <- (JsPath \ "custom_id").read[String]
-      result <- (JsPath \ "result").read[com.bryzek.claude.models.ClaudeBatchResultDetail]
-    } yield com.bryzek.claude.models.ClaudeBatchResult(customId, result)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "custom_id").read[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r1 = (play.api.libs.json.JsPath \ "result").read[com.bryzek.claude.models.ClaudeBatchResultDetail](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeBatchResultDetail).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0, r1).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeBatchResult(r0.get, r1.get))
+      }
+    }
   }
 
 
@@ -1072,19 +1118,27 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsClaudeBatchResult(obj: com.bryzek.claude.models.ClaudeBatchResult): play.api.libs.json.JsObject = {
-    play.api.libs.json.Json.obj(
-      "custom_id" -> play.api.libs.json.JsString(obj.customId),
-      "result" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeBatchResultDetail(obj.result)
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("custom_id", play.api.libs.json.JsString(obj.customId)),
+        ("result", com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeBatchResultDetail(obj.result))
+      )
     )
   }
 
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeBatchResultDetail: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeBatchResultDetail] = {
-    for {
-      `type` <- (JsPath \ "type").read[com.bryzek.claude.models.ClaudeBatchResultType]
-      message <- (JsPath \ "message").readNullable[com.bryzek.claude.models.ClaudeResponse]
-      error <- (JsPath \ "error").readNullable[com.bryzek.claude.models.ClaudeErrorResponse]
-    } yield com.bryzek.claude.models.ClaudeBatchResultDetail(`type`, message, error)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "type").read[com.bryzek.claude.models.ClaudeBatchResultType](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeBatchResultType).reads(js)
+      val r1 = (play.api.libs.json.JsPath \ "message").readNullable[com.bryzek.claude.models.ClaudeResponse](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeResponse).reads(js)
+      val r2 = (play.api.libs.json.JsPath \ "error").readNullable[com.bryzek.claude.models.ClaudeErrorResponse](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeErrorResponse).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0, r1, r2).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeBatchResultDetail(r0.get, r1.get, r2.get))
+      }
+    }
   }
 
 
@@ -1094,19 +1148,27 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsClaudeBatchResultDetail(obj: com.bryzek.claude.models.ClaudeBatchResultDetail): play.api.libs.json.JsObject = {
-    play.api.libs.json.Json.obj(
-      "type" -> play.api.libs.json.JsString(obj.`type`.toString)
-    ) ++
-      obj.message.map { x => play.api.libs.json.Json.obj("message" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeResponse(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.error.map { x => play.api.libs.json.Json.obj("error" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeErrorResponse(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("type", play.api.libs.json.JsString(obj.`type`.toString))
+      ) ++
+        obj.message.map { x => ("message", com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeResponse(x)) } ++
+        obj.error.map { x => ("error", com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeErrorResponse(x)) }
+    )
   }
 
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeCacheControl: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeCacheControl] = {
-    for {
-      `type` <- (JsPath \ "type").readWithDefault[com.bryzek.claude.models.ClaudeCacheType](com.bryzek.claude.models.ClaudeCacheType.Ephemeral)
-      ttl <- (JsPath \ "ttl").readNullable[String]
-    } yield com.bryzek.claude.models.ClaudeCacheControl(`type`, ttl)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "type").readWithDefault[com.bryzek.claude.models.ClaudeCacheType](com.bryzek.claude.models.ClaudeCacheType.Ephemeral)(using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeCacheType).reads(js)
+      val r1 = (play.api.libs.json.JsPath \ "ttl").readNullable[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0, r1).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeCacheControl(r0.get, r1.get))
+      }
+    }
   }
 
 
@@ -1116,18 +1178,26 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsClaudeCacheControl(obj: com.bryzek.claude.models.ClaudeCacheControl): play.api.libs.json.JsObject = {
-    play.api.libs.json.Json.obj(
-      "type" -> play.api.libs.json.JsString(obj.`type`.toString)
-    ) ++
-      obj.ttl.map { x => play.api.libs.json.Json.obj("ttl" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("type", play.api.libs.json.JsString(obj.`type`.toString))
+      ) ++
+        obj.ttl.map { x => ("ttl", play.api.libs.json.JsString(x)) }
+    )
   }
 
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeCacheCreation: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeCacheCreation] = {
-    for {
-      ephemeral5mInputTokens <- (JsPath \ "ephemeral_5m_input_tokens").readWithDefault[Long](0L)
-      ephemeral1hInputTokens <- (JsPath \ "ephemeral_1h_input_tokens").readWithDefault[Long](0L)
-    } yield com.bryzek.claude.models.ClaudeCacheCreation(ephemeral5mInputTokens, ephemeral1hInputTokens)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "ephemeral_5m_input_tokens").readWithDefault[Long](0L)(using play.api.libs.json.Reads.LongReads).reads(js)
+      val r1 = (play.api.libs.json.JsPath \ "ephemeral_1h_input_tokens").readWithDefault[Long](0L)(using play.api.libs.json.Reads.LongReads).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0, r1).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeCacheCreation(r0.get, r1.get))
+      }
+    }
   }
 
 
@@ -1137,17 +1207,25 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsClaudeCacheCreation(obj: com.bryzek.claude.models.ClaudeCacheCreation): play.api.libs.json.JsObject = {
-    play.api.libs.json.Json.obj(
-      "ephemeral_5m_input_tokens" -> play.api.libs.json.JsNumber(obj.ephemeral5mInputTokens),
-      "ephemeral_1h_input_tokens" -> play.api.libs.json.JsNumber(obj.ephemeral1hInputTokens)
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("ephemeral_5m_input_tokens", play.api.libs.json.JsNumber(_root_.scala.math.BigDecimal(obj.ephemeral5mInputTokens))),
+        ("ephemeral_1h_input_tokens", play.api.libs.json.JsNumber(_root_.scala.math.BigDecimal(obj.ephemeral1hInputTokens)))
+      )
     )
   }
 
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeCitationsConfig: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeCitationsConfig] = {
-    for {
-      enabled <- (JsPath \ "enabled").read[Boolean]
-    } yield com.bryzek.claude.models.ClaudeCitationsConfig(enabled)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "enabled").read[Boolean](using play.api.libs.json.Reads.BooleanReads).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeCitationsConfig(r0.get))
+      }
+    }
   }
 
 
@@ -1157,28 +1235,36 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsClaudeCitationsConfig(obj: com.bryzek.claude.models.ClaudeCitationsConfig): play.api.libs.json.JsObject = {
-    play.api.libs.json.Json.obj(
-      "enabled" -> play.api.libs.json.JsBoolean(obj.enabled)
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("enabled", play.api.libs.json.JsBoolean(obj.enabled))
+      )
     )
   }
 
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeContentBlock: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeContentBlock] = {
-    for {
-      `type` <- (JsPath \ "type").read[com.bryzek.claude.models.ClaudeContentType]
-      text <- (JsPath \ "text").readNullable[String]
-      id <- (JsPath \ "id").readNullable[String]
-      name <- (JsPath \ "name").readNullable[String]
-      input <- (JsPath \ "input").readNullable[_root_.play.api.libs.json.JsObject]
-      toolUseId <- (JsPath \ "tool_use_id").readNullable[String]
-      content <- (JsPath \ "content").readNullable[_root_.play.api.libs.json.JsValue]
-      isError <- (JsPath \ "is_error").readNullable[Boolean]
-      thinking <- (JsPath \ "thinking").readNullable[String]
-      signature <- (JsPath \ "signature").readNullable[String]
-      data <- (JsPath \ "data").readNullable[String]
-      source <- (JsPath \ "source").readNullable[com.bryzek.claude.models.ClaudeSource]
-      cacheControl <- (JsPath \ "cache_control").readNullable[com.bryzek.claude.models.ClaudeCacheControl]
-    } yield com.bryzek.claude.models.ClaudeContentBlock(`type`, text, id, name, input, toolUseId, content, isError, thinking, signature, data, source, cacheControl)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "type").read[com.bryzek.claude.models.ClaudeContentType](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeContentType).reads(js)
+      val r1 = (play.api.libs.json.JsPath \ "text").readNullable[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r2 = (play.api.libs.json.JsPath \ "id").readNullable[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r3 = (play.api.libs.json.JsPath \ "name").readNullable[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r4 = (play.api.libs.json.JsPath \ "input").readNullable[_root_.play.api.libs.json.JsObject](using play.api.libs.json.Reads.JsObjectReads).reads(js)
+      val r5 = (play.api.libs.json.JsPath \ "tool_use_id").readNullable[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r6 = (play.api.libs.json.JsPath \ "content").readNullable[_root_.play.api.libs.json.JsValue](using play.api.libs.json.Reads.JsValueReads).reads(js)
+      val r7 = (play.api.libs.json.JsPath \ "is_error").readNullable[Boolean](using play.api.libs.json.Reads.BooleanReads).reads(js)
+      val r8 = (play.api.libs.json.JsPath \ "thinking").readNullable[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r9 = (play.api.libs.json.JsPath \ "signature").readNullable[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r10 = (play.api.libs.json.JsPath \ "data").readNullable[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r11 = (play.api.libs.json.JsPath \ "source").readNullable[com.bryzek.claude.models.ClaudeSource](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeSource).reads(js)
+      val r12 = (play.api.libs.json.JsPath \ "cache_control").readNullable[com.bryzek.claude.models.ClaudeCacheControl](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeCacheControl).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeContentBlock(r0.get, r1.get, r2.get, r3.get, r4.get, r5.get, r6.get, r7.get, r8.get, r9.get, r10.get, r11.get, r12.get))
+      }
+    }
   }
 
 
@@ -1188,29 +1274,37 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsClaudeContentBlock(obj: com.bryzek.claude.models.ClaudeContentBlock): play.api.libs.json.JsObject = {
-    play.api.libs.json.Json.obj(
-      "type" -> play.api.libs.json.JsString(obj.`type`.toString)
-    ) ++
-      obj.text.map { x => play.api.libs.json.Json.obj("text" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.id.map { x => play.api.libs.json.Json.obj("id" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.name.map { x => play.api.libs.json.Json.obj("name" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.input.map { x => play.api.libs.json.Json.obj("input" -> x) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.toolUseId.map { x => play.api.libs.json.Json.obj("tool_use_id" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.content.map { x => play.api.libs.json.Json.obj("content" -> x) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.isError.map { x => play.api.libs.json.Json.obj("is_error" -> play.api.libs.json.JsBoolean(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.thinking.map { x => play.api.libs.json.Json.obj("thinking" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.signature.map { x => play.api.libs.json.Json.obj("signature" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.data.map { x => play.api.libs.json.Json.obj("data" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.source.map { x => play.api.libs.json.Json.obj("source" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeSource(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.cacheControl.map { x => play.api.libs.json.Json.obj("cache_control" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeCacheControl(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("type", play.api.libs.json.JsString(obj.`type`.toString))
+      ) ++
+        obj.text.map { x => ("text", play.api.libs.json.JsString(x)) } ++
+        obj.id.map { x => ("id", play.api.libs.json.JsString(x)) } ++
+        obj.name.map { x => ("name", play.api.libs.json.JsString(x)) } ++
+        obj.input.map { x => ("input", x) } ++
+        obj.toolUseId.map { x => ("tool_use_id", play.api.libs.json.JsString(x)) } ++
+        obj.content.map { x => ("content", x) } ++
+        obj.isError.map { x => ("is_error", play.api.libs.json.JsBoolean(x)) } ++
+        obj.thinking.map { x => ("thinking", play.api.libs.json.JsString(x)) } ++
+        obj.signature.map { x => ("signature", play.api.libs.json.JsString(x)) } ++
+        obj.data.map { x => ("data", play.api.libs.json.JsString(x)) } ++
+        obj.source.map { x => ("source", com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeSource(x)) } ++
+        obj.cacheControl.map { x => ("cache_control", com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeCacheControl(x)) }
+    )
   }
 
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeError: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeError] = {
-    for {
-      message <- (JsPath \ "message").read[String]
-      raw <- (JsPath \ "raw").readNullable[String]
-    } yield com.bryzek.claude.models.ClaudeError(message, raw)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "message").read[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r1 = (play.api.libs.json.JsPath \ "raw").readNullable[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0, r1).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeError(r0.get, r1.get))
+      }
+    }
   }
 
 
@@ -1220,17 +1314,25 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsClaudeError(obj: com.bryzek.claude.models.ClaudeError): play.api.libs.json.JsObject = {
-    play.api.libs.json.Json.obj(
-      "message" -> play.api.libs.json.JsString(obj.message)
-    ) ++
-      obj.raw.map { x => play.api.libs.json.Json.obj("raw" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("message", play.api.libs.json.JsString(obj.message))
+      ) ++
+        obj.raw.map { x => ("raw", play.api.libs.json.JsString(x)) }
+    )
   }
 
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeErrorResponse: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeErrorResponse] = {
-    for {
-      error <- (JsPath \ "error").read[com.bryzek.claude.models.ClaudeError]
-    } yield com.bryzek.claude.models.ClaudeErrorResponse(error)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "error").read[com.bryzek.claude.models.ClaudeError](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeError).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeErrorResponse(r0.get))
+      }
+    }
   }
 
 
@@ -1240,17 +1342,25 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsClaudeErrorResponse(obj: com.bryzek.claude.models.ClaudeErrorResponse): play.api.libs.json.JsObject = {
-    play.api.libs.json.Json.obj(
-      "error" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeError(obj.error)
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("error", com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeError(obj.error))
+      )
     )
   }
 
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeMessage: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeMessage] = {
-    for {
-      role <- (JsPath \ "role").read[com.bryzek.claude.models.ClaudeRole]
-      content <- (JsPath \ "content").read[Seq[com.bryzek.claude.models.ClaudeContentBlock]]
-    } yield com.bryzek.claude.models.ClaudeMessage(role, content)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "role").read[com.bryzek.claude.models.ClaudeRole](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeRole).reads(js)
+      val r1 = (play.api.libs.json.JsPath \ "content").read[Seq[com.bryzek.claude.models.ClaudeContentBlock]](using play.api.libs.json.Reads.seq(using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeContentBlock)).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0, r1).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeMessage(r0.get, r1.get))
+      }
+    }
   }
 
 
@@ -1260,19 +1370,27 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsClaudeMessage(obj: com.bryzek.claude.models.ClaudeMessage): play.api.libs.json.JsObject = {
-    play.api.libs.json.Json.obj(
-      "role" -> play.api.libs.json.JsString(obj.role.toString),
-      "content" -> play.api.libs.json.Json.toJson(obj.content)
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("role", play.api.libs.json.JsString(obj.role.toString)),
+        ("content", play.api.libs.json.JsArray(obj.content.map { e0 => com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeContentBlock(e0) }))
+      )
     )
   }
 
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeOutputConfig: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeOutputConfig] = {
-    for {
-      effort <- (JsPath \ "effort").readNullable[com.bryzek.claude.models.ClaudeEffort]
-      format <- (JsPath \ "format").readNullable[com.bryzek.claude.models.ClaudeApiOutputFormat]
-      taskBudget <- (JsPath \ "task_budget").readNullable[com.bryzek.claude.models.ClaudeTaskBudget]
-    } yield com.bryzek.claude.models.ClaudeOutputConfig(effort, format, taskBudget)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "effort").readNullable[com.bryzek.claude.models.ClaudeEffort](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeEffort).reads(js)
+      val r1 = (play.api.libs.json.JsPath \ "format").readNullable[com.bryzek.claude.models.ClaudeApiOutputFormat](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeApiOutputFormat).reads(js)
+      val r2 = (play.api.libs.json.JsPath \ "task_budget").readNullable[com.bryzek.claude.models.ClaudeTaskBudget](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeTaskBudget).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0, r1, r2).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeOutputConfig(r0.get, r1.get, r2.get))
+      }
+    }
   }
 
 
@@ -1282,23 +1400,34 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsClaudeOutputConfig(obj: com.bryzek.claude.models.ClaudeOutputConfig): play.api.libs.json.JsObject = {
-    obj.effort.map { x => play.api.libs.json.Json.obj("effort" -> play.api.libs.json.JsString(x.toString)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.format.map { x => play.api.libs.json.Json.obj("format" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeApiOutputFormat(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.taskBudget.map { x => play.api.libs.json.Json.obj("task_budget" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeTaskBudget(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+
+      ) ++
+        obj.effort.map { x => ("effort", play.api.libs.json.JsString(x.toString)) } ++
+        obj.format.map { x => ("format", com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeApiOutputFormat(x)) } ++
+        obj.taskBudget.map { x => ("task_budget", com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeTaskBudget(x)) }
+    )
   }
 
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeRequest: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeRequest] = {
-    for {
-      model <- (JsPath \ "model").read[com.bryzek.claude.models.ClaudeModel]
-      messages <- (JsPath \ "messages").read[Seq[com.bryzek.claude.models.ClaudeMessage]]
-      maxTokens <- (JsPath \ "max_tokens").readWithDefault[Long](30000L)
-      system <- (JsPath \ "system").readNullable[Seq[com.bryzek.claude.models.ClaudeSystemBlock]]
-      tools <- (JsPath \ "tools").readNullable[Seq[com.bryzek.claude.models.ClaudeTool]]
-      toolChoice <- (JsPath \ "tool_choice").readNullable[com.bryzek.claude.models.ClaudeToolChoice]
-      outputConfig <- (JsPath \ "output_config").readNullable[com.bryzek.claude.models.ClaudeOutputConfig]
-      thinking <- (JsPath \ "thinking").readNullable[com.bryzek.claude.models.ClaudeThinking]
-    } yield com.bryzek.claude.models.ClaudeRequest(model, messages, maxTokens, system, tools, toolChoice, outputConfig, thinking)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "model").read[com.bryzek.claude.models.ClaudeModel](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeModel).reads(js)
+      val r1 = (play.api.libs.json.JsPath \ "messages").read[Seq[com.bryzek.claude.models.ClaudeMessage]](using play.api.libs.json.Reads.seq(using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeMessage)).reads(js)
+      val r2 = (play.api.libs.json.JsPath \ "max_tokens").readWithDefault[Long](30000L)(using play.api.libs.json.Reads.LongReads).reads(js)
+      val r3 = (play.api.libs.json.JsPath \ "system").readNullable[Seq[com.bryzek.claude.models.ClaudeSystemBlock]](using play.api.libs.json.Reads.seq(using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeSystemBlock)).reads(js)
+      val r4 = (play.api.libs.json.JsPath \ "tools").readNullable[Seq[com.bryzek.claude.models.ClaudeTool]](using play.api.libs.json.Reads.seq(using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeTool)).reads(js)
+      val r5 = (play.api.libs.json.JsPath \ "tool_choice").readNullable[com.bryzek.claude.models.ClaudeToolChoice](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeToolChoice).reads(js)
+      val r6 = (play.api.libs.json.JsPath \ "output_config").readNullable[com.bryzek.claude.models.ClaudeOutputConfig](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeOutputConfig).reads(js)
+      val r7 = (play.api.libs.json.JsPath \ "thinking").readNullable[com.bryzek.claude.models.ClaudeThinking](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeThinking).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0, r1, r2, r3, r4, r5, r6, r7).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeRequest(r0.get, r1.get, r2.get, r3.get, r4.get, r5.get, r6.get, r7.get))
+      }
+    }
   }
 
 
@@ -1308,30 +1437,38 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsClaudeRequest(obj: com.bryzek.claude.models.ClaudeRequest): play.api.libs.json.JsObject = {
-    play.api.libs.json.Json.obj(
-      "model" -> play.api.libs.json.JsString(obj.model.toString),
-      "messages" -> play.api.libs.json.Json.toJson(obj.messages),
-      "max_tokens" -> play.api.libs.json.JsNumber(obj.maxTokens)
-    ) ++
-      obj.system.map { x => play.api.libs.json.Json.obj("system" -> play.api.libs.json.Json.toJson(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.tools.map { x => play.api.libs.json.Json.obj("tools" -> play.api.libs.json.Json.toJson(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.toolChoice.map { x => play.api.libs.json.Json.obj("tool_choice" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeToolChoice(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.outputConfig.map { x => play.api.libs.json.Json.obj("output_config" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeOutputConfig(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.thinking.map { x => play.api.libs.json.Json.obj("thinking" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeThinking(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("model", play.api.libs.json.JsString(obj.model.toString)),
+        ("messages", play.api.libs.json.JsArray(obj.messages.map { e0 => com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeMessage(e0) })),
+        ("max_tokens", play.api.libs.json.JsNumber(_root_.scala.math.BigDecimal(obj.maxTokens)))
+      ) ++
+        obj.system.map { x => ("system", play.api.libs.json.JsArray(x.map { e0 => com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeSystemBlock(e0) })) } ++
+        obj.tools.map { x => ("tools", play.api.libs.json.JsArray(x.map { e0 => com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeTool(e0) })) } ++
+        obj.toolChoice.map { x => ("tool_choice", com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeToolChoice(x)) } ++
+        obj.outputConfig.map { x => ("output_config", com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeOutputConfig(x)) } ++
+        obj.thinking.map { x => ("thinking", com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeThinking(x)) }
+    )
   }
 
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeResponse: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeResponse] = {
-    for {
-      id <- (JsPath \ "id").read[String]
-      `type` <- (JsPath \ "type").read[String]
-      role <- (JsPath \ "role").read[com.bryzek.claude.models.ClaudeRole]
-      content <- (JsPath \ "content").read[Seq[com.bryzek.claude.models.ClaudeContentBlock]]
-      model <- (JsPath \ "model").read[com.bryzek.claude.models.ClaudeModel]
-      stopReason <- (JsPath \ "stop_reason").read[com.bryzek.claude.models.ClaudeStopReason]
-      stopSequence <- (JsPath \ "stop_sequence").readNullable[String]
-      usage <- (JsPath \ "usage").read[com.bryzek.claude.models.ClaudeUsage]
-    } yield com.bryzek.claude.models.ClaudeResponse(id, `type`, role, content, model, stopReason, stopSequence, usage)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "id").read[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r1 = (play.api.libs.json.JsPath \ "type").read[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r2 = (play.api.libs.json.JsPath \ "role").read[com.bryzek.claude.models.ClaudeRole](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeRole).reads(js)
+      val r3 = (play.api.libs.json.JsPath \ "content").read[Seq[com.bryzek.claude.models.ClaudeContentBlock]](using play.api.libs.json.Reads.seq(using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeContentBlock)).reads(js)
+      val r4 = (play.api.libs.json.JsPath \ "model").read[com.bryzek.claude.models.ClaudeModel](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeModel).reads(js)
+      val r5 = (play.api.libs.json.JsPath \ "stop_reason").read[com.bryzek.claude.models.ClaudeStopReason](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeStopReason).reads(js)
+      val r6 = (play.api.libs.json.JsPath \ "stop_sequence").readNullable[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r7 = (play.api.libs.json.JsPath \ "usage").read[com.bryzek.claude.models.ClaudeUsage](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeUsage).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0, r1, r2, r3, r4, r5, r6, r7).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeResponse(r0.get, r1.get, r2.get, r3.get, r4.get, r5.get, r6.get, r7.get))
+      }
+    }
   }
 
 
@@ -1341,24 +1478,32 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsClaudeResponse(obj: com.bryzek.claude.models.ClaudeResponse): play.api.libs.json.JsObject = {
-    play.api.libs.json.Json.obj(
-      "id" -> play.api.libs.json.JsString(obj.id),
-      "type" -> play.api.libs.json.JsString(obj.`type`),
-      "role" -> play.api.libs.json.JsString(obj.role.toString),
-      "content" -> play.api.libs.json.Json.toJson(obj.content),
-      "model" -> play.api.libs.json.JsString(obj.model.toString),
-      "stop_reason" -> play.api.libs.json.JsString(obj.stopReason.toString),
-      "usage" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeUsage(obj.usage)
-    ) ++
-      obj.stopSequence.map { x => play.api.libs.json.Json.obj("stop_sequence" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("id", play.api.libs.json.JsString(obj.id)),
+        ("type", play.api.libs.json.JsString(obj.`type`)),
+        ("role", play.api.libs.json.JsString(obj.role.toString)),
+        ("content", play.api.libs.json.JsArray(obj.content.map { e0 => com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeContentBlock(e0) })),
+        ("model", play.api.libs.json.JsString(obj.model.toString)),
+        ("stop_reason", play.api.libs.json.JsString(obj.stopReason.toString)),
+        ("usage", com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeUsage(obj.usage))
+      ) ++
+        obj.stopSequence.map { x => ("stop_sequence", play.api.libs.json.JsString(x)) }
+    )
   }
 
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeServerToolError: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeServerToolError] = {
-    for {
-      `type` <- (JsPath \ "type").read[String]
-      errorCode <- (JsPath \ "error_code").read[String]
-    } yield com.bryzek.claude.models.ClaudeServerToolError(`type`, errorCode)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "type").read[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r1 = (play.api.libs.json.JsPath \ "error_code").read[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0, r1).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeServerToolError(r0.get, r1.get))
+      }
+    }
   }
 
 
@@ -1368,18 +1513,26 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsClaudeServerToolError(obj: com.bryzek.claude.models.ClaudeServerToolError): play.api.libs.json.JsObject = {
-    play.api.libs.json.Json.obj(
-      "type" -> play.api.libs.json.JsString(obj.`type`),
-      "error_code" -> play.api.libs.json.JsString(obj.errorCode)
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("type", play.api.libs.json.JsString(obj.`type`)),
+        ("error_code", play.api.libs.json.JsString(obj.errorCode))
+      )
     )
   }
 
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeServerToolUsage: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeServerToolUsage] = {
-    for {
-      webSearchRequests <- (JsPath \ "web_search_requests").readWithDefault[Long](0L)
-      webFetchRequests <- (JsPath \ "web_fetch_requests").readWithDefault[Long](0L)
-    } yield com.bryzek.claude.models.ClaudeServerToolUsage(webSearchRequests, webFetchRequests)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "web_search_requests").readWithDefault[Long](0L)(using play.api.libs.json.Reads.LongReads).reads(js)
+      val r1 = (play.api.libs.json.JsPath \ "web_fetch_requests").readWithDefault[Long](0L)(using play.api.libs.json.Reads.LongReads).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0, r1).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeServerToolUsage(r0.get, r1.get))
+      }
+    }
   }
 
 
@@ -1389,19 +1542,27 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsClaudeServerToolUsage(obj: com.bryzek.claude.models.ClaudeServerToolUsage): play.api.libs.json.JsObject = {
-    play.api.libs.json.Json.obj(
-      "web_search_requests" -> play.api.libs.json.JsNumber(obj.webSearchRequests),
-      "web_fetch_requests" -> play.api.libs.json.JsNumber(obj.webFetchRequests)
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("web_search_requests", play.api.libs.json.JsNumber(_root_.scala.math.BigDecimal(obj.webSearchRequests))),
+        ("web_fetch_requests", play.api.libs.json.JsNumber(_root_.scala.math.BigDecimal(obj.webFetchRequests)))
+      )
     )
   }
 
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeSource: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeSource] = {
-    for {
-      `type` <- (JsPath \ "type").read[com.bryzek.claude.models.ClaudeSourceType]
-      mediaType <- (JsPath \ "media_type").read[com.bryzek.claude.models.ClaudeMediaType]
-      data <- (JsPath \ "data").read[String]
-    } yield com.bryzek.claude.models.ClaudeSource(`type`, mediaType, data)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "type").read[com.bryzek.claude.models.ClaudeSourceType](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeSourceType).reads(js)
+      val r1 = (play.api.libs.json.JsPath \ "media_type").read[com.bryzek.claude.models.ClaudeMediaType](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeMediaType).reads(js)
+      val r2 = (play.api.libs.json.JsPath \ "data").read[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0, r1, r2).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeSource(r0.get, r1.get, r2.get))
+      }
+    }
   }
 
 
@@ -1411,20 +1572,28 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsClaudeSource(obj: com.bryzek.claude.models.ClaudeSource): play.api.libs.json.JsObject = {
-    play.api.libs.json.Json.obj(
-      "type" -> play.api.libs.json.JsString(obj.`type`.toString),
-      "media_type" -> play.api.libs.json.JsString(obj.mediaType.toString),
-      "data" -> play.api.libs.json.JsString(obj.data)
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("type", play.api.libs.json.JsString(obj.`type`.toString)),
+        ("media_type", play.api.libs.json.JsString(obj.mediaType.toString)),
+        ("data", play.api.libs.json.JsString(obj.data))
+      )
     )
   }
 
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeSystemBlock: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeSystemBlock] = {
-    for {
-      `type` <- (JsPath \ "type").readWithDefault[com.bryzek.claude.models.ClaudeContentType](com.bryzek.claude.models.ClaudeContentType.Text)
-      text <- (JsPath \ "text").read[String]
-      cacheControl <- (JsPath \ "cache_control").readNullable[com.bryzek.claude.models.ClaudeCacheControl]
-    } yield com.bryzek.claude.models.ClaudeSystemBlock(`type`, text, cacheControl)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "type").readWithDefault[com.bryzek.claude.models.ClaudeContentType](com.bryzek.claude.models.ClaudeContentType.Text)(using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeContentType).reads(js)
+      val r1 = (play.api.libs.json.JsPath \ "text").read[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r2 = (play.api.libs.json.JsPath \ "cache_control").readNullable[com.bryzek.claude.models.ClaudeCacheControl](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeCacheControl).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0, r1, r2).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeSystemBlock(r0.get, r1.get, r2.get))
+      }
+    }
   }
 
 
@@ -1434,19 +1603,27 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsClaudeSystemBlock(obj: com.bryzek.claude.models.ClaudeSystemBlock): play.api.libs.json.JsObject = {
-    play.api.libs.json.Json.obj(
-      "type" -> play.api.libs.json.JsString(obj.`type`.toString),
-      "text" -> play.api.libs.json.JsString(obj.text)
-    ) ++
-      obj.cacheControl.map { x => play.api.libs.json.Json.obj("cache_control" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeCacheControl(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("type", play.api.libs.json.JsString(obj.`type`.toString)),
+        ("text", play.api.libs.json.JsString(obj.text))
+      ) ++
+        obj.cacheControl.map { x => ("cache_control", com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeCacheControl(x)) }
+    )
   }
 
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeTaskBudget: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeTaskBudget] = {
-    for {
-      `type` <- (JsPath \ "type").readWithDefault[com.bryzek.claude.models.ClaudeTaskBudgetType](com.bryzek.claude.models.ClaudeTaskBudgetType.Tokens)
-      total <- (JsPath \ "total").read[Long]
-    } yield com.bryzek.claude.models.ClaudeTaskBudget(`type`, total)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "type").readWithDefault[com.bryzek.claude.models.ClaudeTaskBudgetType](com.bryzek.claude.models.ClaudeTaskBudgetType.Tokens)(using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeTaskBudgetType).reads(js)
+      val r1 = (play.api.libs.json.JsPath \ "total").read[Long](using play.api.libs.json.Reads.LongReads).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0, r1).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeTaskBudget(r0.get, r1.get))
+      }
+    }
   }
 
 
@@ -1456,17 +1633,25 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsClaudeTaskBudget(obj: com.bryzek.claude.models.ClaudeTaskBudget): play.api.libs.json.JsObject = {
-    play.api.libs.json.Json.obj(
-      "type" -> play.api.libs.json.JsString(obj.`type`.toString),
-      "total" -> play.api.libs.json.JsNumber(obj.total)
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("type", play.api.libs.json.JsString(obj.`type`.toString)),
+        ("total", play.api.libs.json.JsNumber(_root_.scala.math.BigDecimal(obj.total)))
+      )
     )
   }
 
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeThinking: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeThinking] = {
-    for {
-      `type` <- (JsPath \ "type").read[com.bryzek.claude.models.ClaudeThinkingType]
-    } yield com.bryzek.claude.models.ClaudeThinking(`type`)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "type").read[com.bryzek.claude.models.ClaudeThinkingType](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeThinkingType).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeThinking(r0.get))
+      }
+    }
   }
 
 
@@ -1476,27 +1661,35 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsClaudeThinking(obj: com.bryzek.claude.models.ClaudeThinking): play.api.libs.json.JsObject = {
-    play.api.libs.json.Json.obj(
-      "type" -> play.api.libs.json.JsString(obj.`type`.toString)
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("type", play.api.libs.json.JsString(obj.`type`.toString))
+      )
     )
   }
 
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeTool: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeTool] = {
-    for {
-      name <- (JsPath \ "name").read[String]
-      `type` <- (JsPath \ "type").readNullable[com.bryzek.claude.models.ClaudeToolType]
-      description <- (JsPath \ "description").readNullable[String]
-      inputSchema <- (JsPath \ "input_schema").readNullable[_root_.play.api.libs.json.JsObject]
-      strict <- (JsPath \ "strict").readNullable[Boolean]
-      maxUses <- (JsPath \ "max_uses").readNullable[Long]
-      allowedDomains <- (JsPath \ "allowed_domains").readNullable[Seq[String]]
-      blockedDomains <- (JsPath \ "blocked_domains").readNullable[Seq[String]]
-      citations <- (JsPath \ "citations").readNullable[com.bryzek.claude.models.ClaudeCitationsConfig]
-      maxContentTokens <- (JsPath \ "max_content_tokens").readNullable[Long]
-      allowedCallers <- (JsPath \ "allowed_callers").readNullable[Seq[com.bryzek.claude.models.ClaudeToolCaller]]
-      cacheControl <- (JsPath \ "cache_control").readNullable[com.bryzek.claude.models.ClaudeCacheControl]
-    } yield com.bryzek.claude.models.ClaudeTool(name, `type`, description, inputSchema, strict, maxUses, allowedDomains, blockedDomains, citations, maxContentTokens, allowedCallers, cacheControl)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "name").read[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r1 = (play.api.libs.json.JsPath \ "type").readNullable[com.bryzek.claude.models.ClaudeToolType](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeToolType).reads(js)
+      val r2 = (play.api.libs.json.JsPath \ "description").readNullable[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r3 = (play.api.libs.json.JsPath \ "input_schema").readNullable[_root_.play.api.libs.json.JsObject](using play.api.libs.json.Reads.JsObjectReads).reads(js)
+      val r4 = (play.api.libs.json.JsPath \ "strict").readNullable[Boolean](using play.api.libs.json.Reads.BooleanReads).reads(js)
+      val r5 = (play.api.libs.json.JsPath \ "max_uses").readNullable[Long](using play.api.libs.json.Reads.LongReads).reads(js)
+      val r6 = (play.api.libs.json.JsPath \ "allowed_domains").readNullable[Seq[String]](using play.api.libs.json.Reads.seq(using play.api.libs.json.Reads.StringReads)).reads(js)
+      val r7 = (play.api.libs.json.JsPath \ "blocked_domains").readNullable[Seq[String]](using play.api.libs.json.Reads.seq(using play.api.libs.json.Reads.StringReads)).reads(js)
+      val r8 = (play.api.libs.json.JsPath \ "citations").readNullable[com.bryzek.claude.models.ClaudeCitationsConfig](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeCitationsConfig).reads(js)
+      val r9 = (play.api.libs.json.JsPath \ "max_content_tokens").readNullable[Long](using play.api.libs.json.Reads.LongReads).reads(js)
+      val r10 = (play.api.libs.json.JsPath \ "allowed_callers").readNullable[Seq[com.bryzek.claude.models.ClaudeToolCaller]](using play.api.libs.json.Reads.seq(using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeToolCaller)).reads(js)
+      val r11 = (play.api.libs.json.JsPath \ "cache_control").readNullable[com.bryzek.claude.models.ClaudeCacheControl](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeCacheControl).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeTool(r0.get, r1.get, r2.get, r3.get, r4.get, r5.get, r6.get, r7.get, r8.get, r9.get, r10.get, r11.get))
+      }
+    }
   }
 
 
@@ -1506,29 +1699,37 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsClaudeTool(obj: com.bryzek.claude.models.ClaudeTool): play.api.libs.json.JsObject = {
-    play.api.libs.json.Json.obj(
-      "name" -> play.api.libs.json.JsString(obj.name)
-    ) ++
-      obj.`type`.map { x => play.api.libs.json.Json.obj("type" -> play.api.libs.json.JsString(x.toString)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.description.map { x => play.api.libs.json.Json.obj("description" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.inputSchema.map { x => play.api.libs.json.Json.obj("input_schema" -> x) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.strict.map { x => play.api.libs.json.Json.obj("strict" -> play.api.libs.json.JsBoolean(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.maxUses.map { x => play.api.libs.json.Json.obj("max_uses" -> play.api.libs.json.JsNumber(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.allowedDomains.map { x => play.api.libs.json.Json.obj("allowed_domains" -> play.api.libs.json.Json.toJson(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.blockedDomains.map { x => play.api.libs.json.Json.obj("blocked_domains" -> play.api.libs.json.Json.toJson(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.citations.map { x => play.api.libs.json.Json.obj("citations" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeCitationsConfig(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.maxContentTokens.map { x => play.api.libs.json.Json.obj("max_content_tokens" -> play.api.libs.json.JsNumber(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.allowedCallers.map { x => play.api.libs.json.Json.obj("allowed_callers" -> play.api.libs.json.Json.toJson(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.cacheControl.map { x => play.api.libs.json.Json.obj("cache_control" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeCacheControl(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("name", play.api.libs.json.JsString(obj.name))
+      ) ++
+        obj.`type`.map { x => ("type", play.api.libs.json.JsString(x.toString)) } ++
+        obj.description.map { x => ("description", play.api.libs.json.JsString(x)) } ++
+        obj.inputSchema.map { x => ("input_schema", x) } ++
+        obj.strict.map { x => ("strict", play.api.libs.json.JsBoolean(x)) } ++
+        obj.maxUses.map { x => ("max_uses", play.api.libs.json.JsNumber(_root_.scala.math.BigDecimal(x))) } ++
+        obj.allowedDomains.map { x => ("allowed_domains", play.api.libs.json.JsArray(x.map { e0 => play.api.libs.json.JsString(e0) })) } ++
+        obj.blockedDomains.map { x => ("blocked_domains", play.api.libs.json.JsArray(x.map { e0 => play.api.libs.json.JsString(e0) })) } ++
+        obj.citations.map { x => ("citations", com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeCitationsConfig(x)) } ++
+        obj.maxContentTokens.map { x => ("max_content_tokens", play.api.libs.json.JsNumber(_root_.scala.math.BigDecimal(x))) } ++
+        obj.allowedCallers.map { x => ("allowed_callers", play.api.libs.json.JsArray(x.map { e0 => play.api.libs.json.JsString(e0.toString) })) } ++
+        obj.cacheControl.map { x => ("cache_control", com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeCacheControl(x)) }
+    )
   }
 
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeToolChoice: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeToolChoice] = {
-    for {
-      `type` <- (JsPath \ "type").read[com.bryzek.claude.models.ClaudeToolChoiceType]
-      name <- (JsPath \ "name").readNullable[String]
-      disableParallelToolUse <- (JsPath \ "disable_parallel_tool_use").readNullable[Boolean]
-    } yield com.bryzek.claude.models.ClaudeToolChoice(`type`, name, disableParallelToolUse)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "type").read[com.bryzek.claude.models.ClaudeToolChoiceType](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeToolChoiceType).reads(js)
+      val r1 = (play.api.libs.json.JsPath \ "name").readNullable[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r2 = (play.api.libs.json.JsPath \ "disable_parallel_tool_use").readNullable[Boolean](using play.api.libs.json.Reads.BooleanReads).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0, r1, r2).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeToolChoice(r0.get, r1.get, r2.get))
+      }
+    }
   }
 
 
@@ -1538,24 +1739,32 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsClaudeToolChoice(obj: com.bryzek.claude.models.ClaudeToolChoice): play.api.libs.json.JsObject = {
-    play.api.libs.json.Json.obj(
-      "type" -> play.api.libs.json.JsString(obj.`type`.toString)
-    ) ++
-      obj.name.map { x => play.api.libs.json.Json.obj("name" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.disableParallelToolUse.map { x => play.api.libs.json.Json.obj("disable_parallel_tool_use" -> play.api.libs.json.JsBoolean(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("type", play.api.libs.json.JsString(obj.`type`.toString))
+      ) ++
+        obj.name.map { x => ("name", play.api.libs.json.JsString(x)) } ++
+        obj.disableParallelToolUse.map { x => ("disable_parallel_tool_use", play.api.libs.json.JsBoolean(x)) }
+    )
   }
 
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeUsage: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeUsage] = {
-    for {
-      inputTokens <- (JsPath \ "input_tokens").read[Long]
-      outputTokens <- (JsPath \ "output_tokens").read[Long]
-      cacheCreationInputTokens <- (JsPath \ "cache_creation_input_tokens").readNullable[Long]
-      cacheReadInputTokens <- (JsPath \ "cache_read_input_tokens").readNullable[Long]
-      cacheCreation <- (JsPath \ "cache_creation").readNullable[com.bryzek.claude.models.ClaudeCacheCreation]
-      serverToolUse <- (JsPath \ "server_tool_use").readNullable[com.bryzek.claude.models.ClaudeServerToolUsage]
-      serviceTier <- (JsPath \ "service_tier").readNullable[com.bryzek.claude.models.ClaudeServiceTier]
-    } yield com.bryzek.claude.models.ClaudeUsage(inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens, cacheCreation, serverToolUse, serviceTier)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "input_tokens").read[Long](using play.api.libs.json.Reads.LongReads).reads(js)
+      val r1 = (play.api.libs.json.JsPath \ "output_tokens").read[Long](using play.api.libs.json.Reads.LongReads).reads(js)
+      val r2 = (play.api.libs.json.JsPath \ "cache_creation_input_tokens").readNullable[Long](using play.api.libs.json.Reads.LongReads).reads(js)
+      val r3 = (play.api.libs.json.JsPath \ "cache_read_input_tokens").readNullable[Long](using play.api.libs.json.Reads.LongReads).reads(js)
+      val r4 = (play.api.libs.json.JsPath \ "cache_creation").readNullable[com.bryzek.claude.models.ClaudeCacheCreation](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeCacheCreation).reads(js)
+      val r5 = (play.api.libs.json.JsPath \ "server_tool_use").readNullable[com.bryzek.claude.models.ClaudeServerToolUsage](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeServerToolUsage).reads(js)
+      val r6 = (play.api.libs.json.JsPath \ "service_tier").readNullable[com.bryzek.claude.models.ClaudeServiceTier](using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeServiceTier).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0, r1, r2, r3, r4, r5, r6).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeUsage(r0.get, r1.get, r2.get, r3.get, r4.get, r5.get, r6.get))
+      }
+    }
   }
 
 
@@ -1565,25 +1774,33 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsClaudeUsage(obj: com.bryzek.claude.models.ClaudeUsage): play.api.libs.json.JsObject = {
-    play.api.libs.json.Json.obj(
-      "input_tokens" -> play.api.libs.json.JsNumber(obj.inputTokens),
-      "output_tokens" -> play.api.libs.json.JsNumber(obj.outputTokens)
-    ) ++
-      obj.cacheCreationInputTokens.map { x => play.api.libs.json.Json.obj("cache_creation_input_tokens" -> play.api.libs.json.JsNumber(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.cacheReadInputTokens.map { x => play.api.libs.json.Json.obj("cache_read_input_tokens" -> play.api.libs.json.JsNumber(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.cacheCreation.map { x => play.api.libs.json.Json.obj("cache_creation" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeCacheCreation(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.serverToolUse.map { x => play.api.libs.json.Json.obj("server_tool_use" -> com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeServerToolUsage(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.serviceTier.map { x => play.api.libs.json.Json.obj("service_tier" -> play.api.libs.json.JsString(x.toString)) }.getOrElse(play.api.libs.json.JsObject.empty)
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("input_tokens", play.api.libs.json.JsNumber(_root_.scala.math.BigDecimal(obj.inputTokens))),
+        ("output_tokens", play.api.libs.json.JsNumber(_root_.scala.math.BigDecimal(obj.outputTokens)))
+      ) ++
+        obj.cacheCreationInputTokens.map { x => ("cache_creation_input_tokens", play.api.libs.json.JsNumber(_root_.scala.math.BigDecimal(x))) } ++
+        obj.cacheReadInputTokens.map { x => ("cache_read_input_tokens", play.api.libs.json.JsNumber(_root_.scala.math.BigDecimal(x))) } ++
+        obj.cacheCreation.map { x => ("cache_creation", com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeCacheCreation(x)) } ++
+        obj.serverToolUse.map { x => ("server_tool_use", com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeServerToolUsage(x)) } ++
+        obj.serviceTier.map { x => ("service_tier", play.api.libs.json.JsString(x.toString)) }
+    )
   }
 
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeWebFetchResult: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeWebFetchResult] = {
-    for {
-      `type` <- (JsPath \ "type").readWithDefault[String]("web_fetch_result")
-      url <- (JsPath \ "url").read[String]
-      retrievedAt <- (JsPath \ "retrieved_at").readNullable[String]
-      content <- (JsPath \ "content").readNullable[_root_.play.api.libs.json.JsValue]
-    } yield com.bryzek.claude.models.ClaudeWebFetchResult(`type`, url, retrievedAt, content)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "type").readWithDefault[String]("web_fetch_result")(using play.api.libs.json.Reads.StringReads).reads(js)
+      val r1 = (play.api.libs.json.JsPath \ "url").read[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r2 = (play.api.libs.json.JsPath \ "retrieved_at").readNullable[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r3 = (play.api.libs.json.JsPath \ "content").readNullable[_root_.play.api.libs.json.JsValue](using play.api.libs.json.Reads.JsValueReads).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0, r1, r2, r3).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeWebFetchResult(r0.get, r1.get, r2.get, r3.get))
+      }
+    }
   }
 
 
@@ -1593,23 +1810,31 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsClaudeWebFetchResult(obj: com.bryzek.claude.models.ClaudeWebFetchResult): play.api.libs.json.JsObject = {
-    play.api.libs.json.Json.obj(
-      "type" -> play.api.libs.json.JsString(obj.`type`),
-      "url" -> play.api.libs.json.JsString(obj.url)
-    ) ++
-      obj.retrievedAt.map { x => play.api.libs.json.Json.obj("retrieved_at" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.content.map { x => play.api.libs.json.Json.obj("content" -> x) }.getOrElse(play.api.libs.json.JsObject.empty)
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("type", play.api.libs.json.JsString(obj.`type`)),
+        ("url", play.api.libs.json.JsString(obj.url))
+      ) ++
+        obj.retrievedAt.map { x => ("retrieved_at", play.api.libs.json.JsString(x)) } ++
+        obj.content.map { x => ("content", x) }
+    )
   }
 
 
   implicit def jsonReadsComBryzekClaudeModelsClaudeWebSearchResult: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeWebSearchResult] = {
-    for {
-      `type` <- (JsPath \ "type").readWithDefault[String]("web_search_result")
-      title <- (JsPath \ "title").read[String]
-      url <- (JsPath \ "url").read[String]
-      pageAge <- (JsPath \ "page_age").readNullable[String]
-      encryptedContent <- (JsPath \ "encrypted_content").readNullable[String]
-    } yield com.bryzek.claude.models.ClaudeWebSearchResult(`type`, title, url, pageAge, encryptedContent)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "type").readWithDefault[String]("web_search_result")(using play.api.libs.json.Reads.StringReads).reads(js)
+      val r1 = (play.api.libs.json.JsPath \ "title").read[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r2 = (play.api.libs.json.JsPath \ "url").read[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r3 = (play.api.libs.json.JsPath \ "page_age").readNullable[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r4 = (play.api.libs.json.JsPath \ "encrypted_content").readNullable[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0, r1, r2, r3, r4).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeWebSearchResult(r0.get, r1.get, r2.get, r3.get, r4.get))
+      }
+    }
   }
 
 
@@ -1619,20 +1844,28 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsClaudeWebSearchResult(obj: com.bryzek.claude.models.ClaudeWebSearchResult): play.api.libs.json.JsObject = {
-    play.api.libs.json.Json.obj(
-      "type" -> play.api.libs.json.JsString(obj.`type`),
-      "title" -> play.api.libs.json.JsString(obj.title),
-      "url" -> play.api.libs.json.JsString(obj.url)
-    ) ++
-      obj.pageAge.map { x => play.api.libs.json.Json.obj("page_age" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty) ++
-      obj.encryptedContent.map { x => play.api.libs.json.Json.obj("encrypted_content" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("type", play.api.libs.json.JsString(obj.`type`)),
+        ("title", play.api.libs.json.JsString(obj.title)),
+        ("url", play.api.libs.json.JsString(obj.url))
+      ) ++
+        obj.pageAge.map { x => ("page_age", play.api.libs.json.JsString(x)) } ++
+        obj.encryptedContent.map { x => ("encrypted_content", play.api.libs.json.JsString(x)) }
+    )
   }
 
 
   implicit def jsonReadsComBryzekClaudeModelsMessage: play.api.libs.json.Reads[com.bryzek.claude.models.Message] = {
-    for {
-      placeholder <- (JsPath \ "placeholder").readNullable[String]
-    } yield com.bryzek.claude.models.Message(placeholder)
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "placeholder").readNullable[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.Message(r0.get))
+      }
+    }
   }
 
 
@@ -1642,7 +1875,12 @@ package object json {
 
 
   def jsObjectComBryzekClaudeModelsMessage(obj: com.bryzek.claude.models.Message): play.api.libs.json.JsObject = {
-    obj.placeholder.map { x => play.api.libs.json.Json.obj("placeholder" -> play.api.libs.json.JsString(x)) }.getOrElse(play.api.libs.json.JsObject.empty)
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+
+      ) ++
+        obj.placeholder.map { x => ("placeholder", play.api.libs.json.JsString(x)) }
+    )
   }
 }
 
