@@ -203,7 +203,7 @@ object AiRequest {
       case None => false
       case Some(
             KnownClaudeModel.ClaudeSonnet5 | KnownClaudeModel.ClaudeSonnet55 | KnownClaudeModel.ClaudeOpus5 |
-            KnownClaudeModel.ClaudeOpus55 | KnownClaudeModel.ClaudeFable5
+            KnownClaudeModel.ClaudeOpus55 | KnownClaudeModel.ClaudeFable5 | KnownClaudeModel.ClaudeHaiku55
           ) =>
         true
     }
@@ -233,8 +233,9 @@ object AiRequest {
         Some(
           ClaudeThinking(if (wantsThinking(thinking)) ClaudeThinkingType.Adaptive else ClaudeThinkingType.BetweenTools)
         )
-      case Some(KnownClaudeModel.ClaudeSonnet5 | KnownClaudeModel.ClaudeOpus5) | None =>
-        // Opus 5 thinks by default; an explicit Disabled is accepted only at effort high or
+      case Some(KnownClaudeModel.ClaudeSonnet5 | KnownClaudeModel.ClaudeOpus5 | KnownClaudeModel.ClaudeHaiku55) |
+          None =>
+        // Opus 5 and Haiku 5.5 think by default; an explicit Disabled is accepted only at effort high or
         // below, so pairing Disabled with xhigh/max is rejected by the API as a caller error. `between_tools` is a 400
         // on both, and means what Disabled means, so it is sent as Disabled.
         Some(ClaudeThinking(if (wantsThinking(thinking)) ClaudeThinkingType.Adaptive else ClaudeThinkingType.Disabled))
@@ -253,10 +254,10 @@ object AiRequest {
     * [[ClaudeClient.lowerEffort]] steps down from and what the step-down log line names -- and on every model that
     * takes an effort but one that is also the API's own default, so leaving the field off says the same thing.
     *
-    * Opus 5.5 is the exception: its API default is `medium`, one rung lower. Sending nothing there would silently hand
-    * every caller that never chose an effort a less capable run, with no diff anywhere to point at, and the step-down
-    * would then retry at the effort that had just failed. So the library says `high` out loud on that model. A caller
-    * that wants `medium` asks for it.
+    * Opus 5.5 and Haiku 5.5 are the exceptions: their API default is `medium`, one rung lower. Sending nothing there
+    * would silently hand every caller that never chose an effort a less capable run, with no diff anywhere to point
+    * at, and the step-down would then retry at the effort that had just failed. So the library says `high` out loud on
+    * those models. A caller that wants `medium` asks for it.
     *
     * Haiku 4.5 takes no effort at all: it answers 400 "This model does not support the effort parameter" at every
     * level. So the field is dropped there, which is what lets one [[AiRequest]] carry an effort down a model list that
@@ -264,7 +265,8 @@ object AiRequest {
     */
   private[claude] def effortFor(model: ClaudeModel, effort: Option[ClaudeEffort]): Option[ClaudeEffort] =
     KnownClaudeModel.validate(model).toOption match {
-      case Some(KnownClaudeModel.ClaudeOpus55) => effort.orElse(Some(ClaudeEffort.High))
+      case Some(KnownClaudeModel.ClaudeOpus55 | KnownClaudeModel.ClaudeHaiku55) =>
+        effort.orElse(Some(ClaudeEffort.High))
       case Some(KnownClaudeModel.ClaudeHaiku45) => None
       case Some(
             KnownClaudeModel.ClaudeSonnet5 | KnownClaudeModel.ClaudeSonnet55 | KnownClaudeModel.ClaudeOpus5 |

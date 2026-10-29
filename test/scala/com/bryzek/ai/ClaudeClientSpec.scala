@@ -495,6 +495,33 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
         .flatMap(_.effort) mustBe Some(ClaudeEffort.Medium)
     }
 
+    "toClaudeRequest treats Haiku 5.5 as a current model: adaptive thinking, high by default, a task budget" in {
+      // Haiku 5.5 runs adaptive thinking by default, takes effort low through max with an API default of medium (so,
+      // as on Opus 5.5, an unset effort is sent as high rather than left to the API), and takes a task budget.
+      val out = AiRequest(messages = Nil, maxTokens = 128000L).toClaudeRequest(ClaudeModel.ClaudeHaiku55)
+      val js = Json.toJson(out)
+
+      (js \ "model").as[String] mustBe "claude-haiku-5-5"
+      (js \ "thinking").as[play.api.libs.json.JsValue] mustBe Json.obj("type" -> "adaptive")
+      (js \ "output_config" \ "effort").as[String] mustBe "high"
+      (js \ "output_config" \ "task_budget" \ "total").as[Long] mustBe 96000L
+
+      // An explicit choice is sent as chosen.
+      AiRequest(messages = Nil, maxTokens = 8000L, effort = Some(ClaudeEffort.Low))
+        .toClaudeRequest(ClaudeModel.ClaudeHaiku55)
+        .outputConfig
+        .flatMap(_.effort) mustBe Some(ClaudeEffort.Low)
+
+      // Disabled is accepted at effort high or below and is sent as disabled; between_tools is a 400 and means the
+      // same thing, so it is sent as disabled too.
+      Seq(ClaudeThinkingType.Disabled, ClaudeThinkingType.BetweenTools).foreach { thinking =>
+        AiRequest(messages = Nil, thinking = thinking)
+          .toClaudeRequest(ClaudeModel.ClaudeHaiku55)
+          .thinking
+          .map(_.`type`) mustBe Some(ClaudeThinkingType.Disabled)
+      }
+    }
+
     "toClaudeRequest sends adaptive thinking and the caller's effort on Sonnet 5.5" in {
       // The shape api.anthropic.com answered 200 to for claude-sonnet-5-5: thinking adaptive, effort medium, and a
       // task budget under the task-budgets beta header.
