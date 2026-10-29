@@ -159,7 +159,7 @@ lazy val root = project
     // ISS-2173: the Play plugin sets `Test / fork := true`, and a forked JVM inherits none of
     // `SBT_OPTS` -- left unset its max heap is a QUARTER OF PHYSICAL RAM, which is 16G on the 64G
     // laptop and 6G on the 24G mini. Without this pin the CI heap measurement behind
-    // `ci/build.sh`'s `# ci-needs: heap:4G` would be a fact about whichever machine happened to run
+    // `-Xmx4G` in `.jvmopts` would be a fact about whichever machine happened to run
     // it rather than about this suite. platform and acumen pin theirs for the same reason.
     Test / javaOptions += "-Xmx4g",
     scalacOptions ++= allScalacOptions,
