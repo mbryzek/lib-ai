@@ -3,6 +3,7 @@ package com.bryzek.ai.claude
 import com.bryzek.claude.models.{
   ClaudeContentBlock,
   ClaudeContentType,
+  ClaudeMediaType,
   ClaudeModel,
   ClaudeResponse,
   ClaudeRole,
@@ -14,7 +15,7 @@ import com.bryzek.claude.models.{
 import com.bryzek.claude.models.json.*
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
-import play.api.libs.json.{JsDefined, JsValue, Json}
+import play.api.libs.json.{JsDefined, JsObject, JsValue, Json}
 
 class ClaudeToolsSpec extends AnyWordSpec with Matchers {
 
@@ -316,6 +317,38 @@ class ClaudeToolsSpec extends AnyWordSpec with Matchers {
 
     "flag an errored tool result" in {
       ClaudeClient.toolResultBlock("toolu_1", ClaudeToolOutput("boom", isError = true)).isError mustBe Some(true)
+    }
+
+    "write a tool's images after its text, as content blocks the model sees" in {
+      val output = ClaudeToolOutput(
+        """{"frame": 12}""",
+        images =
+          Seq(ClaudeToolImage(ClaudeMediaType.ImageJpeg, "AAAA"), ClaudeToolImage(ClaudeMediaType.ImagePng, "BBBB"))
+      )
+
+      ClaudeClient.toolResultBlock("toolu_1", output).content mustBe Some(
+        Json.arr(
+          Json.obj("type" -> "text", "text" -> """{"frame": 12}"""),
+          Json.obj(
+            "type" -> "image",
+            "source" -> Json.obj("type" -> "base64", "media_type" -> "image/jpeg", "data" -> "AAAA")
+          ),
+          Json.obj(
+            "type" -> "image",
+            "source" -> Json.obj("type" -> "base64", "media_type" -> "image/png", "data" -> "BBBB")
+          )
+        )
+      )
+    }
+
+    "leave out an empty text block, which the API refuses" in {
+      val output = ClaudeToolOutput("", images = Seq(ClaudeToolImage(ClaudeMediaType.ImageJpeg, "AAAA")))
+
+      ClaudeClient
+        .toolResultBlock("toolu_1", output)
+        .content
+        .map(_.as[Seq[JsObject]].map(o => (o \ "type").as[String])) mustBe
+        Some(Seq("image"))
     }
   }
 }

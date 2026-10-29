@@ -96,8 +96,15 @@ object ClaudeCacheTtl {
 /** A single tool call the model requested (a `tool_use` content block). */
 case class ClaudeToolUse(id: String, name: String, input: JsObject)
 
-/** The result of executing a tool, returned to the model as a `tool_result` block. */
-case class ClaudeToolOutput(content: String, isError: Boolean = false)
+/** An image a tool hands back beside its text, which the model SEES in the `tool_result` -- a frame of a video, a
+  * rendered chart. `base64` is the encoded bytes of `mediaType`, an image type.
+  */
+case class ClaudeToolImage(mediaType: ClaudeMediaType, base64: String)
+
+/** The result of executing a tool, returned to the model as a `tool_result` block: `content` as text, and any `images`
+  * after it in the same block, so a tool that renders a picture puts the picture itself in front of the model.
+  */
+case class ClaudeToolOutput(content: String, isError: Boolean = false, images: Seq[ClaudeToolImage] = Nil)
 
 /** One executed tool call: what the model asked for and what we returned. */
 case class ClaudeToolInvocation(use: ClaudeToolUse, output: ClaudeToolOutput)
@@ -412,15 +419,25 @@ object ClaudeClient {
     )
 
   /** A `tool_result` answering one custom tool call. `content` is a raw json field because the wire type varies by
-    * block type (see the spec's note on it); a caller-executed tool answers with a STRING, which is what this writes
-    * and what the API expects here.
+    * block type (see the spec's note on it). A tool that answers with text alone answers with a STRING, byte for byte
+    * what this has always sent. One that hands back images answers with an ARRAY of content blocks: its text as a
+    * `text` block (left out when empty, since the API refuses an empty text block), then one `image` block per image,
+    * in order.
     */
   def toolResultBlock(toolUseId: String, output: ClaudeToolOutput): ClaudeContentBlock =
     ClaudeContentBlock(ClaudeContentType.ToolResult).copy(
       toolUseId = Some(toolUseId),
-      content = Some(JsString(output.content)),
+      content = Some(toolResultContent(output)),
       isError = if (output.isError) Some(true) else None
     )
+
+  private def toolResultContent(output: ClaudeToolOutput): JsValue =
+    if (output.images.isEmpty) JsString(output.content)
+    else {
+      val text = Option.when(output.content.nonEmpty)(textBlock(output.content))
+      val images = output.images.map(i => imageBlock(i.mediaType, i.base64))
+      JsArray((text.toSeq ++ images).map(com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeContentBlock))
+    }
 
   def makeClaudeMessage(role: ClaudeRole, msg: String*): ClaudeMessage = {
     ClaudeMessage(
