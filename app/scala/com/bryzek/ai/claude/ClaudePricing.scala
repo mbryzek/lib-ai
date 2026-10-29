@@ -67,6 +67,10 @@ object ClaudePricing {
     "claude-sonnet-5-5" -> Rate.standardCacheRead(inputPerM = BigDecimal(2), outputPerM = BigDecimal(10)),
     "claude-sonnet-5" -> Rate.standardCacheRead(inputPerM = BigDecimal(2), outputPerM = BigDecimal(10)),
     "claude-haiku-4-5" -> Rate.standardCacheRead(inputPerM = BigDecimal(1), outputPerM = BigDecimal(5)),
+    // The rate for a prompt of 100K tokens or fewer. Anthropic charges 0.50/2.50 above that, which no row here
+    // models: no caller sends Haiku a prompt that long, and a flat row that under-reports the long tail is named as
+    // such rather than averaged. Revisit if a caller ever does.
+    "claude-haiku-5-5" -> Rate.standardCacheRead(inputPerM = BigDecimal("0.10"), outputPerM = BigDecimal("0.50")),
     // Cache reads at $0.25/MTok are 0.025x the input rate, against claude-fable-5's standard 0.1x at the same
     // $10/$50 -- the same trap as claude-opus-5-5, one row apart.
     "claude-fable-5-1" ->
