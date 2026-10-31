@@ -384,6 +384,27 @@
                 { "name": "raw", "type": "string", "required": false }
             ]
         },
+        "claude_model_info": {
+            "description": "One model on GET /v1/models. `id` is a string rather than claude_model: the list names every model the account can call, most of which lib-ai does not carry, and a dated id (claude-haiku-4-5-20251001) where claude_model carries its alias. Read by hand rather than through the generated client (see ClaudeModelList in lib-ai): a resource here would add an abstract operation to IClient, which consumers implement in their own test doubles.",
+            "fields": [
+                { "name": "id", "type": "string" },
+                { "name": "display_name", "type": "string" },
+                { "name": "created_at", "type": "date-time-iso8601" },
+                { "name": "line", "type": "string", "required": false, "description": "The model's family: haiku, sonnet, opus or fable." },
+                { "name": "lifecycle", "type": "string", "required": false, "description": "active or deprecated." },
+                { "name": "deprecated_at", "type": "date-time-iso8601", "required": false },
+                { "name": "retires_at", "type": "date-time-iso8601", "required": false, "description": "When the model stops answering. Null until Anthropic dates its retirement." }
+            ]
+        },
+        "claude_model_page": {
+            "description": "One page of GET /v1/models, newest model first. The next page is asked for with after_id set to last_id while has_more is true.",
+            "fields": [
+                { "name": "data", "type": "[claude_model_info]" },
+                { "name": "has_more", "type": "boolean" },
+                { "name": "first_id", "type": "string", "required": false },
+                { "name": "last_id", "type": "string", "required": false }
+            ]
+        },
         "message": {
             "fields": [
                 { "name": "placeholder", "type": "string", "required": false }

@@ -86,7 +86,8 @@ object ClaudeQuestions {
     input: QuestionInput,
     questions: Seq[Question[?]],
     model: ClaudeModel,
-    settings: QuestionSettings = QuestionSettings()
+    settings: QuestionSettings = QuestionSettings(),
+    feature: Option[AiFeature] = None
   ): ValidatedNec[ClaudeError, ClaudeBatchItem] =
     validate(questions) match {
       case Some(error) => error.invalidNec
@@ -95,7 +96,8 @@ object ClaudeQuestions {
           customId = customId,
           request = request(input, questions, settings),
           model = model,
-          format = Some(format(input.key, questions))
+          format = Some(format(input.key, questions)),
+          feature = feature
         ).validNec
     }
 
