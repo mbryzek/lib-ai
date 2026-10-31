@@ -404,6 +404,55 @@ case class ClaudeMessage(
   content: Seq[ClaudeContentBlock]
 )
 
+case class ClaudeModelInfo(
+  id: String,
+  displayName: String,
+  createdAt: org.joda.time.DateTime,
+  line: Option[String],
+  lifecycle: Option[String],
+  deprecatedAt: Option[org.joda.time.DateTime],
+  retiresAt: Option[org.joda.time.DateTime]
+)
+
+object ClaudeModelInfo {
+  def apply(
+    id: String,
+    displayName: String,
+    createdAt: org.joda.time.DateTime
+  ): com.bryzek.claude.models.ClaudeModelInfo = {
+    com.bryzek.claude.models.ClaudeModelInfo(
+      id = id,
+      displayName = displayName,
+      createdAt = createdAt,
+      line = None,
+      lifecycle = None,
+      deprecatedAt = None,
+      retiresAt = None
+    )
+  }
+}
+
+case class ClaudeModelPage(
+  data: Seq[ClaudeModelInfo],
+  hasMore: Boolean,
+  firstId: Option[String],
+  lastId: Option[String]
+)
+
+object ClaudeModelPage {
+  def apply(
+    data: Seq[ClaudeModelInfo],
+    hasMore: Boolean
+  ): com.bryzek.claude.models.ClaudeModelPage = {
+    com.bryzek.claude.models.ClaudeModelPage(
+      data = data,
+      hasMore = hasMore,
+      firstId = None,
+      lastId = None
+    )
+  }
+}
+
 case class ClaudeOutputConfig(
   effort: Option[ClaudeEffort],
   format: Option[ClaudeApiOutputFormat],
@@ -1376,6 +1425,78 @@ package object json {
         ("role", play.api.libs.json.JsString(obj.role.toString)),
         ("content", play.api.libs.json.JsArray(obj.content.map { e0 => com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeContentBlock(e0) }))
       )
+    )
+  }
+
+
+  implicit def jsonReadsComBryzekClaudeModelsClaudeModelInfo: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeModelInfo] = {
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "id").read[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r1 = (play.api.libs.json.JsPath \ "display_name").read[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r2 = (play.api.libs.json.JsPath \ "created_at").read[_root_.org.joda.time.DateTime](using _root_.com.bryzek.claude.models.json.jsonReadsJodaDateTime).reads(js)
+      val r3 = (play.api.libs.json.JsPath \ "line").readNullable[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r4 = (play.api.libs.json.JsPath \ "lifecycle").readNullable[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r5 = (play.api.libs.json.JsPath \ "deprecated_at").readNullable[_root_.org.joda.time.DateTime](using _root_.com.bryzek.claude.models.json.jsonReadsJodaDateTime).reads(js)
+      val r6 = (play.api.libs.json.JsPath \ "retires_at").readNullable[_root_.org.joda.time.DateTime](using _root_.com.bryzek.claude.models.json.jsonReadsJodaDateTime).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0, r1, r2, r3, r4, r5, r6).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeModelInfo(r0.get, r1.get, r2.get, r3.get, r4.get, r5.get, r6.get))
+      }
+    }
+  }
+
+
+  implicit def jsonWritesComBryzekClaudeModelsClaudeModelInfo: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeModelInfo] = {
+    (obj: com.bryzek.claude.models.ClaudeModelInfo) => jsObjectComBryzekClaudeModelsClaudeModelInfo(obj)
+  }
+
+
+  def jsObjectComBryzekClaudeModelsClaudeModelInfo(obj: com.bryzek.claude.models.ClaudeModelInfo): play.api.libs.json.JsObject = {
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("id", play.api.libs.json.JsString(obj.id)),
+        ("display_name", play.api.libs.json.JsString(obj.displayName)),
+        ("created_at", play.api.libs.json.JsString(_root_.org.joda.time.format.ISODateTimeFormat.dateTime.print(obj.createdAt)))
+      ) ++
+        obj.line.map { x => ("line", play.api.libs.json.JsString(x)) } ++
+        obj.lifecycle.map { x => ("lifecycle", play.api.libs.json.JsString(x)) } ++
+        obj.deprecatedAt.map { x => ("deprecated_at", play.api.libs.json.JsString(_root_.org.joda.time.format.ISODateTimeFormat.dateTime.print(x))) } ++
+        obj.retiresAt.map { x => ("retires_at", play.api.libs.json.JsString(_root_.org.joda.time.format.ISODateTimeFormat.dateTime.print(x))) }
+    )
+  }
+
+
+  implicit def jsonReadsComBryzekClaudeModelsClaudeModelPage: play.api.libs.json.Reads[com.bryzek.claude.models.ClaudeModelPage] = {
+    (js: play.api.libs.json.JsValue) => {
+      val r0 = (play.api.libs.json.JsPath \ "data").read[Seq[com.bryzek.claude.models.ClaudeModelInfo]](using play.api.libs.json.Reads.seq(using _root_.com.bryzek.claude.models.json.jsonReadsComBryzekClaudeModelsClaudeModelInfo)).reads(js)
+      val r1 = (play.api.libs.json.JsPath \ "has_more").read[Boolean](using play.api.libs.json.Reads.BooleanReads).reads(js)
+      val r2 = (play.api.libs.json.JsPath \ "first_id").readNullable[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      val r3 = (play.api.libs.json.JsPath \ "last_id").readNullable[String](using play.api.libs.json.Reads.StringReads).reads(js)
+      Seq[play.api.libs.json.JsResult[_root_.scala.Any]](r0, r1, r2, r3).collectFirst {
+        case e: play.api.libs.json.JsError => e
+      } match {
+        case _root_.scala.Some(e) => e
+        case _root_.scala.None => play.api.libs.json.JsSuccess(com.bryzek.claude.models.ClaudeModelPage(r0.get, r1.get, r2.get, r3.get))
+      }
+    }
+  }
+
+
+  implicit def jsonWritesComBryzekClaudeModelsClaudeModelPage: play.api.libs.json.Writes[com.bryzek.claude.models.ClaudeModelPage] = {
+    (obj: com.bryzek.claude.models.ClaudeModelPage) => jsObjectComBryzekClaudeModelsClaudeModelPage(obj)
+  }
+
+
+  def jsObjectComBryzekClaudeModelsClaudeModelPage(obj: com.bryzek.claude.models.ClaudeModelPage): play.api.libs.json.JsObject = {
+    play.api.libs.json.JsObject(
+      Seq[(String, play.api.libs.json.JsValue)](
+        ("data", play.api.libs.json.JsArray(obj.data.map { e0 => com.bryzek.claude.models.json.jsObjectComBryzekClaudeModelsClaudeModelInfo(e0) })),
+        ("has_more", play.api.libs.json.JsBoolean(obj.hasMore))
+      ) ++
+        obj.firstId.map { x => ("first_id", play.api.libs.json.JsString(x)) } ++
+        obj.lastId.map { x => ("last_id", play.api.libs.json.JsString(x)) }
     )
   }
 

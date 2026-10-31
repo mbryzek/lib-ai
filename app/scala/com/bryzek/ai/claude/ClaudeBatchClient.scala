@@ -2,6 +2,7 @@ package com.bryzek.ai.claude
 
 import cats.data.ValidatedNec
 import cats.implicits.*
+import com.bryzek.ai.{AiFeature, AiModelTrial, AiModels, NoAiModels}
 import com.bryzek.claude.client.IClient
 import com.bryzek.claude.models.*
 import com.bryzek.claude.models.json.*
@@ -9,6 +10,7 @@ import com.google.inject.ImplementedBy
 import generated.errors.{ApiException, ClaudeErrorResponseResponse}
 import play.api.libs.json.{Json, Reads}
 
+import java.util.UUID
 import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
@@ -38,28 +40,80 @@ trait ClaudeBatchResults {
   * `model` is singular, unlike [[ClaudeClient]]'s `models: Seq[ClaudeModel]`: the client-side fallback chain works by
   * re-sending a failed request to the next model, and there is no re-sending inside a batch. A caller that wants
   * fallback resubmits the failed custom ids in a second batch. Same for [[ClaudeClient]]'s effort step-down.
+  *
+  * `feature` is the [[AiFeature]] the request is for. With one, [[ClaudeBatchClient.submitResolved]] sends the feature's
+  * model in force in `model`'s family ([[AiModels.resolve]]) and [[ClaudeBatchClient.trialItems]] samples its results
+  * for the feature's open trials; without one, `model` goes out as named and nothing is sampled, exactly as before
+  * items named a feature.
   */
 case class ClaudeBatchItem(
   customId: String,
   request: AiRequest,
   model: ClaudeModel,
-  format: Option[ClaudeOutputFormat] = None
+  format: Option[ClaudeOutputFormat] = None,
+  feature: Option[AiFeature] = None
 ) {
-  private[claude] def toRequestItem: ClaudeBatchRequestItem = {
+
+  /** The Messages request this item runs: `request` for `model`, asking for `format` when there is one. */
+  def toClaudeRequest: ClaudeRequest = {
     val base = request.toClaudeRequest(model)
-    ClaudeBatchRequestItem(
-      customId = customId,
-      params = format.fold(base)(f =>
-        base.copy(
-          outputConfig = Some(
-            base.outputConfig
-              .getOrElse(ClaudeOutputConfig(effort = None, format = None, taskBudget = None))
-              .copy(format = Some(f.toApi))
-          )
+    format.fold(base)(f =>
+      base.copy(
+        outputConfig = Some(
+          base.outputConfig
+            .getOrElse(ClaudeOutputConfig(effort = None, format = None, taskBudget = None))
+            .copy(format = Some(f.toApi))
         )
       )
     )
   }
+
+  private[claude] def toRequestItem: ClaudeBatchRequestItem =
+    ClaudeBatchRequestItem(customId = customId, params = toClaudeRequest)
+}
+
+/** A submitted batch and its items as they were sent: each item's `model` is the model it RESOLVED to, which is the one
+  * to record against the custom id and to journal the result under.
+  */
+case class ClaudeBatchSubmission(batch: ClaudeBatch, items: Seq[ClaudeBatchItem])
+
+/** One sampled batch result of a feature with an open trial: `used` is the item as submitted, `answer` the response it
+  * succeeded with, and `rerun` the same request for the trial's new model, charged to the trial's own feature, to be
+  * submitted in the trial's own batch. When `rerun`'s outcome comes back, [[pair]] makes the pair the app's judge reads.
+  */
+case class ClaudeBatchTrialItem(
+  trial: AiModelTrial,
+  feature: AiFeature,
+  used: ClaudeBatchItem,
+  answer: ClaudeResponse,
+  rerun: ClaudeBatchItem
+) {
+
+  /** The pair, from `outcome` -- the result of submitting [[rerun]]. An outcome that did not succeed makes no pair, and
+    * neither does one for another custom id. Both answers are priced from their own usage, so at batch rates.
+    */
+  def pair(outcome: ClaudeBatchOutcome): ValidatedNec[ClaudeError, ClaudeTrialPair] =
+    if (outcome.customId != rerun.customId) {
+      ClaudeError(
+        message = s"Batch outcome[${outcome.customId}] is not trial[${trial.id}]'s re-run[${rerun.customId}]"
+      ).invalidNec
+    } else {
+      outcome.response.map { candidate =>
+        ClaudeTrialPair(
+          trial = trial,
+          feature = feature,
+          context = None,
+          usedId = used.customId,
+          request = used.toClaudeRequest,
+          used = answer,
+          usedCostUsd = ClaudeResponseMetadata.costOf(used.model, answer),
+          candidateId = rerun.customId,
+          candidateRequest = rerun.toClaudeRequest,
+          candidate = candidate,
+          candidateCostUsd = ClaudeResponseMetadata.costOf(rerun.model, candidate)
+        )
+      }
+    }
 }
 
 /** What one `custom_id` came back as.
@@ -95,7 +149,11 @@ case class ClaudeBatchOutcome(customId: String, response: ValidatedNec[ClaudeErr
 @ImplementedBy(classOf[ClaudeBatchClientFactoryImpl])
 trait ClaudeBatchClientFactory {
   final def instance(env: ClaudeEnvironment, apiKey: String): ClaudeBatchClient =
-    ClaudeBatchClient(getBatchClient(env), ClaudeConfig(apiKey))
+    instance(env, apiKey, NoAiModels)
+
+  /** A client resolving each item's model through `models`, and sampling for its trials. */
+  final def instance(env: ClaudeEnvironment, apiKey: String, models: AiModels): ClaudeBatchClient =
+    ClaudeBatchClient(getBatchClient(env), ClaudeConfig(apiKey), models)
 
   def getBatchClient(env: ClaudeEnvironment): IClient & ClaudeBatchResults
 }
@@ -118,6 +176,11 @@ object ClaudeBatchClient {
     * so an oversized batch fails before it is serialized and uploaded.
     */
   val MaxRequestsPerBatch: Int = 100000
+
+  /** The custom id a trial re-run is submitted under: fresh, because it is a request of its own in a batch of its own,
+    * and inside the API's 64-character `[a-zA-Z0-9_-]` rule.
+    */
+  private[claude] def trialCustomId(): String = "trial_" + UUID.randomUUID().toString.replaceAll("-", "")
 
   /** Turns one JSONL line's parsed result into an outcome. `succeeded` is the only type carrying a message; the other
     * three are matched exhaustively (never a wildcard) so that a result type added to the API surfaces as an explicit
@@ -184,7 +247,8 @@ object ClaudeBatchClient {
   */
 case class ClaudeBatchClient(
   client: IClient & ClaudeBatchResults,
-  config: ClaudeConfig
+  config: ClaudeConfig,
+  models: AiModels = NoAiModels
 ) {
 
   /** The beta headers are carried onto batches too, and that is load-bearing rather than incidental: structured outputs
@@ -204,11 +268,56 @@ case class ClaudeBatchClient(
     */
   def submit(
     items: Seq[ClaudeBatchItem]
-  )(implicit ec: ExecutionContext): Future[ValidatedNec[ClaudeError, ClaudeBatch]] = {
+  )(implicit ec: ExecutionContext): Future[ValidatedNec[ClaudeError, ClaudeBatch]] =
+    submitResolved(items).map(_.map(_.batch))
+
+  /** [[submit]], answering with the items as they were sent: each item naming a feature is resolved to that feature's
+    * model in force when the batch is submitted, so a move or an Undo reaches batched traffic the next time it is
+    * submitted. Record the returned items, not the ones passed in -- their `model` is the one that runs.
+    */
+  def submitResolved(
+    items: Seq[ClaudeBatchItem]
+  )(implicit ec: ExecutionContext): Future[ValidatedNec[ClaudeError, ClaudeBatchSubmission]] = {
     validate(items) match {
       case Some(error) => Future.successful(error.invalidNec)
       case None =>
-        call(client.createClaudeBatch(ClaudeBatchForm(requests = items.map(_.toRequestItem)), defaultHeaders))
+        val resolved = items.map(resolve)
+        call(client.createClaudeBatch(ClaudeBatchForm(requests = resolved.map(_.toRequestItem)), defaultHeaders))
+          .map(_.map(ClaudeBatchSubmission(_, resolved)))
+    }
+  }
+
+  /** `item` on its feature's model in force; an item naming no feature as it stands. */
+  def resolve(item: ClaudeBatchItem): ClaudeBatchItem =
+    item.feature.fold(item)(f => item.copy(model = models.resolve(f, item.model)))
+
+  /** The trial re-runs owed by a reconciled batch: for each succeeded outcome of an item whose feature has an open trial
+    * on the model it ran on, one of that trial's daily samples is claimed ([[AiModels.claimTrialSample]], the same five
+    * a day the synchronous client counts against) and the item comes back as a [[ClaudeBatchTrialItem]] whose `rerun`
+    * the caller submits in the trial's own batch.
+    *
+    * `submitted` are the items as [[submitResolved]] returned them, so each `model` is the one that answered. An outcome
+    * for a custom id not among them, or one that did not succeed, is never sampled.
+    */
+  def trialItems(submitted: Seq[ClaudeBatchItem], outcomes: Seq[ClaudeBatchOutcome]): Seq[ClaudeBatchTrialItem] = {
+    val byId = submitted.map(i => i.customId -> i).toMap
+    outcomes.flatMap { outcome =>
+      for {
+        answer <- outcome.response.toOption.toSeq
+        item <- byId.get(outcome.customId).toSeq
+        feature <- item.feature.toSeq
+        trial <- models.claimTrialSample(feature, item.model).toSeq
+      } yield ClaudeBatchTrialItem(
+        trial = trial,
+        feature = feature,
+        used = item,
+        answer = answer,
+        rerun = item.copy(
+          customId = ClaudeBatchClient.trialCustomId(),
+          model = trial.toModel,
+          feature = Some(trial.chargedTo)
+        )
+      )
     }
   }
 
@@ -288,13 +397,19 @@ case class ClaudeBatchClient(
   )(implicit ec: ExecutionContext): Future[ValidatedNec[ClaudeError, T]] =
     ClaudeRetries.withRetries(config.backoff)(attempt).map(_.validNec).recover(toError)
 
+  private def toError[T]: PartialFunction[Throwable, ValidatedNec[ClaudeError, T]] = ClaudeApiErrors.toError
+}
+
+/** How a failed call that is not a message becomes a [[ClaudeError]] -- a batch operation, a model-list read. */
+private[claude] object ClaudeApiErrors {
+
   /** A non-2xx body parsed into a [[ClaudeError]]; a malformed body (an HTML error page from a proxy, say) throws
     * inside the generated wrapper, so fall back to the status rather than letting it escape the Validated channel.
     *
-    * Names Anthropic's own `request-id` when the response carried one -- a batch operation has no per-request
-    * correlation id of this library's own (the handle is `custom_id`), so it is the only id there is to quote.
+    * Names Anthropic's own `request-id` when the response carried one -- these operations have no per-request
+    * correlation id of this library's own (a batch's handle is `custom_id`), so it is the only id there is to quote.
     */
-  private def toError[T]: PartialFunction[Throwable, ValidatedNec[ClaudeError, T]] = {
+  def toError[T]: PartialFunction[Throwable, ValidatedNec[ClaudeError, T]] = {
     case r: ClaudeErrorResponseResponse =>
       val message = Try(r.claudeErrorResponse.error.message).getOrElse(s"HTTP ${r.response.status}: ${r.getMessage}")
       ClaudeError(message = message + ClaudeErrorLabels.providerSuffix(r.response.headers)).invalidNec

@@ -224,6 +224,40 @@ package object Factories {
     )
   }
 
+  def makeClaudeModelInfo(
+    id: String = "random-id-" + _root_.java.util.UUID.randomUUID().toString,
+    displayName: String = "random-display_name-" + _root_.java.util.UUID.randomUUID().toString,
+    createdAt: org.joda.time.DateTime = _root_.org.joda.time.DateTime.now,
+    line: Option[String] = None,
+    lifecycle: Option[String] = None,
+    deprecatedAt: Option[org.joda.time.DateTime] = None,
+    retiresAt: Option[org.joda.time.DateTime] = None
+  ): com.bryzek.claude.models.ClaudeModelInfo = {
+    com.bryzek.claude.models.ClaudeModelInfo(
+      id = id,
+      displayName = displayName,
+      createdAt = createdAt,
+      line = line,
+      lifecycle = lifecycle,
+      deprecatedAt = deprecatedAt,
+      retiresAt = retiresAt
+    )
+  }
+
+  def makeClaudeModelPage(
+    data: Seq[com.bryzek.claude.models.ClaudeModelInfo] = Nil,
+    hasMore: Boolean = _root_.scala.util.Random.nextBoolean(),
+    firstId: Option[String] = None,
+    lastId: Option[String] = None
+  ): com.bryzek.claude.models.ClaudeModelPage = {
+    com.bryzek.claude.models.ClaudeModelPage(
+      data = data,
+      hasMore = hasMore,
+      firstId = firstId,
+      lastId = lastId
+    )
+  }
+
   def makeClaudeOutputConfig(
     effort: Option[com.bryzek.claude.models.ClaudeEffort] = None,
     format: Option[com.bryzek.claude.models.ClaudeApiOutputFormat] = None,

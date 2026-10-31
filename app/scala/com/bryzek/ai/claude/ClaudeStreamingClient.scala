@@ -2,7 +2,7 @@ package com.bryzek.ai.claude
 
 import com.bryzek.claude.client.{Client, IClient}
 import com.bryzek.claude.models.json.*
-import com.bryzek.claude.models.{ClaudeBatch, ClaudeBatchForm, ClaudeRequest, ClaudeResponse}
+import com.bryzek.claude.models.{ClaudeBatch, ClaudeBatchForm, ClaudeModelPage, ClaudeRequest, ClaudeResponse}
 import org.apache.pekko.stream.Materializer
 import org.apache.pekko.stream.scaladsl.Framing
 import org.apache.pekko.util.ByteString
@@ -60,6 +60,9 @@ object ClaudeStreamingClient {
     */
   val MaxResultsBytes: Long = 64L * 1024 * 1024
 
+  /** The most models one page of `GET /v1/models` answers, so the whole list is one page. */
+  val ModelPageSize: Int = 1000
+
   private val Newline = ByteString("\n")
 
   /** Renders an error body as `type: message` when it is Anthropic's documented error envelope, and verbatim
@@ -116,7 +119,8 @@ class ClaudeStreamingClient(
   idleTimeout: FiniteDuration = ClaudeStreamingClient.IdleTimeout
 )(implicit ec: ExecutionContext, mat: Materializer)
   extends IClient
-  with ClaudeBatchResults {
+  with ClaudeBatchResults
+  with ClaudeModelList {
 
   import ClaudeStreamingClient.*
 
@@ -150,6 +154,30 @@ class ClaudeStreamingClient(
       .stream()
       .flatMap { response =>
         if (response.status / 100 == 2) collectLines(response) else raise(response)
+      }
+
+  /** The generated client has no model-list operation (see [[ClaudeModelList]] for why), so the page is fetched here
+    * and parsed with the generated reads.
+    */
+  override def listModels(
+    afterId: Option[String],
+    requestHeaders: Seq[(String, String)] = Nil
+  ): Future[ClaudeModelPage] =
+    ws.url(s"$baseUrl/v1/models")
+      .withRequestTimeout(BatchTimeout)
+      .addQueryStringParameters((Seq("limit" -> ModelPageSize.toString) ++ afterId.map("after_id" -> _))*)
+      .addHttpHeaders(requestHeaders*)
+      .withMethod("GET")
+      .stream()
+      .flatMap { response =>
+        if (response.status / 100 == 2) {
+          response.bodyAsSource
+            .idleTimeout(idleTimeout)
+            .runFold(ByteString.empty)(_ ++ _)
+            .map(body => Json.parse(body.utf8String).as[ClaudeModelPage])
+        } else {
+          raise(response)
+        }
       }
 
   private def collectLines(response: WSResponse): Future[Seq[String]] =

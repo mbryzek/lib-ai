@@ -7,3 +7,7 @@ import com.bryzek.ai.{AiAccount, AiFeature, AiFeatureKind}
   */
 case object TestAiFeature
   extends AiFeature("test_feature", AiFeatureKind.Background, AiAccount.Personal, BigDecimal(10))
+
+/** The feature a trial's re-runs are charged to -- an app's `model_upgrade_trial`. */
+case object TestTrialFeature
+  extends AiFeature("test_model_upgrade_trial", AiFeatureKind.Background, AiAccount.Personal, BigDecimal(10))

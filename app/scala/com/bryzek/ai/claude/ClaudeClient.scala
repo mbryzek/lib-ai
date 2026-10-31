@@ -3,7 +3,7 @@ package com.bryzek.ai.claude
 import cats.data.{NonEmptyChain, ValidatedNec}
 import cats.data.Validated.{Invalid, Valid}
 import cats.implicits.*
-import com.bryzek.ai.{AiBudget, AiBudgetRefusal, AiFeature}
+import com.bryzek.ai.{AiBudget, AiBudgetRefusal, AiFeature, AiModelTrial, AiModels, NoAiModels}
 import com.bryzek.claude.response.models.*
 import com.bryzek.claude.response.models.json.*
 import com.bryzek.claude.client.IClient
@@ -13,10 +13,11 @@ import com.google.inject.ImplementedBy
 import play.api.libs.json.*
 
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
-import scala.util.Try
+import scala.util.{Failure, Success, Try}
 
 case class ClaudeConfig(
   key: String,
@@ -358,7 +359,38 @@ trait ClaudeStore {
     charged: Option[ClaudeResponseMetadata[ClaudeResponse]]
   ): Unit
   def storeResponseSuccess[T](response: ClaudeResponseMetadata[T]): Unit
+
+  /** One pair of an open trial: a request the feature was answered on, and the same request answered by the trial's
+    * new model, which nobody saw. Called after both answers exist and after both requests' own outcomes have reached
+    * this store, so a pair never names a journal row that is not there. Defaults to keeping nothing, so a store
+    * written before trials compiles and behaves unchanged; an app that opens trials keeps the pair for its judge.
+    */
+  def storeTrialPair(pair: ClaudeTrialPair): Unit = ()
 }
+
+/** One request answered twice: by the model the feature used (`used`, which the caller received) and by `trial`'s new
+  * model (`candidate`, which nobody saw and whose tool calls were never run). Both answers are the FIRST response to
+  * one request -- a tool loop contributes its opening turn -- so a judge compares like with like.
+  *
+  * `usedId` and `candidateId` are the handles the two answers are journaled under: the library's request ids for a
+  * synchronous call (what a [[ClaudeStore]] persists), the `custom_id`s for a batched one. `usedCostUsd` and
+  * `candidateCostUsd` are priced from each response's own usage, so a batched pair is priced at batch rates on both
+  * sides. `candidateRequest` is `request` rebuilt for the new model through the same per-model rules (thinking, effort,
+  * task budget) every request goes through, so the two can differ in exactly those fields and the model.
+  */
+final case class ClaudeTrialPair(
+  trial: AiModelTrial,
+  feature: AiFeature,
+  context: Option[String],
+  usedId: String,
+  request: ClaudeRequest,
+  used: ClaudeResponse,
+  usedCostUsd: BigDecimal,
+  candidateId: String,
+  candidateRequest: ClaudeRequest,
+  candidate: ClaudeResponse,
+  candidateCostUsd: BigDecimal
+)
 
 case object NoopClaudeStore extends ClaudeStore {
   override def storeRequest(request: ClaudeRequestMetadata): Unit = ()
@@ -372,8 +404,12 @@ case object NoopClaudeStore extends ClaudeStore {
 
 @ImplementedBy(classOf[ClaudeClientFactoryImpl])
 trait ClaudeClientFactory {
-  final def instance(env: ClaudeEnvironment, apiKey: String)(store: ClaudeStore, budget: AiBudget): ClaudeClient = {
-    ClaudeClient(getClient(env), ClaudeConfig(apiKey), store, budget)
+  final def instance(env: ClaudeEnvironment, apiKey: String)(
+    store: ClaudeStore,
+    budget: AiBudget,
+    models: AiModels = NoAiModels
+  ): ClaudeClient = {
+    ClaudeClient(getClient(env), ClaudeConfig(apiKey), store, budget, models)
   }
 
   def getClient(env: ClaudeEnvironment): IClient
@@ -660,12 +696,21 @@ final case class ClaudeOutputFormat(
   * failed stores that request's error and fails the `Future` the same way. Each response that comes back is priced
   * ([[ClaudeResponseMetadata.costUsd]]) and its cost handed to [[AiBudget.spent]], so the call that crosses the line
   * completes and the next one is refused.
+  *
+  * Every requested model is resolved through `models` before it is sent ([[AiModels.resolveAll]]): a feature with a
+  * model set in a family sends that version wherever its code names any version of that family, each element of a
+  * fallback list resolved in place so the list keeps its order. And while the feature has an open trial on the model
+  * that answered, a successful call is sent once more, to the trial's new model, after the caller has its answer: the
+  * re-run is charged to the trial's own feature, never returned, never retried, never falls back, and its tool calls
+  * are never run, and the pair goes to [[ClaudeStore.storeTrialPair]]. The default, [[NoAiModels]], sets nothing and
+  * samples nothing, so a client built without it behaves exactly as before.
   */
 case class ClaudeClient(
   client: IClient,
   config: ClaudeConfig,
   store: ClaudeStore,
-  budget: AiBudget
+  budget: AiBudget,
+  aiModels: AiModels = NoAiModels
 ) {
   import ClaudeClient.*
 
@@ -764,8 +809,9 @@ case class ClaudeClient(
     ec: ExecutionContext
   ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[String]]] = {
     withEffortStepDown(request) { req =>
-      tryModels(models) { model =>
+      tryModels(aiModels.resolveAll(feature, models)) { model =>
         chatTextSingle(req.toClaudeRequest(model), context, feature)
+          .map(sampleOnSuccess(feature, defaultHeaders)(req.toClaudeRequest))
       }
     }
   }
@@ -781,8 +827,13 @@ case class ClaudeClient(
     reads: Reads[T]
   ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]] = {
     withEffortStepDown(request) { req =>
-      tryModels(models) { model =>
+      tryModels(aiModels.resolveAll(feature, models)) { model =>
         chatCompletionSingle(req.toClaudeRequest(model), outputFormat, context, feature)
+          .map(
+            sampleOnSuccess(feature, structuredHeaders(outputFormat))(m =>
+              structured(req.toClaudeRequest(m), outputFormat)
+            )
+          )
       }
     }
   }
@@ -916,12 +967,24 @@ case class ClaudeClient(
     finalizeTurn: (ClaudeRequest, Seq[ClaudeMessage]) => Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]]
   )(implicit ec: ExecutionContext): Future[ValidatedNec[ClaudeError, ClaudeToolLoopResult[T]]] = {
     withEffortStepDown(request) { req =>
-      tryModels(models) { model =>
+      tryModels(aiModels.resolveAll(feature, models)) { model =>
         // Bound before `loop`'s own `req` shadows the outer one. `withEffortStepDown` only ever copies the request
         // with a lower effort, so this is the caller's TTL whichever attempt we are on.
         val ttl = req.cacheTtl
         // Every turn resends tools + system + the whole transcript, so the prefix is cached unconditionally here.
-        val base = cacheStaticPrefix(req.toClaudeRequest(model).copy(tools = Some(tools)), ttl)
+        def baseFor(m: ClaudeModel): ClaudeRequest =
+          cacheStaticPrefix(req.toClaudeRequest(m).copy(tools = Some(tools)), ttl)
+        val base = baseFor(model)
+
+        // The loop's opening turn, which is what a trial samples: a pair is one request's first response, so the
+        // re-run is this request on the new model, and the tool calls it asks for are never run.
+        def openingTurn(b: ClaudeRequest): ClaudeRequest =
+          b.copy(
+            messages = cacheConversation(b.messages, ttl),
+            toolChoice = Some(ClaudeToolChoice(ClaudeToolChoiceType.Auto)),
+            outputConfig = b.outputConfig
+          )
+        val opening = new AtomicReference[Option[ClaudeResponseMetadata[ClaudeResponse]]](None)
 
         def finalize(
           messages: Seq[ClaudeMessage],
@@ -950,6 +1013,7 @@ case class ClaudeClient(
             sendRaw(req, defaultHeaders, context, feature).flatMap {
               case Invalid(errors) => Future.successful(Invalid(errors))
               case Valid(rm) =>
+                if (turns == 0) opening.set(Some(rm))
                 val uses = ClaudeClient.toolUses(rm.response)
                 // ANY turn carrying `tool_use` blocks is answered with `tool_result` blocks, whatever
                 // the stop reason says. The API's rule is about the transcript and not about how the
@@ -1008,8 +1072,95 @@ case class ClaudeClient(
           }
         }
 
-        loop(base.messages, 0, 0, Nil, 0)
+        loop(base.messages, 0, 0, Nil, 0).map { result =>
+          result match {
+            case Valid(_) =>
+              opening.get.foreach(first =>
+                sampleAfter(feature, first.request, first.response, defaultHeaders, m => openingTurn(baseFor(m)))
+              )
+            case Invalid(_) => ()
+          }
+          result
+        }
       }
+    }
+  }
+
+  /** `result`, unchanged; when it is an answer, a trial sample is taken of the request that produced it (see
+    * [[sampleAfter]]). `rebuild` makes that same request for another model.
+    */
+  private def sampleOnSuccess[T](feature: AiFeature, headers: Seq[(String, String)])(
+    rebuild: ClaudeModel => ClaudeRequest
+  )(result: ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]])(implicit
+    ec: ExecutionContext
+  ): ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]] = {
+    result match {
+      case Valid(answered) => sampleAfter(feature, answered.request, answered.response, headers, rebuild)
+      case Invalid(_) => ()
+    }
+    result
+  }
+
+  /** Re-sends `used`'s request to the new model of `feature`'s open trial on the model that answered, when one of
+    * today's samples is free ([[AiModels.claimTrialSample]]), and hands the pair to [[ClaudeStore.storeTrialPair]].
+    *
+    * Detached from the caller's `Future` by construction -- this returns `Unit` and the re-run's own `Future` is
+    * observed only to log a failure -- so a trial adds no latency to a call and can change no answer anyone sees. The
+    * re-run goes through [[send]] like any request, so it is budgeted, priced and journaled, under the trial's
+    * `chargedTo` feature; it is sent once, with no fallback and no effort step-down, and a re-run that fails or is
+    * refused makes no pair.
+    */
+  private def sampleAfter(
+    feature: AiFeature,
+    used: ClaudeRequestMetadata,
+    usedResponse: ClaudeResponse,
+    headers: Seq[(String, String)],
+    rebuild: ClaudeModel => ClaudeRequest
+  )(implicit ec: ExecutionContext): Unit = {
+    val claimed =
+      try aiModels.claimTrialSample(feature, used.request.model)
+      catch {
+        case NonFatal(e) =>
+          println(s"Claude trial sample for AI feature[${feature.name}] could not be claimed: $e")
+          None
+      }
+    claimed.foreach { trial =>
+      Future
+        .fromTry(Try(rebuild(trial.toModel)))
+        .flatMap(candidateRequest =>
+          send(candidateRequest, headers, used.context, trial.chargedTo).map(candidateRequest -> _)
+        )
+        .map { case (candidateRequest, Sent(rm, charged, envelope)) =>
+          storeResponse(rm, charged, envelope.map(r => ClaudeResponseMetadata(rm, r, r)))
+          envelope match {
+            case Valid(candidate) =>
+              store.storeTrialPair(
+                ClaudeTrialPair(
+                  trial = trial,
+                  feature = feature,
+                  context = used.context,
+                  usedId = used.id,
+                  request = used.request,
+                  used = usedResponse,
+                  usedCostUsd = ClaudeResponseMetadata.costOf(used.request.model, usedResponse),
+                  candidateId = rm.id,
+                  candidateRequest = candidateRequest,
+                  candidate = candidate,
+                  candidateCostUsd = ClaudeResponseMetadata.costOf(candidateRequest.model, candidate)
+                )
+              )
+            case Invalid(errors) =>
+              println(
+                s"Claude trial[${trial.id}] re-run of AI feature[${feature.name}] on ${trial.toModel} failed, " +
+                  s"no pair kept: ${errors.toList.map(_.message).mkString("; ")}"
+              )
+          }
+        }
+        .onComplete {
+          case Success(()) => ()
+          case Failure(e) =>
+            println(s"Claude trial[${trial.id}] re-run of AI feature[${feature.name}] on ${trial.toModel} failed: $e")
+        }
     }
   }
 
@@ -1243,11 +1394,13 @@ case class ClaudeClient(
     ec: ExecutionContext,
     reads: Reads[T]
   ): Future[ValidatedNec[ClaudeError, ClaudeResponseMetadata[T]]] = {
-    val request = originalRequest.copy(
-      outputConfig = Some(mergeFormat(originalRequest.outputConfig, outputFormat))
-    )
+    val request = structured(originalRequest, outputFormat)
     sendAndStore[T](request, structuredHeaders(outputFormat), context, feature)((rm, resp) => parseText[T](rm, resp))
   }
+
+  /** `request` asking for `format`: what [[chatCompletion]] sends, and so what its trial re-run sends too. */
+  private def structured(request: ClaudeRequest, format: ClaudeOutputFormat): ClaudeRequest =
+    request.copy(outputConfig = Some(mergeFormat(request.outputConfig, format)))
 
   private def chatTextSingle(originalRequest: ClaudeRequest, context: Option[String], feature: AiFeature)(implicit
     ec: ExecutionContext

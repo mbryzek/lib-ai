@@ -20,6 +20,9 @@ import scala.util.{Failure, Success, Try}
 
 object TestClaudeClient {
   val OutputFormatNameHeader: String = "X-Output-Format"
+
+  /** The `created_at` every model in the test client's model list carries. */
+  val ListedAt: DateTime = new DateTime(2026, 1, 1, 0, 0, org.joda.time.DateTimeZone.UTC)
 }
 
 /** Answers every request in-process. [[SimulatedClaudeClient]] is what makes its failures say so: this client raises
@@ -27,7 +30,7 @@ object TestClaudeClient {
   * provider failure once they are read out of a CI log, which is what happened in ISS-2522.
   */
 @Singleton
-class TestClaudeClient extends IClient with ClaudeBatchResults with SimulatedClaudeClient {
+class TestClaudeClient extends IClient with ClaudeBatchResults with ClaudeModelList with SimulatedClaudeClient {
 
   private def getHeader(requestHeaders: Seq[(String, String)], name: String): Option[String] = {
     requestHeaders.find(_._1.toLowerCase.trim == name.toLowerCase.trim).map(_._2).toList.distinct match {
@@ -157,6 +160,32 @@ class TestClaudeClient extends IClient with ClaudeBatchResults with SimulatedCla
   // complete the moment they are created: the point of the double is the RECONCILIATION -- results keyed by custom id,
   // arriving out of order, some of them failed -- not the waiting, which a caller's own poller tests should drive by
   // constructing the batch states they care about.
+
+  /** One page naming every model this library carries, under its own id and family, none dated for retirement. A test
+    * that needs a retirement or a second page overrides this.
+    */
+  override def listModels(
+    afterId: Option[String],
+    requestHeaders: Seq[(String, String)] = Nil
+  ): Future[ClaudeModelPage] = Future.successful {
+    val listed = ClaudeModel.all.map { model =>
+      ClaudeModelInfo(
+        id = model.toString,
+        displayName = model.toString,
+        createdAt = TestClaudeClient.ListedAt,
+        line = ClaudeModelFamily.of(model).map(_.name),
+        lifecycle = Some("active"),
+        deprecatedAt = None,
+        retiresAt = None
+      )
+    }
+    ClaudeModelPage(
+      data = if (afterId.isDefined) Nil else listed,
+      hasMore = false,
+      firstId = None,
+      lastId = None
+    )
+  }
 
   private val batches = new ConcurrentHashMap[String, (ClaudeBatch, Seq[String])]()
   private val batchCounter = new AtomicInteger(0)
