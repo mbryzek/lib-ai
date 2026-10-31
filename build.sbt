@@ -189,7 +189,7 @@ lazy val root = project
     libraryDependencies ++= BryzekPins.logback,
     libraryDependencies ++= Seq(
       ws,
-      "joda-time" % "joda-time" % "2.15.0",
+      "joda-time" % "joda-time" % "2.15.1",
       "com.google.inject" % "guice" % "5.1.0",
       "org.playframework" %% "play-json" % "3.0.6",
       "org.typelevel" %% "cats-core" % "2.13.0",
