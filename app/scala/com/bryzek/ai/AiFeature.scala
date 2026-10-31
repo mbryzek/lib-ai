@@ -1,8 +1,12 @@
 package com.bryzek.ai
 
-/** Whether a person is waiting on each of an [[AiFeature]]'s calls. It decides how going over budget is surfaced, never
-  * how the budget is counted: a background feature's work waits for the next UTC day, and a live feature's caller tells
-  * the waiting person the feature is unavailable until then.
+/** Whether a person is waiting on each of an [[AiFeature]]'s calls, and if not, whether its work can wait. It decides
+  * how going over budget is surfaced, never how the budget is counted: an incoming or background feature's work waits
+  * for the next UTC day, and a live feature's caller tells the waiting person the feature is unavailable until then.
+  *
+  * Incoming and background are kept apart so that a backlog never shares a feature, and so a budget, with work as it
+  * arrives: a backlog worked in a loop spends whatever budget it is given, and on a shared one leaves the day's incoming
+  * work waiting until the reset.
   */
 sealed trait AiFeatureKind
 
@@ -11,10 +15,15 @@ object AiFeatureKind {
   /** A person is waiting on each call (club chat, say). */
   case object Live extends AiFeatureKind
 
+  /** Nobody is waiting on the call, but it serves work as it arrives (categorizing a new transaction, say), so a refused
+    * call leaves today's work undone until tomorrow.
+    */
+  case object Incoming extends AiFeatureKind
+
   /** Works through a backlog; a refused call's task can wait for tomorrow. */
   case object Background extends AiFeatureKind
 
-  val all: List[AiFeatureKind] = List(Live, Background)
+  val all: List[AiFeatureKind] = List(Live, Incoming, Background)
 }
 
 /** The provider account whose credits pay for an [[AiFeature]]'s calls. An app resolves the client it calls with from
