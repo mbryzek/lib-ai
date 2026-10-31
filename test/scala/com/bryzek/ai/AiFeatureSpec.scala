@@ -35,6 +35,12 @@ class AiFeatureSpec extends AnyWordSpec with Matchers {
     }
   }
 
+  "AiFeatureKind" must {
+    "list every kind, so an app mapping them to its own enum is shown the new one" in {
+      AiFeatureKind.all mustBe List(AiFeatureKind.Live, AiFeatureKind.Incoming, AiFeatureKind.Background)
+    }
+  }
+
   "AiFeatureCatalog" must {
     val a = new Feature("a", BigDecimal(1))
     val b = new Feature("b", BigDecimal(2))
