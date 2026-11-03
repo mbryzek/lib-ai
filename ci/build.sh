@@ -13,11 +13,11 @@
 # WHAT IT DOES NOT VOUCH FOR, and this is the important half: THAT ANY CONSUMER
 # STILL COMPILES. Nothing in the fleet builds `platform` or `acumen` against a
 # lib PR's tree. A consumer resolves a RELEASED version out of Maven Central, and
-# no released version exists until a human runs `dev release lib` — which prompts
-# and shells out to GPG, so a merge here publishes nothing. So a PR that retypes
-# a client method is green here and breaks platform at the moment somebody bumps
-# the pin. That break surfaces in the CONSUMER's own version-bump PR, verified by
-# the consumer's own `ci`, which is where `dev release lib` and
+# no released version exists until the library's rollout publishes one
+# (`dev rollout --app lib-ai`), so a merge here publishes nothing. So a PR that
+# retypes a client method is green here and breaks platform at the moment
+# somebody bumps the pin. That break surfaces in the CONSUMER's own version-bump
+# PR, verified by the consumer's own `ci`, which is where the rollout and
 # `Agent::LibraryPin` already put it. Enrolling this repo narrows nothing about
 # that and is not meant to.
 #
