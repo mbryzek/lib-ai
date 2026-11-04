@@ -9,7 +9,7 @@ import com.bryzek.claude.client.IClient
 import com.bryzek.claude.models.*
 import com.bryzek.claude.models.json.*
 import org.joda.time.DateTime
-import play.api.libs.json.{JsObject, JsValue, Json}
+import play.api.libs.json.{JsArray, JsBoolean, JsNumber, JsObject, JsString, JsValue, Json}
 
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
@@ -20,6 +20,50 @@ import scala.util.{Failure, Success, Try}
 
 object TestClaudeClient {
   val OutputFormatNameHeader: String = "X-Output-Format"
+
+  /** Every way `value` breaks `schema`, for the subset of JSON schema [[ClaudeOutputFormats]] writes: `type` (object,
+    * array, string, integer, number, boolean), `properties`, `required`, `additionalProperties: false` and `items`.
+    * Empty when it conforms.
+    */
+  def schemaViolations(schema: JsObject, value: JsValue, path: String = "$"): Seq[String] = {
+    (schema \ "type").asOpt[String] match {
+      case Some("object") =>
+        value match {
+          case obj: JsObject =>
+            val properties = (schema \ "properties").asOpt[JsObject].getOrElse(Json.obj())
+            val required = (schema \ "required").asOpt[Seq[String]].getOrElse(Nil)
+            val closed = (schema \ "additionalProperties").asOpt[Boolean].contains(false)
+            required.filterNot(obj.keys.contains).map(k => s"$path.$k: required but absent") ++
+              obj.keys.toSeq.sorted.flatMap { k =>
+                properties.value.get(k) match {
+                  case Some(sub: JsObject) => schemaViolations(sub, obj.value(k), s"$path.$k")
+                  case _ if closed => Seq(s"$path.$k: not a property of the schema")
+                  case _ => Nil
+                }
+              }
+          case _ => Seq(s"$path: expected an object")
+        }
+      case Some("array") =>
+        value match {
+          case JsArray(items) =>
+            (schema \ "items").asOpt[JsObject] match {
+              case Some(itemSchema) =>
+                items.zipWithIndex.flatMap { case (v, i) => schemaViolations(itemSchema, v, s"$path[$i]") }.toSeq
+              case None => Nil
+            }
+          case _ => Seq(s"$path: expected an array")
+        }
+      case Some("string") => if (value.isInstanceOf[JsString]) Nil else Seq(s"$path: expected a string")
+      case Some("integer") =>
+        value match {
+          case JsNumber(n) if n.isWhole => Nil
+          case _ => Seq(s"$path: expected an integer")
+        }
+      case Some("number") => if (value.isInstanceOf[JsNumber]) Nil else Seq(s"$path: expected a number")
+      case Some("boolean") => if (value.isInstanceOf[JsBoolean]) Nil else Seq(s"$path: expected a boolean")
+      case _ => Nil
+    }
+  }
 
   /** The `created_at` every model in the test client's model list carries. */
   val ListedAt: DateTime = new DateTime(2026, 1, 1, 0, 0, org.joda.time.DateTimeZone.UTC)
@@ -120,7 +164,7 @@ class TestClaudeClient extends IClient with ClaudeBatchResults with ClaudeModelL
           Json.prettyPrint(questionAnswers(body))
         case Some(name) =>
           val format = expectValid { validateOutputFormatByName(name) }
-          Json.prettyPrint(postClaudeRequest(body, format, requestHeaders))
+          Json.prettyPrint(conforming(body, postClaudeRequest(body, format, requestHeaders)))
       }
       response(Seq(ClaudeClient.textBlock(responseText)), ClaudeStopReason.EndTurn)
     }
@@ -274,9 +318,24 @@ class TestClaudeClient extends IClient with ClaudeBatchResults with ClaudeModelL
         val format = ClaudeOutputFormats.all
           .find(_.toApi.schema == schema)
           .getOrElse(sys.error("Could not identify json schema from output_config.format"))
-        Json.prettyPrint(postClaudeRequest(body, expectValid(toTestResponseType(format))))
+        Json.prettyPrint(conforming(body, postClaudeRequest(body, expectValid(toTestResponseType(format)))))
     }
     response(Seq(ClaudeClient.textBlock(responseText)), ClaudeStopReason.EndTurn, ClaudeServiceTier.Batch)
+  }
+
+  /** `response`, once it is proven to be an answer the request's own `output_config.format` allows. Structured outputs
+    * constrain the real model to that schema, so a canned answer outside it is one production can never see: a field
+    * the schema omits (ISS-45418) would read back in tests and never in production.
+    */
+  private def conforming(body: ClaudeRequest, response: JsValue): JsValue = {
+    body.outputConfig.flatMap(_.format).map(_.schema).foreach { schema =>
+      val violations = TestClaudeClient.schemaViolations(schema, response)
+      require(
+        violations.isEmpty,
+        s"Test response does not conform to the output format sent:\n${violations.mkString("\n")}"
+      )
+    }
+    response
   }
 
   private def toTestResponseType(f: ClaudeOutputFormat): ValidatedNec[String, TestResponseFormat] = {
@@ -335,7 +394,8 @@ object TestResponseFormat {
     def buildJs(recommendations: Seq[Recommendation]): JsValue = Json.toJson(
       RecommendationResponse(
         steps = steps,
-        recommendations = recommendations
+        recommendations = recommendations,
+        typeLabel = Some("coffee shop")
       )
     )
 
