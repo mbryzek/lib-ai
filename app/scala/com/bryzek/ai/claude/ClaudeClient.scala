@@ -219,9 +219,9 @@ object AiRequest {
   private[claude] def thinkingFor(model: ClaudeModel, thinking: ClaudeThinkingType): Option[ClaudeThinking] =
     KnownClaudeModel.validate(model).toOption match {
       case Some(KnownClaudeModel.ClaudeFable5 | KnownClaudeModel.ClaudeFable51 | KnownClaudeModel.ClaudeOpus55) =>
-        // Fable 5 and Opus 5.5 reject every explicit thinking config except adaptive (thinking is always on, and
-        // `disabled` is a 400 at every effort level); omitting the field runs adaptive, so a Disabled request cannot
-        // be honored on these models. Effort is the only control.
+        // Fable 5, Fable 5.1 and Opus 5.5 reject every explicit thinking config except adaptive (thinking is always on,
+        // and `disabled` is a 400 at every effort level); omitting the field runs adaptive, so a Disabled request
+        // cannot be honored on these models. Effort is the only control.
         None
       case Some(KnownClaudeModel.ClaudeHaiku45) =>
         // Haiku 4.5 predates adaptive thinking and rejects it ("adaptive thinking is not
