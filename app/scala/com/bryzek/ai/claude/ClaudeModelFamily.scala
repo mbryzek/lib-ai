@@ -30,6 +30,6 @@ object ClaudeModelFamily {
       case KnownClaudeModel.ClaudeHaiku45 | KnownClaudeModel.ClaudeHaiku55 => Haiku
       case KnownClaudeModel.ClaudeSonnet5 | KnownClaudeModel.ClaudeSonnet55 => Sonnet
       case KnownClaudeModel.ClaudeOpus5 | KnownClaudeModel.ClaudeOpus55 => Opus
-      case KnownClaudeModel.ClaudeFable5 => Fable
+      case KnownClaudeModel.ClaudeFable5 | KnownClaudeModel.ClaudeFable51 => Fable
     }
 }

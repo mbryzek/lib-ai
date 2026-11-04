@@ -10,7 +10,8 @@
                 { "name": "claude-haiku-5-5" },
                 { "name": "claude-opus-5" },
                 { "name": "claude-opus-5-5" },
-                { "name": "claude-fable-5" }
+                { "name": "claude-fable-5" },
+                { "name": "claude-fable-5-1" }
             ]
         },
         "claude_role": {
