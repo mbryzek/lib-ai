@@ -1443,6 +1443,11 @@ case class ClaudeClient(
     ClaudeContent.requireText(rm.error, response).map(text => ClaudeResponseMetadata(rm, response, text))
 }
 
+/** The structured output schemas lib-ai sends Claude. Each is the JSON schema of the apibuilder model of the same name
+  * in `spec/claude-response.json`, written out by hand; `ClaudeOutputFormatsSpec` holds every one to its model, field
+  * for field, so a field added to a model and missing here fails the build instead of silently never being returned
+  * (structured outputs constrain decoding to this schema, and `additionalProperties` is false). ISS-45418
+  */
 object ClaudeOutputFormats {
   def create(name: String, properties: JsObject, required: Seq[String]): ClaudeOutputFormat = {
     ClaudeOutputFormat(
@@ -1498,7 +1503,8 @@ object ClaudeOutputFormats {
           "required" -> Json.arr("category", "confidence"),
           "additionalProperties" -> false
         )
-      )
+      ),
+      "type_label" -> Json.obj("type" -> "string")
     ),
     Seq("steps", "recommendations")
   )
