@@ -333,14 +333,19 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       out.outputConfig.flatMap(_.taskBudget).map(_.`type`) mustBe Some(ClaudeTaskBudgetType.Tokens)
       out.maxTokens mustBe 128000L
 
-      Seq(ClaudeModel.ClaudeSonnet55, ClaudeModel.ClaudeOpus5, ClaudeModel.ClaudeOpus55, ClaudeModel.ClaudeFable5)
-        .foreach { model =>
-          AiRequest(messages = Nil, maxTokens = 128000L)
-            .toClaudeRequest(model)
-            .outputConfig
-            .flatMap(_.taskBudget)
-            .map(_.total) mustBe Some(96000L)
-        }
+      Seq(
+        ClaudeModel.ClaudeSonnet55,
+        ClaudeModel.ClaudeOpus5,
+        ClaudeModel.ClaudeOpus55,
+        ClaudeModel.ClaudeFable5,
+        ClaudeModel.ClaudeFable51
+      ).foreach { model =>
+        AiRequest(messages = Nil, maxTokens = 128000L)
+          .toClaudeRequest(model)
+          .outputConfig
+          .flatMap(_.taskBudget)
+          .map(_.total) mustBe Some(96000L)
+      }
     }
 
     "toClaudeRequest omits the task budget where it would be rejected" in {
@@ -433,12 +438,14 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       seen.result() mustBe List(None, Some(ClaudeEffort.Medium))
     }
 
-    "toClaudeRequest omits the thinking field entirely for Fable 5" in {
-      // Fable 5 rejects any explicit thinking config except adaptive; omitting runs adaptive.
-      AiRequest(messages = Nil).toClaudeRequest(ClaudeModel.ClaudeFable5).thinking mustBe None
-      AiRequest(messages = Nil, thinking = ClaudeThinkingType.Disabled)
-        .toClaudeRequest(ClaudeModel.ClaudeFable5)
-        .thinking mustBe None
+    "toClaudeRequest omits the thinking field entirely for Fable 5 and Fable 5.1" in {
+      // Fable rejects any explicit thinking config except adaptive; omitting runs adaptive.
+      Seq(ClaudeModel.ClaudeFable5, ClaudeModel.ClaudeFable51).foreach { model =>
+        AiRequest(messages = Nil).toClaudeRequest(model).thinking mustBe None
+        AiRequest(messages = Nil, thinking = ClaudeThinkingType.Disabled)
+          .toClaudeRequest(model)
+          .thinking mustBe None
+      }
     }
 
     "toClaudeRequest omits the thinking field entirely for Opus 5.5" in {
