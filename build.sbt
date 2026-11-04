@@ -1,6 +1,6 @@
 name := "lib-ai"
 
-version := "0.2.24"
+version := "0.2.25"
 
 // Publishing metadata, the guava pin, the browser-stack exclusions, the compiler gate and the
 // root project's test reporting are shared by every lib-* repository and DECLARED in
