@@ -4,6 +4,5 @@ resolvers += "Typesafe repository" at "https://repo.typesafe.com/typesafe/releas
 
 addSbtPlugin("org.scalameta" % "sbt-scalafmt" % "2.6.1")
 addSbtPlugin("com.github.sbt" % "sbt-pgp" % "2.3.1")
-addSbtPlugin("org.xerial.sbt" % "sbt-sonatype" % "3.12.2")
 
 addSbtPlugin("org.playframework" % "sbt-plugin" % "3.0.12")

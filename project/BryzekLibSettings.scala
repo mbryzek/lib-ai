@@ -1,7 +1,6 @@
 import org.scalafmt.sbt.ScalafmtPlugin.autoImport._
 import sbt.Keys._
 import sbt._
-import xerial.sbt.Sonatype.autoImport._
 
 /** The build settings every lib-* repository shares: publishing metadata, the guava pin, the
   * browser-stack exclusions, the compiler gate and the root project's test reporting.
@@ -35,8 +34,9 @@ import xerial.sbt.Sonatype.autoImport._
   */
 object BryzekLibSettings {
 
-  /** Build-wide settings: the publishing coordinates and metadata Maven Central requires, the guava
-    * pin and the browser-stack exclusions. Placed at the top level of build.sbt.
+  /** Build-wide settings: the publishing coordinates and metadata, the local staging directory a
+    * release uploads from, the guava pin and the browser-stack exclusions. Placed at the top level
+    * of build.sbt.
     */
   def buildSettings(repo: String): Seq[Setting[_]] = publishing(repo) ++ Seq(
     ThisBuild / dependencyOverrides += guava,
@@ -77,9 +77,14 @@ object BryzekLibSettings {
     ThisBuild / scmInfo := Some(
       ScmInfo(url(s"https://github.com/mbryzek/$repo"), s"scm:git@github.com:mbryzek/$repo.git")
     ),
-    ThisBuild / publishTo := sonatypePublishToBundle.value,
-    ThisBuild / sonatypeCredentialHost := "central.sonatype.com",
-    ThisBuild / sonatypeRepository := "https://central.sonatype.com/api/v1/publisher"
+    // `+publishSigned` writes the signed version into this directory, Maven-style, and a release
+    // (`dev rollout release lib`) uploads it to the Maven repository at maven.bryzek.com
+    // (DES-35972). Nothing here talks to a remote repository.
+    ThisBuild / publishTo := Some(
+      Resolver.file("maven-staging", (ThisBuild / baseDirectory).value / "target" / "maven-staging")(
+        Resolver.mavenStylePatterns
+      )
+    )
   )
 
   // com.google.guava:guava resolves to 33.7.2-jre or above, in every subproject.
