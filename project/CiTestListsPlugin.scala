@@ -14,7 +14,7 @@ import scala.util.control.NonFatal
   *     quarantined and slow spec, leave out nothing when the variable is unset, and with
   *     `CI_SLOW_SPECS=1` run the slow specs alone;
   *   - `ciListsUnknown`, which prints `ci-lists: unknown <spec>` for a listed spec no subproject
-  *     defines, and never fails, since `ci/build.sh` runs it ahead of `test` in one invocation;
+  *     defines, and never fails, since the build script runs it ahead of `test` in one invocation;
   *   - `ciProof [<alone> <beside>]`, which runs each `proof` spec `<alone>` times alone and `<beside>` times with
   *     the rest of its subproject's specs, leaves a report per run and fails if any run failed.
   *     Each run is named in the system property `CiTestLists.ProofRunProperty` while it runs, so a
