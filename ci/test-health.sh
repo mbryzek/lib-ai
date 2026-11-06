@@ -1,14 +1,15 @@
 # Test Health for an sbt build (ISS-19887, design DES-18577 "Every repository with CI").
 #
-# SOURCED by ci/build.sh, never run: it defines functions and runs nothing. This file is a copy of
-# devops templates/sbt-test-health/ci/test-health.sh, held to it by the repository's ci/build.sh
+# SOURCED by the build script (ci/build.slow.sh or ci/build.fast.sh), never run: it defines
+# functions and runs nothing. This file is a copy of devops
+# templates/sbt-test-health/ci/test-health.sh, held to it by the repository's build script
 # with the three project/ files beside it; edit it there.
 #
 # The four lines of the contract, and where each one lives:
 #
-#   1. reports  ci/build.sh declares `# ci-test-reports: <glob>`, where sbt leaves a JUnit report
+#   1. reports  the build script declares `# ci-test-reports: <glob>`, where sbt leaves a JUnit report
 #               per suite (`<subproject>/target/test-reports/TEST-<suite>.xml`).
-#   2. lists    ci/build.sh declares `# ci-test-lists: required`. `ci_test_health_sbt` below reads
+#   2. lists    the build script declares `# ci-test-lists: required`. `ci_test_health_sbt` below reads
 #               the file `CI_TEST_LISTS` names and prints the `ci-lists:` line; sbt reads the same
 #               file (project/CiTestListsPlugin.scala) and leaves out every quarantined and slow spec.
 #   3. slow     `CI_SLOW_SPECS=1` inverts that filter to the slow specs alone.
