@@ -5,14 +5,14 @@ version := "0.2.81"
 // Publishing metadata, the guava pin, the browser-stack exclusions, the compiler gate and the
 // root project's test reporting are shared by every lib-* repository and DECLARED in
 // project/BryzekLibSettings.scala, a copy of devops's
-// templates/scala-libs/project/BryzekLibSettings.scala that ci/build.sh holds byte-identical to
+// templates/scala-libs/project/BryzekLibSettings.scala that ci/build.fast.sh holds byte-identical to
 // it. That file carries why each setting is what it is; a change is edited there and copied here.
 BryzekLibSettings.buildSettings("lib-ai")
 
 ThisBuild / scalaVersion := "3.8.4"
 
 // The Jackson 2, Jackson 3 and logback security pins are DECLARED in project/BryzekPins.scala, a
-// copy of devops's templates/scala-libs/project/BryzekPins.scala that ci/build.sh holds
+// copy of devops's templates/scala-libs/project/BryzekPins.scala that ci/build.fast.sh holds
 // byte-identical to it, together with the pin specs under test/scala/com/bryzek/pins. That
 // file carries why each floor is what it is; an advisory bump is edited there and copied here.
 //
