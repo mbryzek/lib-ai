@@ -17,6 +17,8 @@ import scala.util.control.NonFatal
   *     defines, and never fails, since `ci/build.sh` runs it ahead of `test` in one invocation;
   *   - `ciProof [<alone> <beside>]`, which runs each `proof` spec `<alone>` times alone and `<beside>` times with
   *     the rest of its subproject's specs, leaves a report per run and fails if any run failed.
+  *     Each run is named in the system property `CiTestLists.ProofRunProperty` while it runs, so a
+  *     repository whose test tasks each open a fresh database can keep one across the alone runs.
   *
   * An AutoPlugin on every project, for the reason `TestDatabasePlugin` is one: a subproject added
   * next year must not be able to forget the filter, because forgetting it runs a quarantined spec.
@@ -155,15 +157,22 @@ object CiTestListsPlugin extends AutoPlugin {
 
     def run(mode: String, index: Int, current: State): (State, Boolean) = {
       IO.delete(reports)
-      val next = (mode match {
-        case "alone" => attempt(extracted.runInputTask(ref / Test / testOnly, s" $spec", current)).map(_._1)
-        case _ => attempt(extracted.runTask(ref / Test / test, current)).map(_._1)
-      }).getOrElse(current)
+      val of = if (mode == "alone") runs._1 else runs._2
+      // Read by the repository's own test machinery, never by this plugin: see `ProofRunProperty`.
+      val _ = System.setProperty(CiTestLists.ProofRunProperty, CiTestLists.proofRun(mode, index, of))
+      val next =
+        try {
+          (mode match {
+            case "alone" => attempt(extracted.runInputTask(ref / Test / testOnly, s" $spec", current)).map(_._1)
+            case _ => attempt(extracted.runTask(ref / Test / test, current)).map(_._1)
+          }).getOrElse(current)
+        } finally {
+          val _ = System.clearProperty(CiTestLists.ProofRunProperty)
+        }
       val report = reports / CiTestLists.reportName(spec)
       val xml = if (report.isFile) IO.read(report) else CiTestLists.missingReport(spec)
       IO.write(kept / CiTestLists.proofReportName(mode, index, spec), xml)
       val passed = CiTestLists.reportPassed(xml)
-      val of = if (mode == "alone") runs._1 else runs._2
       println(s"ci-proof: $spec $mode $index/$of ${if (passed) "passed" else "failed"}")
       (next, passed)
     }

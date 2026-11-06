@@ -33,6 +33,23 @@ object CiTestLists {
   def proofAttempts(alone: Int, beside: Int): Seq[(String, Int)] =
     (1 to alone).map(i => ("alone", i)) ++ (1 to beside).map(i => ("load", i))
 
+  /** The sbt JVM's system property that names the proof run under way, as [[proofRun]] writes it,
+    * set by `ciProof` for the length of each run and cleared after it. Absent on every other run.
+    *
+    * It is how a repository's own test machinery learns that a run is one of a proof's, and the
+    * one thing it is for: a build whose every test task gets a database of its own (platform's
+    * lanes) would otherwise prove a spec on an empty database five times over, which is the one
+    * condition no build of a pull request runs it under. There, an earlier spec on its shard, or
+    * the spec's own first attempt before its rerun, has always left rows behind, and a fix that
+    * holds only on an empty database is released and flakes again (ISS-47188). Knowing which run
+    * it is, such a repository keeps one database across the alone runs, so each run meets what the
+    * ones before it left. A repository whose runs already share one database reads nothing here.
+    */
+  val ProofRunProperty: String = "ci.proof.run"
+
+  /** `<mode> <index> <of>`: `alone 2 5` is the second of five runs alone. */
+  def proofRun(mode: String, index: Int, of: Int): String = s"$mode $index $of"
+
   final case class Lists(version: String, quarantined: Set[String], slow: Set[String], proof: Set[String]) {
     def listed: Set[String] = quarantined ++ slow ++ proof
   }
