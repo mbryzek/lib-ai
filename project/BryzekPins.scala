@@ -3,7 +3,7 @@ import sbt._
 /** The security pins every lib-* build resolves against: Jackson 2, Jackson 3 and logback.
   *
   * THIS FILE IS OWNED BY devops (templates/scala-libs/project/BryzekPins.scala) AND COPIED
-  * VERBATIM into each lib's `project/`. Each lib's `ci/build.sh` diffs its copy against devops's
+  * VERBATIM into each lib's `project/`. Each lib's `ci/build.fast.sh` diffs its copy against devops's
   * `main` and fails on any difference, so an advisory bump is one edit there plus one copy per
   * repo, and a copy that is not taken fails that repo's `ci` rather than drifting. Edit it there,
   * never here:

@@ -9,7 +9,7 @@ version := "0.2.82"
 // it. That file carries why each setting is what it is; a change is edited there and copied here.
 BryzekLibSettings.buildSettings("lib-ai")
 
-ThisBuild / scalaVersion := "3.8.4"
+ThisBuild / scalaVersion := "3.10.0"
 
 // The Jackson 2, Jackson 3 and logback security pins are DECLARED in project/BryzekPins.scala, a
 // copy of devops's templates/scala-libs/project/BryzekPins.scala that ci/build.fast.sh holds

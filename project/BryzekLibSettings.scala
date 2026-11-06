@@ -6,7 +6,7 @@ import sbt._
   * browser-stack exclusions, the compiler gate and the root project's test reporting.
   *
   * THIS FILE IS OWNED BY devops (templates/scala-libs/project/BryzekLibSettings.scala) AND COPIED
-  * VERBATIM into each lib's `project/`. Each lib's `ci/build.sh` diffs its copy against devops's
+  * VERBATIM into each lib's `project/`. Each lib's `ci/build.fast.sh` diffs its copy against devops's
   * `main` and fails on any difference, so a change here is one edit plus one copy per repo, and a
   * copy that is not taken fails that repo's `ci` rather than drifting. Edit it there, never here:
   *
