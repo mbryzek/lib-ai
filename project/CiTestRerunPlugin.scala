@@ -34,7 +34,7 @@ import scala.util.control.NonFatal
   * ceiling is a share of it, and a rerun is not the phase every pull request waits on.
   *
   * This file is a copy of devops `templates/sbt-test-health/project/CiTestRerunPlugin.scala`, held
-  * to it by the repository's `ci/build.sh`; edit it there.
+  * to it by the repository's build script (`ci/build.slow.sh` or `ci/build.fast.sh`); edit it there.
   */
 object CiTestRerunPlugin extends AutoPlugin {
 
