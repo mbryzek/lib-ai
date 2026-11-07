@@ -10,6 +10,10 @@ BryzekLibSettings.buildSettings("lib-ai")
 
 ThisBuild / scalaVersion := "3.10.0"
 
+// lib-build-testkit (the pin suites, Test scope) is published to the Bryzek Maven repository, not
+// Maven Central. project/plugins.sbt names the same resolver for the meta-build.
+ThisBuild / resolvers += "Bryzek Maven repository" at "https://maven.bryzek.com"
+
 // The Jackson 2, Jackson 3 and logback security pins are DECLARED in BryzekPins, published by
 // mbryzek/lib-build as lib-build-sbt (project/plugins.sbt), and asserted against this build's own
 // resolution by the pin specs under test/scala/com/bryzek/pins, subclasses of lib-build-testkit's
