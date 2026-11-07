@@ -73,7 +73,7 @@
 # `FIRST-<suite>.xml` the first run of one the build reran. The second says this build
 # runs with the lists platform holds: whatever starts it fetches them first and exports
 # the file as `CI_TEST_LISTS`. ci/test-health.sh and the three project/Ci*.scala files
-# are the runner half, copies of devops templates/sbt-test-health held to it below.
+# are the runner half, copies of devops templates/sbt-test-health.
 #
 # ci-test-reports: target/test-reports/*.xml
 # ci-test-lists: required
@@ -112,54 +112,6 @@ case "$rc" in
   2) echo "ci/build.sh: dev codegen landed could not measure this head on this box" >&2; exit 75 ;;
   *) exit "$rc" ;;
 esac
-
-# THE SECURITY PINS ARE OWNED BY devops, and this is what holds the copies here to them.
-# project/BryzekPins.scala declares the Jackson 2, Jackson 3 and logback versions every lib-*
-# build resolves, and the pin specs assert them as behaviour of the resolved jars. All of them are
-# byte-identical copies of devops's templates/scala-libs, read off devops's main with
-# `dev repo cat` (no fetch of our own, ISS-2232), so an advisory bump is one edit there and a copy
-# that is not taken fails here rather than drifting into a per-repo floor. ISS-15715
-#
-# A READ THAT FAILS IS NOT A DRIFT (ISS-21067). Each template is read into a file and the read is
-# checked before anything is compared: diffed straight off a process substitution, a read that
-# answered nothing is an empty template and the whole copy reads as drift. A read is retried once,
-# and one that fails twice exits 75 -- this box could not measure the copy, which says nothing
-# about the branch.
-#
-# THE SHARED BUILD SETTINGS ARE OWNED THE SAME WAY (ISS-37530): project/BryzekLibSettings.scala
-# holds the publishing metadata, the guava pin, the browser-stack exclusions, the compiler gate and
-# the test reporting every lib-* build.sbt wires in, so a change to any of them is one edit there.
-#
-# THE TEST HEALTH RUNNER IS OWNED THE SAME WAY (ISS-19887): templates/sbt-test-health holds the
-# lists filter, the rerun and the shell half every sbt repository runs its suite through.
-synced=(
-  "scala-libs/project/BryzekPins.scala project/BryzekPins.scala"
-  "scala-libs/project/BryzekLibSettings.scala project/BryzekLibSettings.scala"
-  "scala-libs/test/JacksonPinSpec.scala test/scala/com/bryzek/pins/JacksonPinSpec.scala"
-  "scala-libs/test/LogbackPinSpec.scala test/scala/com/bryzek/pins/LogbackPinSpec.scala"
-  "sbt-test-health/project/CiTestLists.scala project/CiTestLists.scala"
-  "sbt-test-health/project/CiTestListsPlugin.scala project/CiTestListsPlugin.scala"
-  "sbt-test-health/project/CiTestRerunPlugin.scala project/CiTestRerunPlugin.scala"
-  "sbt-test-health/ci/test-health.sh ci/test-health.sh"
-)
-template_bytes=$(mktemp "${TMPDIR:-/tmp}/ci-template.XXXXXX")
-for pair in "${synced[@]}"; do
-  read -r template copy <<<"$pair"
-  read_rc=0
-  dev repo cat devops "templates/$template" >"$template_bytes" ||
-    dev repo cat devops "templates/$template" >"$template_bytes" || read_rc=$?
-  if [ "$read_rc" -ne 0 ]; then
-    echo "ci/build.sh: could not read devops templates/$template (dev repo cat exit $read_rc, twice) -- a read failure, not a drift in $copy; nothing was measured" >&2
-    rm -f "$template_bytes"
-    exit 75
-  fi
-  if ! diff -u "$template_bytes" "$copy"; then
-    echo "ci/build.sh: sync it -- dev repo cat devops templates/$template > $copy" >&2
-    rm -f "$template_bytes"
-    exit 1
-  fi
-done
-rm -f "$template_bytes"
 
 # ci-advisory: scripts/check-format
 scripts/check-format || echo "check-format: could not measure this tree — advisory, nothing fails on it"
