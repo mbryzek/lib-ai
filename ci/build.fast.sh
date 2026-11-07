@@ -46,7 +46,7 @@
 # FORMATTING IS REPORTED, NEVER ENFORCED (ISS-19427). A build fails only for a
 # functional problem, and an unformatted file behaves exactly as its formatted
 # copy does. `scalafmtOnCompile := true` formats `app/` and `test/`, and
-# `scripts/check-format` (a copy of devops templates/ci/check-format, which runs
+# `dev ci step check-format` (the devops release's format check, which runs
 # `dev fmt report`: the native scalafmt CLI over the sources AND `build.sbt`,
 # which nothing else formats) prints every unformatted file and exits 0. The
 # hygiene sweep runs it over `main` and fixes what it finds.
@@ -72,8 +72,8 @@
 # fleet writes the test ledger from: `TEST-<suite>.xml` is the build's run of a suite,
 # `FIRST-<suite>.xml` the first run of one the build reran. The second says this build
 # runs with the lists platform holds: whatever starts it fetches them first and exports
-# the file as `CI_TEST_LISTS`. ci/test-health.sh and the three project/Ci*.scala files
-# are the runner half, copies of devops templates/sbt-test-health held to it below.
+# the file as `CI_TEST_LISTS`. The runner half is devops templates/sbt-test-health: the shell
+# half sourced from the devops release below, the three project/Ci*.scala files copies held to it.
 #
 # ci-test-reports: target/test-reports/*.xml
 # ci-test-lists: required
@@ -131,7 +131,7 @@ esac
 # the test reporting every lib-* build.sbt wires in, so a change to any of them is one edit there.
 #
 # THE TEST HEALTH RUNNER IS OWNED THE SAME WAY (ISS-19887): templates/sbt-test-health holds the
-# lists filter, the rerun and the shell half every sbt repository runs its suite through.
+# lists filter and the rerun every sbt repository runs its suite through.
 synced=(
   "scala-libs/project/BryzekPins.scala project/BryzekPins.scala"
   "scala-libs/project/BryzekLibSettings.scala project/BryzekLibSettings.scala"
@@ -140,7 +140,6 @@ synced=(
   "sbt-test-health/project/CiTestLists.scala project/CiTestLists.scala"
   "sbt-test-health/project/CiTestListsPlugin.scala project/CiTestListsPlugin.scala"
   "sbt-test-health/project/CiTestRerunPlugin.scala project/CiTestRerunPlugin.scala"
-  "sbt-test-health/ci/test-health.sh ci/test-health.sh"
 )
 template_bytes=$(mktemp "${TMPDIR:-/tmp}/ci-template.XXXXXX")
 for pair in "${synced[@]}"; do
@@ -162,13 +161,14 @@ done
 rm -f "$template_bytes"
 
 # ci-advisory: scripts/check-format
-scripts/check-format || echo "check-format: could not measure this tree — advisory, nothing fails on it"
+dev ci step check-format || echo "check-format: could not measure this tree — advisory, nothing fails on it"
 
 # THE SUITE, WITH TEST HEALTH (ISS-19887). `ci_test_health_sbt` prints the `ci-lists:` line for
 # the lists `CI_TEST_LISTS` names (exiting 75 on a file that is not one, or on `CI_SLOW_SPECS=1`
 # with none), and `ciTest` runs every spec the lists leave in -- the slow ones alone under
 # `CI_SLOW_SPECS=1` -- then reruns each spec that failed once, printing `ci-flake:` per spec that
 # passed the second time and `ci-rerun: done`. A spec that fails twice fails the build.
-source ci/test-health.sh
+ci_th=$(dev ci template sbt-test-health/ci/test-health.sh) || exit 75
+source "$ci_th"
 ci_test_health_sbt
 sbt -Dsbt.log.noformat=true "${ci_sbt_test_commands[@]}"
