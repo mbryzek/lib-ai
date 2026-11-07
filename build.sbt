@@ -4,17 +4,17 @@ version := "0.2.84"
 
 // Publishing metadata, the guava pin, the browser-stack exclusions, the compiler gate and the
 // root project's test reporting are shared by every lib-* repository and DECLARED in
-// project/BryzekLibSettings.scala, a copy of devops's
-// templates/scala-libs/project/BryzekLibSettings.scala that ci/build.fast.sh holds byte-identical to
-// it. That file carries why each setting is what it is; a change is edited there and copied here.
+// BryzekLibSettings, published by mbryzek/lib-build as lib-build-sbt (project/plugins.sbt). That
+// source carries why each setting is what it is; a change is released there and bumped here.
 BryzekLibSettings.buildSettings("lib-ai")
 
 ThisBuild / scalaVersion := "3.10.0"
 
-// The Jackson 2, Jackson 3 and logback security pins are DECLARED in project/BryzekPins.scala, a
-// copy of devops's templates/scala-libs/project/BryzekPins.scala that ci/build.fast.sh holds
-// byte-identical to it, together with the pin specs under test/scala/com/bryzek/pins. That
-// file carries why each floor is what it is; an advisory bump is edited there and copied here.
+// The Jackson 2, Jackson 3 and logback security pins are DECLARED in BryzekPins, published by
+// mbryzek/lib-build as lib-build-sbt (project/plugins.sbt), and asserted against this build's own
+// resolution by the pin specs under test/scala/com/bryzek/pins, subclasses of lib-build-testkit's
+// suites. That source carries why each floor is what it is; an advisory bump is released there
+// and bumped here.
 //
 // Applied as `dependencyOverrides`, which governs THIS build's resolution only -- sbt writes none
 // of it into the published POM -- so it decides what this repo compiles and tests against and
@@ -79,6 +79,10 @@ lazy val root = project
       "com.google.inject" % "guice" % "5.1.0",
       "org.playframework" %% "play-json" % "3.0.6",
       "org.typelevel" %% "cats-core" % "2.13.0",
-      "org.scalatestplus.play" %% "scalatestplus-play" % "7.0.2" % Test
+      "org.scalatestplus.play" %% "scalatestplus-play" % "7.0.2" % Test,
+      // The suites the pin specs under test/scala/com/bryzek/pins subclass. Every dependency of
+      // it is Provided, so each suite runs against what this build resolves. Same version as lib-build-sbt in
+      // project/plugins.sbt.
+      "com.bryzek" %% "lib-build-testkit" % "0.0.1" % Test
     )
   )
