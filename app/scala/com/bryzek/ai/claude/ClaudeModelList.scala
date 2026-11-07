@@ -12,7 +12,7 @@ import scala.concurrent.{ExecutionContext, Future}
 /** Reading Anthropic's model list, `GET /v1/models`.
   *
   * Hand-written transport over the generated [[ClaudeModelPage]], in the shape of [[ClaudeBatchResults]]. The wire
-  * contract is in `spec/claude.json`; the operation is not, because a resource there adds an abstract operation to the
+  * contract is in api's `spec/ai/claude.json`; the operation is not, because a resource there adds an abstract operation to the
   * generated `IClient`, which consumers implement in their own test doubles, and a library release they cannot compile
   * against is not one they can take.
   */

@@ -2,19 +2,18 @@ package com.bryzek.ai.claude
 
 import com.bryzek.claude.models.{ClaudeModel, ClaudeRequest, ClaudeResponse, ClaudeRole}
 import com.bryzek.ai.UnlimitedAiBudget
-import helpers.{FutureHelpers, TestAiFeature}
+import helpers.{ApiSpecs, FutureHelpers, TestAiFeature}
 import org.apache.pekko.util.Timeout
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 import play.api.libs.json.{JsObject, Json}
 
-import java.nio.file.{Files, Paths}
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 import scala.concurrent.duration.{FiniteDuration, SECONDS}
 
 /** Every structured output schema [[ClaudeOutputFormats]] sends is the JSON schema of the apibuilder model of the same
-  * name in `spec/claude-response.json`. The schema is written by hand, and structured outputs constrain the model to
+  * name in api's `spec/ai/claude-response.json`. The schema is written by hand, and structured outputs constrain the model to
   * it, so a field the model gains and the schema lacks is a field Claude can never return: ISS-45418, where
   * `recommendation_response.type_label` was parsed and never sent.
   */
@@ -23,7 +22,7 @@ class ClaudeOutputFormatsSpec extends AnyWordSpec with Matchers with FutureHelpe
   private implicit val timeout: Timeout = FiniteDuration(30, SECONDS)
 
   private val models: Map[String, JsObject] =
-    (Json.parse(Files.readString(Paths.get("spec/claude-response.json"))) \ "models").as[Map[String, JsObject]]
+    (Json.parse(ApiSpecs.read("spec/ai/claude-response.json")) \ "models").as[Map[String, JsObject]]
 
   private case class Field(name: String, `type`: String, required: Boolean)
 

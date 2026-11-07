@@ -22,7 +22,7 @@
 # that and is not meant to.
 #
 # AND IT VOUCHES FOR NOTHING ABOUT api.anthropic.com. This repo is service-shaped
-# — `spec/`, `app/`, `test/`, a `.api` config — but every one of its Claude tests
+# — `app/`, `test/`, a `.api` config — but every one of its Claude tests
 # runs against captured wire fixtures and a `TestClaudeClient`, with no network
 # call and no credential. That is the property that makes it verifiable by an
 # unattended job at all, and it means a green here says the client still parses
