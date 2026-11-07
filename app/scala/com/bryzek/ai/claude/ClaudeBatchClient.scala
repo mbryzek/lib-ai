@@ -23,7 +23,7 @@ import scala.util.Try
   * and apibuilder has no response type for a newline-delimited stream. Everything else about batches IS in the spec and
   * IS generated; this is the exception, and it is deliberately the smallest possible one: it returns the raw lines and
   * lets [[ClaudeBatchClient]] parse them into the generated [[ClaudeBatchResult]], so the wire contract still lives in
-  * `spec/claude.json` and only the transport is hand-rolled.
+  * api's `spec/ai/claude.json` and only the transport is hand-rolled.
   */
 trait ClaudeBatchResults {
 

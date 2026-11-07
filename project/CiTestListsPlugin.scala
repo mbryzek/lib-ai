@@ -119,7 +119,7 @@ object CiTestListsPlugin extends AutoPlugin {
               .foreach { spec =>
                 println(s"ci-lists: unknown $spec")
               }
-            proveAll(next, CiTestLists.proofPlan(l, defined), runs)
+            proveAll(next, CiTestLists.proofPlan(l, defined, CiTestLists.shardSuites(sys.env)), runs)
         }
     }
   }

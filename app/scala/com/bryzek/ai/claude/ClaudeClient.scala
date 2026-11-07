@@ -1444,7 +1444,7 @@ case class ClaudeClient(
 }
 
 /** The structured output schemas lib-ai sends Claude. Each is the JSON schema of the apibuilder model of the same name
-  * in `spec/claude-response.json`, written out by hand; `ClaudeOutputFormatsSpec` holds every one to its model, field
+  * in api's `spec/ai/claude-response.json`, written out by hand; `ClaudeOutputFormatsSpec` holds every one to its model, field
   * for field, so a field added to a model and missing here fails the build instead of silently never being returned
   * (structured outputs constrain decoding to this schema, and `additionalProperties` is false). ISS-45418
   */

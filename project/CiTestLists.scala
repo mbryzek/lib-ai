@@ -104,12 +104,41 @@ object CiTestLists {
 
   /** Each proof spec with the subproject that defines it, in a stable order. A proof spec no
     * subproject defines is not here: the pull request deleted it, and there is nothing to prove.
+    *
+    * ON ONE SHARD OF A SPLIT BUILD, ONLY THE SHARD'S OWN (ISS-48415). `shard` is the suites the
+    * shard was handed ([[shardSuites]]): a proof spec another shard holds is proved there, and here
+    * the shard's narrowing would leave its runs nothing to run and fail them for want of a report.
     */
-  def proofPlan(lists: Lists, definedByProject: Map[String, Set[String]]): Seq[(String, String)] =
+  def proofPlan(
+    lists: Lists,
+    definedByProject: Map[String, Set[String]],
+    shard: Option[Set[String]] = None
+  ): Seq[(String, String)] =
     for {
-      spec <- lists.proof.toSeq.sorted
+      spec <- lists.proof.toSeq.sorted if shard.forall(_(spec))
       project <- definedByProject.toSeq.sortBy(_._1).collectFirst { case (id, specs) if specs(spec) => id }.toSeq
     } yield (project, spec)
+
+  /** What a runner exports to make a build one shard of a split build: a file naming the suites the
+    * shard runs, one per line, blank and `#` lines skipped. A repository that splits its build
+    * narrows every test task to them; [[proofPlan]] narrows the proof to them too. Unset, a build
+    * is whole.
+    */
+  val ShardSuitesEnvVar: String = "CI_SHARD_SUITES"
+
+  /** The suites a [[ShardSuitesEnvVar]] file names. */
+  def parseShardSuites(text: String): Set[String] =
+    text.split("\n", -1).toSeq.map(_.trim).filter(l => l.nonEmpty && !l.startsWith("#")).toSet
+
+  /** The suites this run is one shard of, when `env` names a [[ShardSuitesEnvVar]] file. A file that
+    * cannot be read fails the caller: a shard told which suites to run must not run every one.
+    */
+  def shardSuites(env: Map[String, String]): Option[Set[String]] =
+    env.get(ShardSuitesEnvVar).map(_.trim).filter(_.nonEmpty).map { path =>
+      val f = new File(path)
+      if (!f.isFile) sys.error(s"$ShardSuitesEnvVar=$path names no file")
+      parseShardSuites(new String(Files.readAllBytes(f.toPath), StandardCharsets.UTF_8))
+    }
 
   /** The report ScalaTest's JUnit reporter leaves for a suite. */
   def reportName(spec: String): String = s"TEST-$spec.xml"
