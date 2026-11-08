@@ -46,7 +46,7 @@
 # FORMATTING IS REPORTED, NEVER ENFORCED (ISS-19427). A build fails only for a
 # functional problem, and an unformatted file behaves exactly as its formatted
 # copy does. `scalafmtOnCompile := true` formats `app/` and `test/`, and
-# `scripts/check-format` (a copy of devops templates/ci/check-format, which runs
+# `dev ci step check-format` (the devops release's format check, which runs
 # `dev fmt report`: the native scalafmt CLI over the sources AND `build.sbt`,
 # which nothing else formats) prints every unformatted file and exits 0. The
 # hygiene sweep runs it over `main` and fixes what it finds.
@@ -72,8 +72,9 @@
 # fleet writes the test ledger from: `TEST-<suite>.xml` is the build's run of a suite,
 # `FIRST-<suite>.xml` the first run of one the build reran. The second says this build
 # runs with the lists platform holds: whatever starts it fetches them first and exports
-# the file as `CI_TEST_LISTS`. ci/test-health.sh (a copy of devops templates/sbt-test-health)
-# and lib-build-sbt's CiTestListsPlugin and CiTestRerunPlugin are the runner half.
+# the file as `CI_TEST_LISTS`. The runner half is devops templates/sbt-test-health/ci/test-health.sh,
+# sourced from the devops release below and never copied, and lib-build-sbt's CiTestListsPlugin and
+# CiTestRerunPlugin (project/plugins.sbt).
 #
 # ci-test-reports: target/test-reports/*.xml
 # ci-test-lists: required
@@ -114,13 +115,14 @@ case "$rc" in
 esac
 
 # ci-advisory: scripts/check-format
-scripts/check-format || echo "check-format: could not measure this tree — advisory, nothing fails on it"
+dev ci step check-format || echo "check-format: could not measure this tree — advisory, nothing fails on it"
 
 # THE SUITE, WITH TEST HEALTH (ISS-19887). `ci_test_health_sbt` prints the `ci-lists:` line for
 # the lists `CI_TEST_LISTS` names (exiting 75 on a file that is not one, or on `CI_SLOW_SPECS=1`
 # with none), and `ciTest` runs every spec the lists leave in -- the slow ones alone under
 # `CI_SLOW_SPECS=1` -- then reruns each spec that failed once, printing `ci-flake:` per spec that
 # passed the second time and `ci-rerun: done`. A spec that fails twice fails the build.
-source ci/test-health.sh
+ci_th=$(dev ci template sbt-test-health/ci/test-health.sh) || exit 75
+source "$ci_th"
 ci_test_health_sbt
 sbt -Dsbt.log.noformat=true "${ci_sbt_test_commands[@]}"
