@@ -17,7 +17,7 @@ object ApiSpecs {
   def read(path: String): String =
     sibling(path) match {
       case Some(file) => Files.readString(file.toPath)
-      case None => Seq("dev", "repo", "cat", "api", path).!!
+      case None => Seq("dev", "repo", "cat", "mbryzek/api", path).!!
     }
 
   private def sibling(path: String): Option[File] = {
