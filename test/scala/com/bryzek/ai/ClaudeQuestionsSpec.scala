@@ -257,6 +257,67 @@ class ClaudeQuestionsSpec extends AnyWordSpec with Matchers with FutureHelpers {
       an[IllegalArgumentException] must be thrownBy Question.choice("c", "?", Seq("a"), fallback = "a")
       an[IllegalArgumentException] must be thrownBy Question.choice("Not-Snake", "?", Seq("a", "b"), fallback = "a")
     }
+
+    "declare its kind, options in order, thresholds and fallback by name" in {
+      Impact.declaration mustBe QuestionDeclaration(
+        key = "impact",
+        kind = QuestionKind.Score,
+        options = Seq("minor", "major", "critical"),
+        thresholds = Thresholds.Default,
+        fallback = "minor",
+        site = Impact.site
+      )
+      Receipt.declaration.kind mustBe QuestionKind.YesNo
+      Receipt.declaration.options mustBe Seq("yes", "no")
+      Receipt.declaration.fallback mustBe "yes"
+    }
+
+    "capture the line and repository-relative file of the call that declares it" in {
+      val (question, here) = (Question.yesNo("q", "?", fallback = false), summon[DeclarationSite])
+      question.site mustBe here
+      question.site.repository mustBe Some("mbryzek/lib-ai")
+      question.site.path mustBe "test/scala/com/bryzek/ai/ClaudeQuestionsSpec.scala"
+      question.site.line must be > 1
+      Category.site.line must be < question.site.line
+    }
+
+    "keep its declaration site through a change of thresholds or fallback" in {
+      val changed = Category.withThresholds(Thresholds(Confidence.Medium, Confidence.Low)).withFallback("billing")
+      changed.site mustBe Category.site
+      changed.declaration.thresholds mustBe Thresholds(Confidence.Medium, Confidence.Low)
+      changed.declaration.fallback mustBe "billing"
+    }
+  }
+
+  "a declaration site" should {
+
+    "read owner and name from every GitHub remote spelling" in {
+      DeclarationSite.githubRepository("https://github.com/mbryzek/acumen.git") mustBe Some("mbryzek/acumen")
+      DeclarationSite.githubRepository("https://github.com/mbryzek/acumen") mustBe Some("mbryzek/acumen")
+      DeclarationSite.githubRepository("git@github.com:mbryzek/acumen.git") mustBe Some("mbryzek/acumen")
+      DeclarationSite.githubRepository("ssh://git@github.com/mbryzek/acumen.git") mustBe Some("mbryzek/acumen")
+      DeclarationSite.githubRepository("https://x-access-token@github.com/mbryzek/acumen.git") mustBe
+        Some("mbryzek/acumen")
+      DeclarationSite.githubRepository("/Users/runner/.mirrors/acumen.git") mustBe None
+    }
+
+    "read origin's url from a git config, and nothing when there is no origin" in {
+      val config =
+        """[core]
+          |	bare = false
+          |[remote "upstream"]
+          |	url = https://github.com/other/repo.git
+          |[remote "origin"]
+          |	url = https://github.com/mbryzek/platform.git
+          |	fetch = +refs/heads/*:refs/remotes/origin/*
+          |""".stripMargin
+      DeclarationSite.originUrl(config) mustBe Some("https://github.com/mbryzek/platform.git")
+      DeclarationSite.originUrl("[core]\n\tbare = false\n") mustBe None
+    }
+
+    "refuse a line below 1" in {
+      an[IllegalArgumentException] must be thrownBy DeclarationSite(None, "a.scala", 0)
+    }
   }
 
   "the batch form" should {
