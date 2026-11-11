@@ -86,7 +86,8 @@ object QuestionKind {
   * (or the typed `choiceOf` / `scoreOf`, whose options are the feature's own values). `text` is the question as the
   * model reads it. `fallback` is the value the feature acts on whenever the answer is not [[Band.Used]] -- the rule a
   * prompt used to state as "when you cannot tell, answer X", applied by code every time instead of by the model
-  * sometimes.
+  * sometimes. `site` is where the declaring call stands in the feature's code, captured at compile time; with the rest it
+  * is the question's [[declaration]], which a ledger keeps so a console can show it.
   */
 final class Question[A] private (
   val key: String,
@@ -95,7 +96,8 @@ final class Question[A] private (
   val options: Seq[A],
   nameOf: A => String,
   val fallback: A,
-  val thresholds: Thresholds
+  val thresholds: Thresholds,
+  val site: DeclarationSite
 ) {
 
   /** Each option's name, in declared order: the values the model may answer with. */
@@ -130,10 +132,21 @@ final class Question[A] private (
   def rank(value: A): Int = options.indexOf(value)
 
   def withThresholds(thresholds: Thresholds): Question[A] =
-    new Question(key, kind, text, options, nameOf, fallback, thresholds)
+    new Question(key, kind, text, options, nameOf, fallback, thresholds, site)
 
   def withFallback(fallback: A): Question[A] =
-    new Question(key, kind, text, options, nameOf, fallback, thresholds)
+    new Question(key, kind, text, options, nameOf, fallback, thresholds, site)
+
+  /** What the feature's code declares about this question, by option name. */
+  def declaration: QuestionDeclaration =
+    QuestionDeclaration(
+      key = key,
+      kind = kind,
+      options = names,
+      thresholds = thresholds,
+      fallback = nameOf(fallback),
+      site = site
+    )
 
   override def toString: String = s"Question($key, $kind, ${names.mkString("[", ", ", "]")})"
 }
@@ -152,8 +165,8 @@ object Question {
     options: Seq[String],
     fallback: String,
     thresholds: Thresholds = Thresholds.Default
-  ): Question[String] =
-    new Question(key, QuestionKind.Choice, text, options, identity, fallback, thresholds)
+  )(using site: DeclarationSite): Question[String] =
+    new Question(key, QuestionKind.Choice, text, options, identity, fallback, thresholds, site)
 
   /** One of the feature's own values, each named by `name`. */
   def choiceOf[A](
@@ -162,8 +175,8 @@ object Question {
     options: Seq[A],
     fallback: A,
     thresholds: Thresholds = Thresholds.Default
-  )(name: A => String): Question[A] =
-    new Question(key, QuestionKind.Choice, text, options, name, fallback, thresholds)
+  )(name: A => String)(using site: DeclarationSite): Question[A] =
+    new Question(key, QuestionKind.Choice, text, options, name, fallback, thresholds, site)
 
   /** One of an ordered list of levels, lowest first. The model sees them shuffled like any options, so each level's
     * name has to say what it means on its own; [[Question.rank]] maps the answer back to its place.
@@ -174,8 +187,8 @@ object Question {
     levels: Seq[String],
     fallback: String,
     thresholds: Thresholds = Thresholds.Default
-  ): Question[String] =
-    new Question(key, QuestionKind.Score, text, levels, identity, fallback, thresholds)
+  )(using site: DeclarationSite): Question[String] =
+    new Question(key, QuestionKind.Score, text, levels, identity, fallback, thresholds, site)
 
   /** [[score]] over the feature's own values, lowest first. */
   def scoreOf[A](
@@ -184,8 +197,8 @@ object Question {
     levels: Seq[A],
     fallback: A,
     thresholds: Thresholds = Thresholds.Default
-  )(name: A => String): Question[A] =
-    new Question(key, QuestionKind.Score, text, levels, name, fallback, thresholds)
+  )(name: A => String)(using site: DeclarationSite): Question[A] =
+    new Question(key, QuestionKind.Score, text, levels, name, fallback, thresholds, site)
 
   /** Yes or no, answered as `true` or `false`. */
   def yesNo(
@@ -193,9 +206,31 @@ object Question {
     text: String,
     fallback: Boolean,
     thresholds: Thresholds = Thresholds.Default
-  ): Question[Boolean] =
-    new Question(key, QuestionKind.YesNo, text, Seq(true, false), b => if (b) "yes" else "no", fallback, thresholds)
+  )(using site: DeclarationSite): Question[Boolean] =
+    new Question(
+      key,
+      QuestionKind.YesNo,
+      text,
+      Seq(true, false),
+      b => if (b) "yes" else "no",
+      fallback,
+      thresholds,
+      site
+    )
 }
+
+/** What a feature's code declares about one [[Question]], as a ledger records it beside the question's answers: its
+  * kind, its options' names in declared order (lowest first for a score), its [[Thresholds]], its fallback's name and
+  * the [[DeclarationSite]] of the call that declares it.
+  */
+final case class QuestionDeclaration(
+  key: String,
+  kind: QuestionKind,
+  options: Seq[String],
+  thresholds: Thresholds,
+  fallback: String,
+  site: DeclarationSite
+)
 
 /** One question's answer: the value, how confident the model said it was, and the band its thresholds put it in. */
 final case class Answer[A](value: A, confidence: Confidence, band: Band)
