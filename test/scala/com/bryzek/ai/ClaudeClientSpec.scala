@@ -299,6 +299,70 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       exhausted.swap.toOption.get.toNonEmptyList.head.message must include("stop_reason=refusal")
     }
 
+    "classifies an unparseable reply apart from the truncation that reaches the parser" in {
+      ClaudeClient.isUnparseableReplyError(
+        "Content is not valid JSON: Unrecognized token 'Here': was expecting (JSON String, Number, Array, Object)"
+      ) mustBe true
+      ClaudeClient.isUnparseableReplyError("Content is not valid: /comments: error.path.missing") mustBe true
+      // A truncated answer is budget exhaustion: the effort step-down owns it, and the next model would hit it too.
+      ClaudeClient.isUnparseableReplyError(
+        "Content is not valid JSON: Unexpected end-of-input: was expecting closing quote for a string value"
+      ) mustBe false
+      ClaudeClient.isUnparseableReplyError(
+        "No text content in response (stop_reason=refusal, output_tokens=0)"
+      ) mustBe false
+    }
+
+    "falls back to the next model when the primary answers with a reply that cannot be parsed" in {
+      def response(text: String): ClaudeResponse =
+        ClaudeResponse(
+          id = "msg_x",
+          `type` = "message",
+          role = ClaudeRole.Assistant,
+          content = Seq(ClaudeClient.textBlock(text)),
+          model = ClaudeModel.ClaudeHaiku55,
+          stopReason = ClaudeStopReason.EndTurn,
+          usage = ClaudeUsage(inputTokens = 10, outputTokens = 10)
+        )
+      val perModel = new MessageOnlyClient {
+        override def createMessage(
+          body: com.bryzek.claude.models.ClaudeRequest,
+          requestHeaders: Seq[(String, String)]
+        ): scala.concurrent.Future[ClaudeResponse] = scala.concurrent.Future.successful {
+          body.model match {
+            case ClaudeModel.ClaudeHaiku55 => response("Here are the keywords: pickleball, ladder")
+            case ClaudeModel.ClaudeOpus5 => response("""{"steps": []}""")
+            case _ => response("""{"steps": [], "comments": ["second model answer"]}""")
+          }
+        }
+      }
+      val client = ClaudeClient(perModel, ClaudeConfig("test-api-key"), NoopClaudeStore, new UnlimitedAiBudget())
+
+      def comments(chain: Seq[ClaudeModel]) =
+        await(
+          client.chatCompletion[CommentsResponse](
+            request,
+            ClaudeOutputFormats.CommentsResponse,
+            chain,
+            feature = TestAiFeature
+          )
+        )(using timeout)
+
+      // Not JSON at all from the first model: the second model's answer is the result.
+      val result = comments(Seq(ClaudeModel.ClaudeHaiku55, ClaudeModel.ClaudeSonnet5))
+      result.isValid mustBe true
+      result.toOption.get.content.comments mustBe Seq("second model answer")
+
+      // JSON of the wrong shape falls through the same way.
+      val wrongShape = comments(Seq(ClaudeModel.ClaudeOpus5, ClaudeModel.ClaudeSonnet5))
+      wrongShape.toOption.get.content.comments mustBe Seq("second model answer")
+
+      // The LAST model answering unparseable output returns the parse error itself.
+      val exhausted = comments(Seq(ClaudeModel.ClaudeOpus5, ClaudeModel.ClaudeHaiku55))
+      exhausted.isInvalid mustBe true
+      exhausted.swap.toOption.get.toNonEmptyList.head.message must include("Content is not valid JSON")
+    }
+
     "classifies budget exhaustion by both of the shapes it takes, and nothing else" in {
       // Thinking took the whole ceiling, so there is no text block at all.
       ClaudeClient.isBudgetExhaustionError(

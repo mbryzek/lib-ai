@@ -71,6 +71,12 @@ private[claude] object ClaudeContent {
       case t => t.validNec
     }
 
+  /** The words every error [[parse]] returns begins with: `Content is not valid JSON: ...` when the text is not JSON,
+    * `Content is not valid: ...` when it is JSON of the wrong shape. [[ClaudeClient.isUnparseableReplyError]] matches
+    * on this, so it is one constant both sides read rather than a phrase restated in each.
+    */
+  val UnparseableReplyPrefix: String = "Content is not valid"
+
   /** Parses the response's text as `T`. With structured outputs Claude returns clean JSON without markdown delimiters,
     * so this is a strict parse; the tolerant fence-stripping recovery lives in [[ClaudeJson]] for callers reading
     * prose.
@@ -82,13 +88,13 @@ private[claude] object ClaudeContent {
       def parseError(msg: String) = err(msg, Some(text(response))).invalidNec
 
       Try(Json.parse(content.trim)) match {
-        case Failure(ex) => parseError(s"Content is not valid JSON: ${ex.getMessage}")
+        case Failure(ex) => parseError(s"$UnparseableReplyPrefix JSON: ${ex.getMessage}")
         case Success(js) =>
           js.validate[T] match {
             case JsSuccess(value, _) => value.validNec
             case JsError(errors) =>
               val messages = errors.flatMap(e => e._2.map(m => s"${e._1}: ${m.message}"))
-              parseError(s"Content is not valid: ${messages.mkString(", ")}")
+              parseError(s"$UnparseableReplyPrefix: ${messages.mkString(", ")}")
           }
       }
     }
