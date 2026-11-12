@@ -642,6 +642,14 @@ object ClaudeClient {
   def isRefusalError(errorMessage: String): Boolean =
     errorMessage.contains(s"stop_reason=${ClaudeStopReason.Refusal}")
 
+  /** Checks if an error message says the reply could not be parsed into the caller's type -- not JSON at all, or JSON
+    * of the wrong shape ([[ClaudeContent.parse]]). Like a refusal it is a property of the one model's answer, so the
+    * next model in the chain is asked. A truncation that reached the parser is NOT this: it is budget exhaustion
+    * ([[isBudgetExhaustionError]]), which the effort step-down handles and a second model would hit the same way.
+    */
+  def isUnparseableReplyError(errorMessage: String): Boolean =
+    errorMessage.contains(ClaudeContent.UnparseableReplyPrefix) && !isBudgetExhaustionError(errorMessage)
+
   /** Whether an error message says the request ran out of `max_tokens` -- thinking and the answer share that ceiling,
     * so a deep enough thinking pass leaves little or nothing for the answer. How much it left decides which error the
     * response becomes, and both are exhaustion: [[ClaudeContent.noTextError]] when no answer began at all, and
@@ -1237,6 +1245,11 @@ case class ClaudeClient(
               } else if (rest.nonEmpty && isRefusal(errors)) {
                 println(s"Claude model ${model} refused the request, falling back to ${rest.head}")
                 loop(rest)
+              } else if (rest.nonEmpty && isUnparseableReply(errors)) {
+                println(
+                  s"Claude model ${model} answered with a reply that could not be parsed, falling back to ${rest.head}"
+                )
+                loop(rest)
               } else {
                 Future.successful(result)
               }
@@ -1254,6 +1267,9 @@ case class ClaudeClient(
 
   private def isRefusal(errors: NonEmptyChain[ClaudeError]): Boolean =
     errors.exists(e => ClaudeClient.isRefusalError(e.message))
+
+  private def isUnparseableReply(errors: NonEmptyChain[ClaudeError]): Boolean =
+    errors.exists(e => ClaudeClient.isUnparseableReplyError(e.message))
 
   /** Low-level send: journals the request, performs the retrying HTTP call, and returns the raw envelope. It does NOT
     * store the response — the audit outcome is recorded once, by [[sendAndStore]], on the fully content-parsed result
