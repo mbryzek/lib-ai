@@ -402,7 +402,8 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
         ClaudeModel.ClaudeOpus5,
         ClaudeModel.ClaudeOpus55,
         ClaudeModel.ClaudeFable5,
-        ClaudeModel.ClaudeFable51
+        ClaudeModel.ClaudeFable51,
+        ClaudeModel.ClaudeFable52
       ).foreach { model =>
         AiRequest(messages = Nil, maxTokens = 128000L)
           .toClaudeRequest(model)
@@ -502,9 +503,14 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       seen.result() mustBe List(None, Some(ClaudeEffort.Medium))
     }
 
-    "toClaudeRequest omits the thinking field entirely for Fable 5 and Fable 5.1" in {
-      // Fable rejects any explicit thinking config except adaptive; omitting runs adaptive.
-      Seq(ClaudeModel.ClaudeFable5, ClaudeModel.ClaudeFable51).foreach { model =>
+    "toClaudeRequest omits the thinking field entirely for Fable 5, 5.1 and 5.2" in {
+      // Fable rejects any explicit thinking config except adaptive; omitting runs adaptive. Pinned for 5.2 against
+      // the live API: `thinking.type.enabled` and `thinking.type.disabled` (also at effort low) answer 400
+      // "is not supported for this model. Use thinking.type.adaptive and output_config.effort"; adaptive, an
+      // omitted field, effort high and a 20000-token task budget answer 200; `temperature` answers 400
+      // "deprecated for this model"; a trailing assistant message answers 400 "does not support assistant message
+      // prefill".
+      Seq(ClaudeModel.ClaudeFable5, ClaudeModel.ClaudeFable51, ClaudeModel.ClaudeFable52).foreach { model =>
         AiRequest(messages = Nil).toClaudeRequest(model).thinking mustBe None
         AiRequest(messages = Nil, thinking = ClaudeThinkingType.Disabled)
           .toClaudeRequest(model)

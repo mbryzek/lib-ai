@@ -114,9 +114,10 @@ object ClaudeModel {
   case object ClaudeOpus55 extends ClaudeModel { override def toString: String = "claude-opus-5-5" }
   case object ClaudeFable5 extends ClaudeModel { override def toString: String = "claude-fable-5" }
   case object ClaudeFable51 extends ClaudeModel { override def toString: String = "claude-fable-5-1" }
+  case object ClaudeFable52 extends ClaudeModel { override def toString: String = "claude-fable-5-2" }
   final case class UNDEFINED(description: String) extends ClaudeModel { override def toString: String = description }
 
-  val all: scala.List[ClaudeModel] = scala.List(ClaudeSonnet5, ClaudeSonnet55, ClaudeHaiku45, ClaudeHaiku55, ClaudeOpus5, ClaudeOpus55, ClaudeFable5, ClaudeFable51)
+  val all: scala.List[ClaudeModel] = scala.List(ClaudeSonnet5, ClaudeSonnet55, ClaudeHaiku45, ClaudeHaiku55, ClaudeOpus5, ClaudeOpus55, ClaudeFable5, ClaudeFable51, ClaudeFable52)
   private val byName: Map[String, ClaudeModel] = all.map(x => x.toString.toLowerCase -> x).toMap
   def apply(value: String): ClaudeModel = fromString(value).getOrElse(UNDEFINED(value))
   def fromString(value: String): _root_.scala.Option[ClaudeModel] = byName.get(value.toLowerCase)
@@ -2279,8 +2280,12 @@ object KnownClaudeModel {
     override def toString: String = _root_.com.bryzek.claude.models.ClaudeModel.ClaudeFable51.toString
     override def toClaudeModel: _root_.com.bryzek.claude.models.ClaudeModel = _root_.com.bryzek.claude.models.ClaudeModel.ClaudeFable51
   }
+  case object ClaudeFable52 extends KnownClaudeModel {
+    override def toString: String = _root_.com.bryzek.claude.models.ClaudeModel.ClaudeFable52.toString
+    override def toClaudeModel: _root_.com.bryzek.claude.models.ClaudeModel = _root_.com.bryzek.claude.models.ClaudeModel.ClaudeFable52
+  }
 
-  val all: scala.List[KnownClaudeModel] = scala.List(ClaudeSonnet5, ClaudeSonnet55, ClaudeHaiku45, ClaudeHaiku55, ClaudeOpus5, ClaudeOpus55, ClaudeFable5, ClaudeFable51)
+  val all: scala.List[KnownClaudeModel] = scala.List(ClaudeSonnet5, ClaudeSonnet55, ClaudeHaiku45, ClaudeHaiku55, ClaudeOpus5, ClaudeOpus55, ClaudeFable5, ClaudeFable51, ClaudeFable52)
 
   def validate(value: _root_.com.bryzek.claude.models.ClaudeModel): _root_.cats.data.ValidatedNec[String, KnownClaudeModel] = {
     value match {
@@ -2292,6 +2297,7 @@ object KnownClaudeModel {
     case _root_.com.bryzek.claude.models.ClaudeModel.ClaudeOpus55 => _root_.cats.data.Validated.validNec(KnownClaudeModel.ClaudeOpus55)
     case _root_.com.bryzek.claude.models.ClaudeModel.ClaudeFable5 => _root_.cats.data.Validated.validNec(KnownClaudeModel.ClaudeFable5)
     case _root_.com.bryzek.claude.models.ClaudeModel.ClaudeFable51 => _root_.cats.data.Validated.validNec(KnownClaudeModel.ClaudeFable51)
+    case _root_.com.bryzek.claude.models.ClaudeModel.ClaudeFable52 => _root_.cats.data.Validated.validNec(KnownClaudeModel.ClaudeFable52)
     case _root_.com.bryzek.claude.models.ClaudeModel.UNDEFINED(desc) => _root_.cats.data.Validated.invalidNec(s"Invalid value '${desc}' for ClaudeModel")
     }
   }

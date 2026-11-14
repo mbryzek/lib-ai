@@ -185,6 +185,14 @@ class ClaudePricingSpec extends AnyWordSpec with Matchers {
       cost("claude-fable-5-1", 0, 0, 1000000, 1000000, 0, Standard) mustBe BigDecimal("20")
     }
 
+    "price Claude Fable 5.2 at $8/$40 with cache reads at $0.20" in {
+      cost("claude-fable-5-2", 1000000, 1000000, 0, 0, 0, Standard) mustBe BigDecimal("48")
+      cost("claude-fable-5-2", 0, 0, 1000000, 0, 0, Standard) mustBe BigDecimal("10")
+      cost("claude-fable-5-2", 0, 0, 0, 1000000, 0, Standard) mustBe BigDecimal("16")
+      cost("claude-fable-5-2", 0, 0, 0, 0, 1000000, Standard) mustBe BigDecimal("0.20")
+      cost("claude-fable-5-2", 1000000, 1000000, 0, 0, 0, Batch) mustBe BigDecimal("24")
+    }
+
     "leave every other model on the standard cache-read multiplier" in {
       // The other half of the claim above: adding a per-model read rate must not have moved anything that was
       // already priced. Each of these is 0.1x its own input rate, exactly as the derived version charged.
@@ -204,6 +212,7 @@ class ClaudePricingSpec extends AnyWordSpec with Matchers {
       ClaudePricing.NonStandardCacheReadMultipliers mustBe Map(
         "claude-opus-5-5" -> BigDecimal("0.05"),
         "claude-fable-5-1" -> BigDecimal("0.025"),
+        "claude-fable-5-2" -> BigDecimal("0.025"),
       )
     }
 
@@ -226,6 +235,7 @@ class ClaudePricingSpec extends AnyWordSpec with Matchers {
         "claude-opus-5",
         "claude-sonnet-5",
         "claude-haiku-4-5",
+        "claude-fable-5-2",
         "claude-fable-5-1",
         "claude-fable-5",
       ).foreach { alias =>

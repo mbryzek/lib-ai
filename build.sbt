@@ -8,7 +8,7 @@ version := "0.2.91"
 // source carries why each setting is what it is; a change is released there and bumped here.
 BryzekLibSettings.buildSettings("lib-ai")
 
-ThisBuild / scalaVersion := "3.10.0"
+ThisBuild / scalaVersion := "3.10.1"
 
 // lib-build-testkit (the pin suites, Test scope) is published to the Bryzek Maven repository, not
 // Maven Central. project/plugins.sbt names the same resolver for the meta-build.
@@ -87,6 +87,6 @@ lazy val root = project
       // The suites the pin specs under test/scala/com/bryzek/pins subclass. Every dependency of
       // it is Provided, so each suite runs against what this build resolves. Same version as lib-build-sbt in
       // project/plugins.sbt.
-      "com.bryzek" %% "lib-build-testkit" % "0.0.1" % Test
+      "com.bryzek" %% "lib-build-testkit" % "0.0.7" % Test
     )
   )
