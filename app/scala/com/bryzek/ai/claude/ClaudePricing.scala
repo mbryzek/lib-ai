@@ -73,6 +73,9 @@ object ClaudePricing {
     "claude-haiku-5-5" -> Rate.standardCacheRead(inputPerM = BigDecimal("0.10"), outputPerM = BigDecimal("0.50")),
     // Cache reads at $0.25/MTok are 0.025x the input rate, against claude-fable-5's standard 0.1x at the same
     // $10/$50 -- the same trap as claude-opus-5-5, one row apart.
+    // $8/$40 with reads at $0.20/MTok, 0.025x input again.
+    "claude-fable-5-2" ->
+      Rate(inputPerM = BigDecimal(8), outputPerM = BigDecimal(40), cacheReadPerM = BigDecimal("0.20")),
     "claude-fable-5-1" ->
       Rate(inputPerM = BigDecimal(10), outputPerM = BigDecimal(50), cacheReadPerM = BigDecimal("0.25")),
     "claude-fable-5" -> Rate.standardCacheRead(inputPerM = BigDecimal(10), outputPerM = BigDecimal(50)),

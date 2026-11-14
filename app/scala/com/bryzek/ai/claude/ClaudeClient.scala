@@ -205,7 +205,7 @@ object AiRequest {
       case Some(
             KnownClaudeModel.ClaudeSonnet5 | KnownClaudeModel.ClaudeSonnet55 | KnownClaudeModel.ClaudeOpus5 |
             KnownClaudeModel.ClaudeOpus55 | KnownClaudeModel.ClaudeFable5 | KnownClaudeModel.ClaudeFable51 |
-            KnownClaudeModel.ClaudeHaiku55
+            KnownClaudeModel.ClaudeFable52 | KnownClaudeModel.ClaudeHaiku55
           ) =>
         true
     }
@@ -218,7 +218,10 @@ object AiRequest {
     */
   private[claude] def thinkingFor(model: ClaudeModel, thinking: ClaudeThinkingType): Option[ClaudeThinking] =
     KnownClaudeModel.validate(model).toOption match {
-      case Some(KnownClaudeModel.ClaudeFable5 | KnownClaudeModel.ClaudeFable51 | KnownClaudeModel.ClaudeOpus55) =>
+      case Some(
+            KnownClaudeModel.ClaudeFable5 | KnownClaudeModel.ClaudeFable51 | KnownClaudeModel.ClaudeFable52 |
+            KnownClaudeModel.ClaudeOpus55
+          ) =>
         // Fable 5, Fable 5.1 and Opus 5.5 reject every explicit thinking config except adaptive (thinking is always on,
         // and `disabled` is a 400 at every effort level); omitting the field runs adaptive, so a Disabled request
         // cannot be honored on these models. Effort is the only control.
@@ -272,7 +275,7 @@ object AiRequest {
       case Some(KnownClaudeModel.ClaudeHaiku45) => None
       case Some(
             KnownClaudeModel.ClaudeSonnet5 | KnownClaudeModel.ClaudeSonnet55 | KnownClaudeModel.ClaudeOpus5 |
-            KnownClaudeModel.ClaudeFable5 | KnownClaudeModel.ClaudeFable51
+            KnownClaudeModel.ClaudeFable5 | KnownClaudeModel.ClaudeFable51 | KnownClaudeModel.ClaudeFable52
           ) | None =>
         effort
     }
