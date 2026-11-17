@@ -4,19 +4,19 @@ version := "0.2.93"
 
 // Publishing metadata, the guava pin, the browser-stack exclusions, the compiler gate and the
 // root project's test reporting are shared by every lib-* repository and DECLARED in
-// BryzekLibSettings, published by mbryzek/lib-build as lib-build-sbt (project/plugins.sbt). That
+// BryzekLibSettings, published by mbryzek/lib-build as scala-build-sbt (project/plugins.sbt). That
 // source carries why each setting is what it is; a change is released there and bumped here.
 BryzekLibSettings.buildSettings("lib-ai")
 
 ThisBuild / scalaVersion := "3.10.1"
 
-// lib-build-testkit (the pin suites, Test scope) is published to the Bryzek Maven repository, not
+// scala-build-testkit (the pin suites, Test scope) is published to the Bryzek Maven repository, not
 // Maven Central. project/plugins.sbt names the same resolver for the meta-build.
 ThisBuild / resolvers += "Bryzek Maven repository" at "https://maven.bryzek.com"
 
 // The Jackson 2, Jackson 3 and logback security pins are DECLARED in BryzekPins, published by
-// mbryzek/lib-build as lib-build-sbt (project/plugins.sbt), and asserted against this build's own
-// resolution by the pin specs under test/scala/com/bryzek/pins, subclasses of lib-build-testkit's
+// mbryzek/lib-build as scala-build-sbt (project/plugins.sbt), and asserted against this build's own
+// resolution by the pin specs under test/scala/com/bryzek/pins, subclasses of scala-build-testkit's
 // suites. That source carries why each floor is what it is; an advisory bump is released there
 // and bumped here.
 //
@@ -85,8 +85,8 @@ lazy val root = project
       "org.typelevel" %% "cats-core" % "2.13.0",
       "org.scalatestplus.play" %% "scalatestplus-play" % "7.0.2" % Test,
       // The suites the pin specs under test/scala/com/bryzek/pins subclass. Every dependency of
-      // it is Provided, so each suite runs against what this build resolves. Same version as lib-build-sbt in
+      // it is Provided, so each suite runs against what this build resolves. Same version as scala-build-sbt in
       // project/plugins.sbt.
-      "com.bryzek" %% "lib-build-testkit" % "0.0.7" % Test
+      "com.bryzek" %% "scala-build-testkit" % "0.0.11" % Test
     )
   )
