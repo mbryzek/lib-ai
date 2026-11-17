@@ -73,7 +73,7 @@
 # `FIRST-<suite>.xml` the first run of one the build reran. The second says this build
 # runs with the lists platform holds: whatever starts it fetches them first and exports
 # the file as `CI_TEST_LISTS`. The runner half is devops templates/sbt-test-health/ci/test-health.sh,
-# sourced from the devops release below and never copied, and lib-build-sbt's CiTestListsPlugin and
+# sourced from the devops release below and never copied, and scala-build-sbt's CiTestListsPlugin and
 # CiTestRerunPlugin (project/plugins.sbt).
 #
 # ci-test-reports: target/test-reports/*.xml

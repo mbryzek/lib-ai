@@ -10,4 +10,4 @@ addSbtPlugin("org.playframework" % "sbt-plugin" % "3.0.12")
 // BryzekPins, BryzekLibSettings and the test-health plugins (CiTestListsPlugin, CiTestRerunPlugin),
 // published by mbryzek/lib-build. Its README is the reference.
 resolvers += "Bryzek Maven repository" at "https://maven.bryzek.com"
-libraryDependencies += "com.bryzek" %% "lib-build-sbt" % "0.0.1"
+libraryDependencies += "com.bryzek" %% "scala-build-sbt" % "0.0.11"
