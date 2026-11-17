@@ -67,6 +67,29 @@ object Thresholds {
   val Default: Thresholds = Thresholds(use = Confidence.High, review = Confidence.Medium)
 }
 
+/** What a case whose answer is not [[Band.Used]] ends on, declared with the question beside its [[Thresholds]].
+  * Required on every question, because the fallback cannot say it: every question names one, the value acted on while
+  * a case is undecided, whether an unsure answer may end on it or must wait for a person.
+  */
+sealed abstract class WhenUnsure(val wireValue: String) {
+  override def toString: String = wireValue
+}
+
+object WhenUnsure {
+
+  /** Housekeeping: an unsure answer ends on the question's fallback, the safe answer, with nobody asked. */
+  case object TakeFallback extends WhenUnsure("take_fallback")
+
+  /** An unsure answer waits for a person. Declared by every question that sends mail, moves money or reaches a
+    * person outside the fleet.
+    */
+  case object Ask extends WhenUnsure("ask")
+
+  val all: List[WhenUnsure] = List(TakeFallback, Ask)
+
+  def fromString(value: String): Option[WhenUnsure] = all.find(_.wireValue == value)
+}
+
 /** The three shapes a question takes. A score is a choice whose options are ordered, lowest first. */
 sealed abstract class QuestionKind(val wireValue: String) {
   override def toString: String = wireValue
@@ -80,13 +103,16 @@ object QuestionKind {
   val all: List[QuestionKind] = List(Choice, Score, YesNo)
 }
 
-/** One named thing a feature asks about an input, with its allowed answers, its [[Thresholds]] and its fallback.
+/** One named thing a feature asks about an input, with its allowed answers, its [[Thresholds]], its fallback and what
+  * an unsure answer ends on.
   *
   * Declared as a value in the feature's own code through [[Question.choice]], [[Question.score]] or [[Question.yesNo]]
   * (or the typed `choiceOf` / `scoreOf`, whose options are the feature's own values). `text` is the question as the
   * model reads it. `fallback` is the value the feature acts on whenever the answer is not [[Band.Used]] -- the rule a
   * prompt used to state as "when you cannot tell, answer X", applied by code every time instead of by the model
-  * sometimes. `site` is where the declaring call stands in the feature's code, captured at compile time; with the rest it
+  * sometimes. `whenUnsure` says whether a case whose answer is not used ends on that fallback or waits for a person;
+  * the fallback stays the value acted on meanwhile either way. `asksMike` are the options whose meaning is "a person
+  * should look at this": a case answered with one waits for a person whatever the feature's trust. `site` is where the declaring call stands in the feature's code, captured at compile time; with the rest it
   * is the question's [[declaration]], which a ledger keeps so a console can show it.
   */
 final class Question[A] private (
@@ -96,7 +122,9 @@ final class Question[A] private (
   val options: Seq[A],
   nameOf: A => String,
   val fallback: A,
+  val whenUnsure: WhenUnsure,
   val thresholds: Thresholds,
+  val asksMike: Seq[A],
   val site: DeclarationSite
 ) {
 
@@ -112,8 +140,21 @@ final class Question[A] private (
     s"Question[$key] names an option more than once: ${names.diff(names.distinct).distinct.mkString(", ")}"
   )
   require(options.contains(fallback), s"Question[$key]'s fallback[${nameOf(fallback)}] is not one of its options")
+  require(
+    asksMike.forall(options.contains),
+    s"Question[$key] declares asks_mike on ${asksMike.filterNot(options.contains).map(nameOf).mkString(", ")}, " +
+      "which is not one of its options"
+  )
+  require(
+    asksMike.distinct.size == asksMike.size,
+    s"Question[$key] declares asks_mike on an option more than once: " +
+      asksMike.diff(asksMike.distinct).distinct.map(nameOf).mkString(", ")
+  )
 
   def name(value: A): String = nameOf(value)
+
+  /** Whether `value` is an option declared asks_mike: a case answered with it waits for a person. */
+  def isAsksMike(value: A): Boolean = asksMike.contains(value)
 
   def find(name: String): Option[A] = names.indexOf(name) match {
     case -1 => None
@@ -132,10 +173,16 @@ final class Question[A] private (
   def rank(value: A): Int = options.indexOf(value)
 
   def withThresholds(thresholds: Thresholds): Question[A] =
-    new Question(key, kind, text, options, nameOf, fallback, thresholds, site)
+    new Question(key, kind, text, options, nameOf, fallback, whenUnsure, thresholds, asksMike, site)
 
   def withFallback(fallback: A): Question[A] =
-    new Question(key, kind, text, options, nameOf, fallback, thresholds, site)
+    new Question(key, kind, text, options, nameOf, fallback, whenUnsure, thresholds, asksMike, site)
+
+  def withWhenUnsure(whenUnsure: WhenUnsure): Question[A] =
+    new Question(key, kind, text, options, nameOf, fallback, whenUnsure, thresholds, asksMike, site)
+
+  def withAsksMike(asksMike: Seq[A]): Question[A] =
+    new Question(key, kind, text, options, nameOf, fallback, whenUnsure, thresholds, asksMike, site)
 
   /** What the feature's code declares about this question, by option name. */
   def declaration: QuestionDeclaration =
@@ -145,6 +192,8 @@ final class Question[A] private (
       options = names,
       thresholds = thresholds,
       fallback = nameOf(fallback),
+      whenUnsure = whenUnsure,
+      asksMike = options.filter(asksMike.contains).map(nameOf),
       site = site
     )
 
@@ -164,9 +213,11 @@ object Question {
     text: String,
     options: Seq[String],
     fallback: String,
-    thresholds: Thresholds = Thresholds.Default
+    whenUnsure: WhenUnsure,
+    thresholds: Thresholds = Thresholds.Default,
+    asksMike: Seq[String] = Nil
   )(using site: DeclarationSite): Question[String] =
-    new Question(key, QuestionKind.Choice, text, options, identity, fallback, thresholds, site)
+    new Question(key, QuestionKind.Choice, text, options, identity, fallback, whenUnsure, thresholds, asksMike, site)
 
   /** One of the feature's own values, each named by `name`. */
   def choiceOf[A](
@@ -174,9 +225,11 @@ object Question {
     text: String,
     options: Seq[A],
     fallback: A,
-    thresholds: Thresholds = Thresholds.Default
+    whenUnsure: WhenUnsure,
+    thresholds: Thresholds = Thresholds.Default,
+    asksMike: Seq[A] = Nil
   )(name: A => String)(using site: DeclarationSite): Question[A] =
-    new Question(key, QuestionKind.Choice, text, options, name, fallback, thresholds, site)
+    new Question(key, QuestionKind.Choice, text, options, name, fallback, whenUnsure, thresholds, asksMike, site)
 
   /** One of an ordered list of levels, lowest first. The model sees them shuffled like any options, so each level's
     * name has to say what it means on its own; [[Question.rank]] maps the answer back to its place.
@@ -186,9 +239,11 @@ object Question {
     text: String,
     levels: Seq[String],
     fallback: String,
-    thresholds: Thresholds = Thresholds.Default
+    whenUnsure: WhenUnsure,
+    thresholds: Thresholds = Thresholds.Default,
+    asksMike: Seq[String] = Nil
   )(using site: DeclarationSite): Question[String] =
-    new Question(key, QuestionKind.Score, text, levels, identity, fallback, thresholds, site)
+    new Question(key, QuestionKind.Score, text, levels, identity, fallback, whenUnsure, thresholds, asksMike, site)
 
   /** [[score]] over the feature's own values, lowest first. */
   def scoreOf[A](
@@ -196,16 +251,20 @@ object Question {
     text: String,
     levels: Seq[A],
     fallback: A,
-    thresholds: Thresholds = Thresholds.Default
+    whenUnsure: WhenUnsure,
+    thresholds: Thresholds = Thresholds.Default,
+    asksMike: Seq[A] = Nil
   )(name: A => String)(using site: DeclarationSite): Question[A] =
-    new Question(key, QuestionKind.Score, text, levels, name, fallback, thresholds, site)
+    new Question(key, QuestionKind.Score, text, levels, name, fallback, whenUnsure, thresholds, asksMike, site)
 
   /** Yes or no, answered as `true` or `false`. */
   def yesNo(
     key: String,
     text: String,
     fallback: Boolean,
-    thresholds: Thresholds = Thresholds.Default
+    whenUnsure: WhenUnsure,
+    thresholds: Thresholds = Thresholds.Default,
+    asksMike: Seq[Boolean] = Nil
   )(using site: DeclarationSite): Question[Boolean] =
     new Question(
       key,
@@ -214,14 +273,17 @@ object Question {
       Seq(true, false),
       b => if (b) "yes" else "no",
       fallback,
+      whenUnsure,
       thresholds,
+      asksMike,
       site
     )
 }
 
 /** What a feature's code declares about one [[Question]], as a ledger records it beside the question's answers: its
-  * kind, its options' names in declared order (lowest first for a score), its [[Thresholds]], its fallback's name and
-  * the [[DeclarationSite]] of the call that declares it.
+  * kind, its options' names in declared order (lowest first for a score), its [[Thresholds]], its fallback's name, its
+  * [[WhenUnsure]], the names of the options declared asks_mike (in declared order) and the [[DeclarationSite]] of the
+  * call that declares it.
   */
 final case class QuestionDeclaration(
   key: String,
@@ -229,8 +291,14 @@ final case class QuestionDeclaration(
   options: Seq[String],
   thresholds: Thresholds,
   fallback: String,
+  whenUnsure: WhenUnsure,
+  asksMike: Seq[String],
   site: DeclarationSite
-)
+) {
+
+  /** Whether the option named `name` is declared asks_mike. */
+  def isAsksMike(name: String): Boolean = asksMike.contains(name)
+}
 
 /** One question's answer: the value, how confident the model said it was, and the band its thresholds put it in. */
 final case class Answer[A](value: A, confidence: Confidence, band: Band)

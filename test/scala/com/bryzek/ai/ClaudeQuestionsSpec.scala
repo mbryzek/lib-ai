@@ -27,14 +27,23 @@ class ClaudeQuestionsSpec extends AnyWordSpec with Matchers with FutureHelpers {
   }
 
   private val Category =
-    Question.choice("category", "What is the email about?", Seq("billing", "scheduling", "other"), fallback = "other")
+    Question.choice(
+      "category",
+      "What is the email about?",
+      Seq("billing", "scheduling", "other"),
+      fallback = "other",
+      whenUnsure = WhenUnsure.TakeFallback
+    )
   private val Impact = Question.scoreOf(
     "impact",
     "How much would acting on this matter to the club?",
     Severity.all,
-    fallback = Severity.Minor
+    fallback = Severity.Minor,
+    whenUnsure = WhenUnsure.Ask,
+    asksMike = Seq(Severity.Critical)
   )(_.name)
-  private val Receipt = Question.yesNo("is_receipt", "Is this attachment a receipt?", fallback = true)
+  private val Receipt =
+    Question.yesNo("is_receipt", "Is this attachment a receipt?", fallback = true, whenUnsure = WhenUnsure.Ask)
 
   private val Input = QuestionInput.text("email-42", "Please move my lesson to Thursday.", Some("You triage email."))
 
@@ -249,31 +258,113 @@ class ClaudeQuestionsSpec extends AnyWordSpec with Matchers with FutureHelpers {
   "a question" should {
 
     "refuse a fallback that is not one of its options" in {
-      an[IllegalArgumentException] must be thrownBy Question.choice("c", "?", Seq("a", "b"), fallback = "z")
+      an[IllegalArgumentException] must be thrownBy Question.choice(
+        "c",
+        "?",
+        Seq("a", "b"),
+        fallback = "z",
+        whenUnsure = WhenUnsure.Ask
+      )
     }
 
     "refuse an option named twice, fewer than two options, and a key that is not snake case" in {
-      an[IllegalArgumentException] must be thrownBy Question.choice("c", "?", Seq("a", "a"), fallback = "a")
-      an[IllegalArgumentException] must be thrownBy Question.choice("c", "?", Seq("a"), fallback = "a")
-      an[IllegalArgumentException] must be thrownBy Question.choice("Not-Snake", "?", Seq("a", "b"), fallback = "a")
+      an[IllegalArgumentException] must be thrownBy Question.choice(
+        "c",
+        "?",
+        Seq("a", "a"),
+        fallback = "a",
+        whenUnsure = WhenUnsure.Ask
+      )
+      an[IllegalArgumentException] must be thrownBy Question.choice(
+        "c",
+        "?",
+        Seq("a"),
+        fallback = "a",
+        whenUnsure = WhenUnsure.Ask
+      )
+      an[IllegalArgumentException] must be thrownBy Question.choice(
+        "Not-Snake",
+        "?",
+        Seq("a", "b"),
+        fallback = "a",
+        whenUnsure = WhenUnsure.Ask
+      )
     }
 
-    "declare its kind, options in order, thresholds and fallback by name" in {
+    "declare its kind, options in order, thresholds, fallback, when unsure and asks_mike options by name" in {
       Impact.declaration mustBe QuestionDeclaration(
         key = "impact",
         kind = QuestionKind.Score,
         options = Seq("minor", "major", "critical"),
         thresholds = Thresholds.Default,
         fallback = "minor",
+        whenUnsure = WhenUnsure.Ask,
+        asksMike = Seq("critical"),
         site = Impact.site
       )
       Receipt.declaration.kind mustBe QuestionKind.YesNo
       Receipt.declaration.options mustBe Seq("yes", "no")
       Receipt.declaration.fallback mustBe "yes"
+      Receipt.declaration.asksMike mustBe Nil
+      Category.declaration.whenUnsure mustBe WhenUnsure.TakeFallback
+    }
+
+    "declare no option asks_mike unless one is named" in {
+      Category.asksMike mustBe Nil
+      Category.options.exists(Category.isAsksMike) mustBe false
+      Impact.isAsksMike(Severity.Critical) mustBe true
+      Impact.isAsksMike(Severity.Major) mustBe false
+      Impact.declaration.isAsksMike("critical") mustBe true
+      Impact.declaration.isAsksMike("minor") mustBe false
+    }
+
+    "list asks_mike options in declared order, whatever order they were named in" in {
+      val q = Question.choice(
+        "c",
+        "?",
+        Seq("a", "b", "c"),
+        fallback = "a",
+        whenUnsure = WhenUnsure.Ask,
+        asksMike = Seq("c", "b")
+      )
+      q.declaration.asksMike mustBe Seq("b", "c")
+    }
+
+    "refuse asks_mike on an option it does not offer, or on one option twice" in {
+      an[IllegalArgumentException] must be thrownBy Question.choice(
+        "c",
+        "?",
+        Seq("a", "b"),
+        fallback = "a",
+        whenUnsure = WhenUnsure.Ask,
+        asksMike = Seq("z")
+      )
+      an[IllegalArgumentException] must be thrownBy Question.choice(
+        "c",
+        "?",
+        Seq("a", "b"),
+        fallback = "a",
+        whenUnsure = WhenUnsure.Ask,
+        asksMike = Seq("b", "b")
+      )
+    }
+
+    "keep acting on its fallback when unsure, whichever way it declares when unsure" in {
+      val unsure = Answer("billing", Confidence.Low, Band.Unanswered)
+      Category.actOn(unsure) mustBe "other"
+      Category.withWhenUnsure(WhenUnsure.Ask).actOn(unsure) mustBe "other"
+    }
+
+    "read when unsure back from its wire value" in {
+      WhenUnsure.all.map(w => WhenUnsure.fromString(w.wireValue)) mustBe WhenUnsure.all.map(Some(_))
+      WhenUnsure.TakeFallback.wireValue mustBe "take_fallback"
+      WhenUnsure.Ask.wireValue mustBe "ask"
+      WhenUnsure.fromString("skip") mustBe None
     }
 
     "capture the line and repository-relative file of the call that declares it" in {
-      val (question, here) = (Question.yesNo("q", "?", fallback = false), summon[DeclarationSite])
+      val (question, here) =
+        (Question.yesNo("q", "?", fallback = false, whenUnsure = WhenUnsure.Ask), summon[DeclarationSite])
       question.site mustBe here
       question.site.repository mustBe Some("mbryzek/lib-ai")
       question.site.path mustBe "test/scala/com/bryzek/ai/ClaudeQuestionsSpec.scala"
@@ -281,9 +372,15 @@ class ClaudeQuestionsSpec extends AnyWordSpec with Matchers with FutureHelpers {
       Category.site.line must be < question.site.line
     }
 
-    "keep its declaration site through a change of thresholds or fallback" in {
-      val changed = Category.withThresholds(Thresholds(Confidence.Medium, Confidence.Low)).withFallback("billing")
+    "keep its declaration site through a change of thresholds, fallback, when unsure or asks_mike" in {
+      val changed = Category
+        .withThresholds(Thresholds(Confidence.Medium, Confidence.Low))
+        .withFallback("billing")
+        .withWhenUnsure(WhenUnsure.Ask)
+        .withAsksMike(Seq("other"))
       changed.site mustBe Category.site
+      changed.declaration.whenUnsure mustBe WhenUnsure.Ask
+      changed.declaration.asksMike mustBe Seq("other")
       changed.declaration.thresholds mustBe Thresholds(Confidence.Medium, Confidence.Low)
       changed.declaration.fallback mustBe "billing"
     }
