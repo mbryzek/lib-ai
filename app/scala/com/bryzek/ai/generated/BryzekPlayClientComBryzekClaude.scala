@@ -51,13 +51,13 @@ class Client(
     body: com.bryzek.claude.models.ClaudeBatchForm,
     requestHeaders: Seq[(String, String)] = Nil
   ): _root_.scala.concurrent.Future[com.bryzek.claude.models.ClaudeBatch] = {
-    val path = s"/v1/messages/batches"
-    val url = baseUrl + path
+    val _path = s"/v1/messages/batches"
+    val _url = this.baseUrl + _path
 
-    logger.info(s"POST $url")
-    _maybeAddAuth(ws.url(url))
-      .withRequestTimeout(defaultTimeout)
-      .addHttpHeaders(defaultHeaders ++ requestHeaders*)
+    this.logger.info(s"POST $_url")
+    this._maybeAddAuth(this.ws.url(_url))
+      .withRequestTimeout(this.defaultTimeout)
+      .addHttpHeaders(this.defaultHeaders ++ requestHeaders*)
       .addHttpHeaders("Content-Type" -> "application/json")
       .post(_root_.play.api.libs.json.Json.toJson(body))
     .map { response =>
@@ -68,7 +68,7 @@ class Client(
         case 403 => throw _root_.generated.errors.ClaudeErrorResponseResponse(response)
         case 429 => throw _root_.generated.errors.ClaudeErrorResponseResponse(response)
         case 500 => throw _root_.generated.errors.ClaudeErrorResponseResponse(response)
-        case c => throw _root_.generated.errors.ApiException(response, s"POST $path failed with status $c")
+        case c => throw _root_.generated.errors.ApiException(response, s"POST $_path failed with status $c")
       }
     }
 
@@ -79,13 +79,13 @@ class Client(
     id: String,
     requestHeaders: Seq[(String, String)] = Nil
   ): _root_.scala.concurrent.Future[com.bryzek.claude.models.ClaudeBatch] = {
-    val path = s"/v1/messages/batches/${_root_.generated.client.PathEncoder.encode(id)}"
-    val url = baseUrl + path
+    val _path = s"/v1/messages/batches/${_root_.generated.client.PathEncoder.encode(id)}"
+    val _url = this.baseUrl + _path
 
-    logger.info(s"GET $url")
-    _maybeAddAuth(ws.url(url))
-      .withRequestTimeout(defaultTimeout)
-      .addHttpHeaders(defaultHeaders ++ requestHeaders*)
+    this.logger.info(s"GET $_url")
+    this._maybeAddAuth(this.ws.url(_url))
+      .withRequestTimeout(this.defaultTimeout)
+      .addHttpHeaders(this.defaultHeaders ++ requestHeaders*)
       .get()
     .map { response =>
       response.status match {
@@ -95,7 +95,7 @@ class Client(
         case 404 => throw _root_.generated.errors.ClaudeErrorResponseResponse(response)
         case 429 => throw _root_.generated.errors.ClaudeErrorResponseResponse(response)
         case 500 => throw _root_.generated.errors.ClaudeErrorResponseResponse(response)
-        case c => throw _root_.generated.errors.ApiException(response, s"GET $path failed with status $c")
+        case c => throw _root_.generated.errors.ApiException(response, s"GET $_path failed with status $c")
       }
     }
 
@@ -106,13 +106,13 @@ class Client(
     id: String,
     requestHeaders: Seq[(String, String)] = Nil
   ): _root_.scala.concurrent.Future[com.bryzek.claude.models.ClaudeBatch] = {
-    val path = s"/v1/messages/batches/${_root_.generated.client.PathEncoder.encode(id)}/cancel"
-    val url = baseUrl + path
+    val _path = s"/v1/messages/batches/${_root_.generated.client.PathEncoder.encode(id)}/cancel"
+    val _url = this.baseUrl + _path
 
-    logger.info(s"POST $url")
-    _maybeAddAuth(ws.url(url))
-      .withRequestTimeout(defaultTimeout)
-      .addHttpHeaders(defaultHeaders ++ requestHeaders*)
+    this.logger.info(s"POST $_url")
+    this._maybeAddAuth(this.ws.url(_url))
+      .withRequestTimeout(this.defaultTimeout)
+      .addHttpHeaders(this.defaultHeaders ++ requestHeaders*)
       .post(_root_.play.api.libs.json.JsNull)
     .map { response =>
       response.status match {
@@ -122,7 +122,7 @@ class Client(
         case 404 => throw _root_.generated.errors.ClaudeErrorResponseResponse(response)
         case 429 => throw _root_.generated.errors.ClaudeErrorResponseResponse(response)
         case 500 => throw _root_.generated.errors.ClaudeErrorResponseResponse(response)
-        case c => throw _root_.generated.errors.ApiException(response, s"POST $path failed with status $c")
+        case c => throw _root_.generated.errors.ApiException(response, s"POST $_path failed with status $c")
       }
     }
 
@@ -133,13 +133,13 @@ class Client(
     body: com.bryzek.claude.models.ClaudeRequest,
     requestHeaders: Seq[(String, String)] = Nil
   ): _root_.scala.concurrent.Future[com.bryzek.claude.models.ClaudeResponse] = {
-    val path = s"/v1/messages"
-    val url = baseUrl + path
+    val _path = s"/v1/messages"
+    val _url = this.baseUrl + _path
 
-    logger.info(s"POST $url")
-    _maybeAddAuth(ws.url(url))
-      .withRequestTimeout(defaultTimeout)
-      .addHttpHeaders(defaultHeaders ++ requestHeaders*)
+    this.logger.info(s"POST $_url")
+    this._maybeAddAuth(this.ws.url(_url))
+      .withRequestTimeout(this.defaultTimeout)
+      .addHttpHeaders(this.defaultHeaders ++ requestHeaders*)
       .addHttpHeaders("Content-Type" -> "application/json")
       .post(_root_.play.api.libs.json.Json.toJson(body))
     .map { response =>
@@ -150,7 +150,7 @@ class Client(
         case 403 => throw _root_.generated.errors.ClaudeErrorResponseResponse(response)
         case 429 => throw _root_.generated.errors.ClaudeErrorResponseResponse(response)
         case 500 => throw _root_.generated.errors.ClaudeErrorResponseResponse(response)
-        case c => throw _root_.generated.errors.ApiException(response, s"POST $path failed with status $c")
+        case c => throw _root_.generated.errors.ApiException(response, s"POST $_path failed with status $c")
       }
     }
 
