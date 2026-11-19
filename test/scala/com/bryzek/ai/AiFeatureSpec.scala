@@ -5,8 +5,7 @@ import org.scalatest.wordspec.AnyWordSpec
 
 class AiFeatureSpec extends AnyWordSpec with Matchers {
 
-  private class Feature(name: String, budget: BigDecimal)
-    extends AiFeature(name, AiFeatureKind.Background, AiAccount.Personal, budget)
+  private class Feature(name: String, budget: BigDecimal) extends AiFeature(name, AiFeatureKind.Background, budget)
 
   "AiFeature" must {
     "accept a declared budget up to the $10 cap" in {

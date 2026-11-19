@@ -26,18 +26,6 @@ object AiFeatureKind {
   val all: List[AiFeatureKind] = List(Live, Incoming, Background)
 }
 
-/** The provider account whose credits pay for an [[AiFeature]]'s calls. An app resolves the client it calls with from
-  * this, so the account a feature is shown under and the account its calls are billed to cannot disagree.
-  */
-sealed trait AiAccount
-
-object AiAccount {
-  case object Personal extends AiAccount
-  case object Playbook extends AiAccount
-
-  val all: List[AiAccount] = List(Personal, Playbook)
-}
-
 /** One named kind of AI model call, declared in code, that spend is counted and budgeted by. Every call through
   * [[com.bryzek.ai.claude.ClaudeClient]] names one, so an unlabeled call does not compile.
   *
@@ -45,8 +33,11 @@ object AiAccount {
   *
   * {{{
   * case object AssistantMailClassifier
-  *   extends AiFeature("assistant_mail_classifier", AiFeatureKind.Background, AiAccount.Personal, BigDecimal(2))
+  *   extends AiFeature("assistant_mail_classifier", AiFeatureKind.Background, BigDecimal(2))
   * }}}
+  *
+  * A feature names no billing account: each deployment calls with its own key, so the key a feature's calls are billed
+  * to is the deployment's.
   *
   * `name` is the label the app's store persists and rolls spend up by, so renaming one splits its history.
   *
@@ -58,7 +49,6 @@ object AiAccount {
 trait AiFeature(
   val name: String,
   val kind: AiFeatureKind,
-  val account: AiAccount,
   val declaredBudgetUsd: BigDecimal
 ) {
   require(AiFeature.isValidName(name), s"AiFeature name[$name] must be lower snake case ([a-z][a-z0-9_]*)")
