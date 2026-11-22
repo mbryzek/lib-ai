@@ -6,7 +6,7 @@ import helpers.{ApiSpecs, FutureHelpers, TestAiFeature}
 import org.apache.pekko.util.Timeout
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
-import play.api.libs.json.{JsObject, Json}
+import play.api.libs.json.{JsNull, JsObject, Json}
 
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
@@ -112,6 +112,44 @@ class ClaudeOutputFormatsSpec extends AnyWordSpec with Matchers with FutureHelpe
       sent.size mustBe 1
       (sent.head \ "properties" \ "type_label" \ "type").asOpt[String] mustBe Some("string")
       (sent.head \ "required").as[Seq[String]] must not contain "type_label"
+    }
+  }
+
+  "ClaudeOutputFormats.create" should {
+
+    def refusal(f: => ClaudeOutputFormat): String = intercept[IllegalArgumentException](f).getMessage
+
+    "refuse a JSON null, naming its path" in {
+      refusal(
+        ClaudeOutputFormats.create("x", Json.obj("verdict" -> Json.obj("type" -> "string", "enum" -> JsNull)), Nil)
+      ) must include("$.properties.verdict.enum")
+    }
+
+    "refuse a String val read before its object initialised it" in {
+      // The judge's defect (ISS-116739): the schema val is declared above the val that supplies its enum value.
+      class InitOrder {
+        val format: ClaudeOutputFormat = ClaudeOutputFormats.create(
+          "judgement",
+          Json.obj("verdict" -> Json.obj("type" -> "string", "enum" -> Json.arr("pass", Verdict))),
+          Seq("verdict")
+        )
+        val Verdict: String = "fail"
+      }
+      val message = refusal(new InitOrder().format)
+      message must include("judgement")
+      message must include("$.properties.verdict.enum[1]")
+    }
+
+    "refuse a null required name" in {
+      refusal(
+        ClaudeOutputFormats.create("x", Json.obj("a" -> Json.obj("type" -> "string")), Seq("a", null))
+      ) must include("$.required[1]")
+    }
+
+    "accept every format lib-ai sends" in {
+      ClaudeOutputFormats.all.foreach { f =>
+        ClaudeOutputFormats.nullPaths(f.schema, "$") mustBe Nil
+      }
     }
   }
 
