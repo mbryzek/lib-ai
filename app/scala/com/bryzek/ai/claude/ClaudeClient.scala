@@ -1468,7 +1468,23 @@ case class ClaudeClient(
   * (structured outputs constrain decoding to this schema, and `additionalProperties` is false). ISS-45418
   */
 object ClaudeOutputFormats {
+
+  /** Builds an object schema, refusing one that holds a null anywhere: a JSON `null`, a `JsString(null)` (a `String`
+    * val read before its object initialised it) or a null element. The Anthropic API refuses every call that sends such
+    * a schema with a 400, so the format fails where it is built, naming the path, instead. ISS-116773
+    */
   def create(name: String, properties: JsObject, required: Seq[String]): ClaudeOutputFormat = {
+    require(name != null, "ClaudeOutputFormats.create: name is null")
+    require(properties != null, s"ClaudeOutputFormats.create($name): properties is null")
+    require(required != null, s"ClaudeOutputFormats.create($name): required is null")
+    val nulls = nullPaths(properties, "$.properties") ++ required.zipWithIndex.collect {
+      case (r, i) if r == null => s"$$.required[$i]"
+    }
+    require(
+      nulls.isEmpty,
+      s"ClaudeOutputFormats.create($name): the schema holds a null at ${nulls.mkString(", ")}; " +
+        "a value read before its object initialised it is the usual cause"
+    )
     ClaudeOutputFormat(
       name = name,
       schema = Json.obj(
@@ -1478,6 +1494,18 @@ object ClaudeOutputFormats {
         "additionalProperties" -> false
       )
     )
+  }
+
+  /** The JSON path of every null in `value`: a JSON `null`, a `JsString` holding null, or a null element. */
+  private[claude] def nullPaths(value: JsValue, path: String): Seq[String] = value match {
+    case null | JsNull => Seq(path)
+    case JsString(s) if s == null => Seq(path)
+    case o: JsObject =>
+      o.fields.toSeq.flatMap { case (k, v) =>
+        if (k == null) Seq(s"$path.<null key>") else nullPaths(v, s"$path.$k")
+      }
+    case JsArray(items) => items.toSeq.zipWithIndex.flatMap { case (v, i) => nullPaths(v, s"$path[$i]") }
+    case _ => Nil
   }
 
   private val stepsProperty = Json.obj(
