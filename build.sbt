@@ -4,7 +4,7 @@ version := "0.2.97"
 
 // Publishing metadata, the guava pin, the browser-stack exclusions, the compiler gate and the
 // root project's test reporting are shared by every lib-* repository and DECLARED in
-// BryzekLibSettings, published by mbryzek/lib-build as scala-build-sbt (project/plugins.sbt). That
+// BryzekLibSettings, published by mbryzek/scala-build as scala-build-sbt (project/plugins.sbt). That
 // source carries why each setting is what it is; a change is released there and bumped here.
 BryzekLibSettings.buildSettings("lib-ai")
 
@@ -15,7 +15,7 @@ ThisBuild / scalaVersion := "3.10.1"
 ThisBuild / resolvers += "Bryzek Maven repository" at "https://maven.bryzek.com"
 
 // The Jackson 2, Jackson 3 and logback security pins are DECLARED in BryzekPins, published by
-// mbryzek/lib-build as scala-build-sbt (project/plugins.sbt), and asserted against this build's own
+// mbryzek/scala-build as scala-build-sbt (project/plugins.sbt), and asserted against this build's own
 // resolution by the pin specs under test/scala/com/bryzek/pins, subclasses of scala-build-testkit's
 // suites. That source carries why each floor is what it is; an advisory bump is released there
 // and bumped here.
