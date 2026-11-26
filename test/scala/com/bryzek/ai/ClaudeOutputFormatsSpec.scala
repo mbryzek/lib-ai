@@ -148,8 +148,102 @@ class ClaudeOutputFormatsSpec extends AnyWordSpec with Matchers with FutureHelpe
 
     "accept every format lib-ai sends" in {
       ClaudeOutputFormats.all.foreach { f =>
-        ClaudeOutputFormats.nullPaths(f.schema, "$") mustBe Nil
+        ClaudeOutputFormat.nullPaths(f.schema, "$") mustBe Nil
+        ClaudeOutputFormat.unionTypedEnumPaths(f.schema, "$") mustBe Nil
       }
+    }
+  }
+
+  /** The checks hold for a format built directly, not only through [[ClaudeOutputFormats.create]]: playbook's
+    * ConsentScanModel built one as `ClaudeOutputFormat(name, schema)` and the API refused every call with a 400.
+    * ISS-162487
+    */
+  "ClaudeOutputFormat" should {
+
+    def refusal(f: => ClaudeOutputFormat): String = intercept[IllegalArgumentException](f).getMessage
+
+    def objectSchema(properties: JsObject): JsObject = Json.obj(
+      "type" -> "object",
+      "properties" -> properties,
+      "required" -> Json.arr(),
+      "additionalProperties" -> false
+    )
+
+    "refuse a JsNull enum value, naming its path" in {
+      val message = refusal(
+        ClaudeOutputFormat(
+          "x",
+          objectSchema(Json.obj("verdict" -> Json.obj("type" -> "string", "enum" -> Json.arr("pass", JsNull))))
+        )
+      )
+      message must include("ClaudeOutputFormat(x)")
+      message must include("$.properties.verdict.enum[1]")
+    }
+
+    "refuse an enum under a union type, naming its path and the anyOf form" in {
+      val message = refusal(
+        ClaudeOutputFormat(
+          "x",
+          objectSchema(
+            Json.obj(
+              "outer" -> Json.obj(
+                "type" -> "object",
+                "properties" -> Json.obj(
+                  "kind" -> Json.obj("type" -> Json.arr("string", "null"), "enum" -> Json.arr("a", "b"))
+                )
+              )
+            )
+          )
+        )
+      )
+      message must include("$.properties.outer.properties.kind")
+      message must include("anyOf")
+    }
+
+    "refuse a union-typed enum inside an array's items" in {
+      refusal(
+        ClaudeOutputFormat(
+          "x",
+          objectSchema(
+            Json.obj(
+              "kinds" -> Json.obj(
+                "type" -> "array",
+                "items" -> Json.obj("type" -> Json.arr("string", "null"), "enum" -> Json.arr("a"))
+              )
+            )
+          )
+        )
+      ) must include("$.properties.kinds.items")
+    }
+
+    "offer no copy and no new that would skip the check" in {
+      assertDoesNotCompile("""ClaudeOutputFormats.SingleInsight.copy(name = "y")""")
+      assertDoesNotCompile("""new ClaudeOutputFormat("y", play.api.libs.json.Json.obj())""")
+    }
+
+    "accept a nullable enum written as anyOf" in {
+      val format = ClaudeOutputFormat(
+        "x",
+        objectSchema(
+          Json.obj(
+            "kind" -> Json.obj(
+              "anyOf" -> Json.arr(
+                Json.obj("type" -> "string", "enum" -> Json.arr("a", "b")),
+                Json.obj("type" -> "null")
+              )
+            ),
+            "note" -> Json.obj("type" -> Json.arr("string", "null"))
+          )
+        )
+      )
+      format.name mustBe "x"
+    }
+
+    "build the probe's deliberately broken control through uncheckedForProbes alone" in {
+      val schema =
+        objectSchema(Json.obj("kind" -> Json.obj("type" -> Json.arr("string", "null"), "enum" -> Json.arr("a"))))
+      refusal(ClaudeOutputFormat("probe", schema)) must include("$.properties.kind")
+      ClaudeOutputFormat.uncheckedForProbes("probe", schema).schema mustBe schema
     }
   }
 
