@@ -690,7 +690,20 @@ object ClaudeClient {
 
 }
 
-final case class ClaudeOutputFormat(
+/** A structured output schema sent to Claude. Every format is checked where it is built, however it is built
+  * (`ClaudeOutputFormat(name, schema)` or [[ClaudeOutputFormats.create]]), against the shapes the Anthropic API refuses
+  * with a 400 on every call, so a broken format fails its first test or boot instead of every production call:
+  *
+  *   - a null anywhere in the schema: a JSON `null`, a `JsString(null)` (a `String` val read before its object
+  *     initialised it) or a null key. ISS-116773
+  *   - an `enum` on a node whose `type` is a JSON array (`"type": ["string", "null"]`), which the API refuses with
+  *     `Enum value ... does not match declared type`. A nullable enum is `anyOf` of the enum and `{"type": "null"}`.
+  *     ISS-366 ISS-162487
+  *
+  * The constructor is private so that `copy` cannot skip the check either. [[ClaudeOutputFormat.uncheckedForProbes]]
+  * is the one way to build a format the check refuses, for a probe that sends a deliberately broken schema to the API.
+  */
+final case class ClaudeOutputFormat private (
   name: String,
   schema: _root_.play.api.libs.json.JsObject
 ) {
@@ -698,6 +711,61 @@ final case class ClaudeOutputFormat(
     `type` = ClaudeOutputFormatType.JsonSchema,
     schema = schema
   )
+}
+
+object ClaudeOutputFormat {
+
+  /** Builds a format, refusing a schema the API refuses (see [[ClaudeOutputFormat]]) and naming the JSON path of every
+    * offending node.
+    */
+  def apply(name: String, schema: JsObject): ClaudeOutputFormat = {
+    require(name != null, "ClaudeOutputFormat: name is null")
+    require(schema != null, s"ClaudeOutputFormat($name): schema is null")
+    val nulls = nullPaths(schema, "$")
+    require(
+      nulls.isEmpty,
+      s"ClaudeOutputFormat($name): the schema holds a null at ${nulls.mkString(", ")}; " +
+        "a value read before its object initialised it is the usual cause"
+    )
+    val unionEnums = unionTypedEnumPaths(schema, "$")
+    require(
+      unionEnums.isEmpty,
+      s"ClaudeOutputFormat($name): the schema declares an enum on a union type at ${unionEnums.mkString(", ")}, " +
+        "which the API refuses (Enum value ... does not match declared type); write a nullable enum as " +
+        """{"anyOf": [{"type": "string", "enum": [...]}, {"type": "null"}]}"""
+    )
+    new ClaudeOutputFormat(name, schema)
+  }
+
+  /** Builds a format WITHOUT any check. For a probe alone, one that sends a deliberately broken schema so the API's own
+    * refusal proves the probe reaches its validator (play-core's ClaudeSchemaProbe.RejectedControl). Never for a format
+    * a caller means to use.
+    */
+  def uncheckedForProbes(name: String, schema: JsObject): ClaudeOutputFormat = new ClaudeOutputFormat(name, schema)
+
+  /** The JSON path of every null in `value`: a JSON `null`, a `JsString` holding null, a null key or a null element. */
+  private[claude] def nullPaths(value: JsValue, path: String): Seq[String] = value match {
+    case null | JsNull => Seq(path)
+    case JsString(s) if s == null => Seq(path)
+    case o: JsObject =>
+      o.fields.toSeq.flatMap { case (k, v) =>
+        if (k == null) Seq(s"$path.<null key>") else nullPaths(v, s"$path.$k")
+      }
+    case JsArray(items) => items.toSeq.zipWithIndex.flatMap { case (v, i) => nullPaths(v, s"$path[$i]") }
+    case _ => Nil
+  }
+
+  /** The JSON path of every node that declares an `enum` beside a `type` that is a JSON array. */
+  private[claude] def unionTypedEnumPaths(value: JsValue, path: String): Seq[String] = value match {
+    case o: JsObject =>
+      val here = (o.value.get("enum"), o.value.get("type")) match {
+        case (Some(_), Some(_: JsArray)) => Seq(path)
+        case _ => Nil
+      }
+      here ++ o.fields.toSeq.flatMap { case (k, v) => unionTypedEnumPaths(v, s"$path.$k") }
+    case JsArray(items) => items.toSeq.zipWithIndex.flatMap { case (v, i) => unionTypedEnumPaths(v, s"$path[$i]") }
+    case _ => Nil
+  }
 }
 
 /** The Claude client. Every call names the [[AiFeature]] it is for and is checked against that feature's daily budget
@@ -1469,22 +1537,13 @@ case class ClaudeClient(
   */
 object ClaudeOutputFormats {
 
-  /** Builds an object schema, refusing one that holds a null anywhere: a JSON `null`, a `JsString(null)` (a `String`
-    * val read before its object initialised it) or a null element. The Anthropic API refuses every call that sends such
-    * a schema with a 400, so the format fails where it is built, naming the path, instead. ISS-116773
+  /** Builds an object schema from its properties and required names. [[ClaudeOutputFormat.apply]] checks the result,
+    * so a null anywhere (a required name included) or a union-typed enum fails here, naming its path. ISS-116773
     */
   def create(name: String, properties: JsObject, required: Seq[String]): ClaudeOutputFormat = {
     require(name != null, "ClaudeOutputFormats.create: name is null")
     require(properties != null, s"ClaudeOutputFormats.create($name): properties is null")
     require(required != null, s"ClaudeOutputFormats.create($name): required is null")
-    val nulls = nullPaths(properties, "$.properties") ++ required.zipWithIndex.collect {
-      case (r, i) if r == null => s"$$.required[$i]"
-    }
-    require(
-      nulls.isEmpty,
-      s"ClaudeOutputFormats.create($name): the schema holds a null at ${nulls.mkString(", ")}; " +
-        "a value read before its object initialised it is the usual cause"
-    )
     ClaudeOutputFormat(
       name = name,
       schema = Json.obj(
@@ -1494,18 +1553,6 @@ object ClaudeOutputFormats {
         "additionalProperties" -> false
       )
     )
-  }
-
-  /** The JSON path of every null in `value`: a JSON `null`, a `JsString` holding null, or a null element. */
-  private[claude] def nullPaths(value: JsValue, path: String): Seq[String] = value match {
-    case null | JsNull => Seq(path)
-    case JsString(s) if s == null => Seq(path)
-    case o: JsObject =>
-      o.fields.toSeq.flatMap { case (k, v) =>
-        if (k == null) Seq(s"$path.<null key>") else nullPaths(v, s"$path.$k")
-      }
-    case JsArray(items) => items.toSeq.zipWithIndex.flatMap { case (v, i) => nullPaths(v, s"$path[$i]") }
-    case _ => Nil
   }
 
   private val stepsProperty = Json.obj(
