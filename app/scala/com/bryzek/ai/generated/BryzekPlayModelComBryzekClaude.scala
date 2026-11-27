@@ -2013,6 +2013,8 @@ sealed trait KnownClaudeBatchProcessingStatus extends _root_.scala.Product with 
 }
 
 object KnownClaudeBatchProcessingStatus {
+  given CanEqual[KnownClaudeBatchProcessingStatus, KnownClaudeBatchProcessingStatus] = CanEqual.derived
+
   case object InProgress extends KnownClaudeBatchProcessingStatus {
     override def toString: String = _root_.com.bryzek.claude.models.ClaudeBatchProcessingStatus.InProgress.toString
     override def toClaudeBatchProcessingStatus: _root_.com.bryzek.claude.models.ClaudeBatchProcessingStatus = _root_.com.bryzek.claude.models.ClaudeBatchProcessingStatus.InProgress
@@ -2043,6 +2045,8 @@ sealed trait KnownClaudeBatchResultType extends _root_.scala.Product with _root_
 }
 
 object KnownClaudeBatchResultType {
+  given CanEqual[KnownClaudeBatchResultType, KnownClaudeBatchResultType] = CanEqual.derived
+
   case object Succeeded extends KnownClaudeBatchResultType {
     override def toString: String = _root_.com.bryzek.claude.models.ClaudeBatchResultType.Succeeded.toString
     override def toClaudeBatchResultType: _root_.com.bryzek.claude.models.ClaudeBatchResultType = _root_.com.bryzek.claude.models.ClaudeBatchResultType.Succeeded
@@ -2078,6 +2082,8 @@ sealed trait KnownClaudeCacheType extends _root_.scala.Product with _root_.scala
 }
 
 object KnownClaudeCacheType {
+  given CanEqual[KnownClaudeCacheType, KnownClaudeCacheType] = CanEqual.derived
+
   case object Ephemeral extends KnownClaudeCacheType {
     override def toString: String = _root_.com.bryzek.claude.models.ClaudeCacheType.Ephemeral.toString
     override def toClaudeCacheType: _root_.com.bryzek.claude.models.ClaudeCacheType = _root_.com.bryzek.claude.models.ClaudeCacheType.Ephemeral
@@ -2098,6 +2104,8 @@ sealed trait KnownClaudeContentType extends _root_.scala.Product with _root_.sca
 }
 
 object KnownClaudeContentType {
+  given CanEqual[KnownClaudeContentType, KnownClaudeContentType] = CanEqual.derived
+
   case object Text extends KnownClaudeContentType {
     override def toString: String = _root_.com.bryzek.claude.models.ClaudeContentType.Text.toString
     override def toClaudeContentType: _root_.com.bryzek.claude.models.ClaudeContentType = _root_.com.bryzek.claude.models.ClaudeContentType.Text
@@ -2168,6 +2176,8 @@ sealed trait KnownClaudeEffort extends _root_.scala.Product with _root_.scala.Se
 }
 
 object KnownClaudeEffort {
+  given CanEqual[KnownClaudeEffort, KnownClaudeEffort] = CanEqual.derived
+
   case object Low extends KnownClaudeEffort {
     override def toString: String = _root_.com.bryzek.claude.models.ClaudeEffort.Low.toString
     override def toClaudeEffort: _root_.com.bryzek.claude.models.ClaudeEffort = _root_.com.bryzek.claude.models.ClaudeEffort.Low
@@ -2208,6 +2218,8 @@ sealed trait KnownClaudeMediaType extends _root_.scala.Product with _root_.scala
 }
 
 object KnownClaudeMediaType {
+  given CanEqual[KnownClaudeMediaType, KnownClaudeMediaType] = CanEqual.derived
+
   case object ImageJpeg extends KnownClaudeMediaType {
     override def toString: String = _root_.com.bryzek.claude.models.ClaudeMediaType.ImageJpeg.toString
     override def toClaudeMediaType: _root_.com.bryzek.claude.models.ClaudeMediaType = _root_.com.bryzek.claude.models.ClaudeMediaType.ImageJpeg
@@ -2248,6 +2260,8 @@ sealed trait KnownClaudeModel extends _root_.scala.Product with _root_.scala.Ser
 }
 
 object KnownClaudeModel {
+  given CanEqual[KnownClaudeModel, KnownClaudeModel] = CanEqual.derived
+
   case object ClaudeSonnet5 extends KnownClaudeModel {
     override def toString: String = _root_.com.bryzek.claude.models.ClaudeModel.ClaudeSonnet5.toString
     override def toClaudeModel: _root_.com.bryzek.claude.models.ClaudeModel = _root_.com.bryzek.claude.models.ClaudeModel.ClaudeSonnet5
@@ -2308,6 +2322,8 @@ sealed trait KnownClaudeOutputFormatType extends _root_.scala.Product with _root
 }
 
 object KnownClaudeOutputFormatType {
+  given CanEqual[KnownClaudeOutputFormatType, KnownClaudeOutputFormatType] = CanEqual.derived
+
   case object JsonSchema extends KnownClaudeOutputFormatType {
     override def toString: String = _root_.com.bryzek.claude.models.ClaudeOutputFormatType.JsonSchema.toString
     override def toClaudeOutputFormatType: _root_.com.bryzek.claude.models.ClaudeOutputFormatType = _root_.com.bryzek.claude.models.ClaudeOutputFormatType.JsonSchema
@@ -2328,6 +2344,8 @@ sealed trait KnownClaudeRole extends _root_.scala.Product with _root_.scala.Seri
 }
 
 object KnownClaudeRole {
+  given CanEqual[KnownClaudeRole, KnownClaudeRole] = CanEqual.derived
+
   case object User extends KnownClaudeRole {
     override def toString: String = _root_.com.bryzek.claude.models.ClaudeRole.User.toString
     override def toClaudeRole: _root_.com.bryzek.claude.models.ClaudeRole = _root_.com.bryzek.claude.models.ClaudeRole.User
@@ -2353,6 +2371,8 @@ sealed trait KnownClaudeServiceTier extends _root_.scala.Product with _root_.sca
 }
 
 object KnownClaudeServiceTier {
+  given CanEqual[KnownClaudeServiceTier, KnownClaudeServiceTier] = CanEqual.derived
+
   case object Standard extends KnownClaudeServiceTier {
     override def toString: String = _root_.com.bryzek.claude.models.ClaudeServiceTier.Standard.toString
     override def toClaudeServiceTier: _root_.com.bryzek.claude.models.ClaudeServiceTier = _root_.com.bryzek.claude.models.ClaudeServiceTier.Standard
@@ -2383,6 +2403,8 @@ sealed trait KnownClaudeSourceType extends _root_.scala.Product with _root_.scal
 }
 
 object KnownClaudeSourceType {
+  given CanEqual[KnownClaudeSourceType, KnownClaudeSourceType] = CanEqual.derived
+
   case object Base64 extends KnownClaudeSourceType {
     override def toString: String = _root_.com.bryzek.claude.models.ClaudeSourceType.Base64.toString
     override def toClaudeSourceType: _root_.com.bryzek.claude.models.ClaudeSourceType = _root_.com.bryzek.claude.models.ClaudeSourceType.Base64
@@ -2403,6 +2425,8 @@ sealed trait KnownClaudeStopReason extends _root_.scala.Product with _root_.scal
 }
 
 object KnownClaudeStopReason {
+  given CanEqual[KnownClaudeStopReason, KnownClaudeStopReason] = CanEqual.derived
+
   case object EndTurn extends KnownClaudeStopReason {
     override def toString: String = _root_.com.bryzek.claude.models.ClaudeStopReason.EndTurn.toString
     override def toClaudeStopReason: _root_.com.bryzek.claude.models.ClaudeStopReason = _root_.com.bryzek.claude.models.ClaudeStopReason.EndTurn
@@ -2448,6 +2472,8 @@ sealed trait KnownClaudeTaskBudgetType extends _root_.scala.Product with _root_.
 }
 
 object KnownClaudeTaskBudgetType {
+  given CanEqual[KnownClaudeTaskBudgetType, KnownClaudeTaskBudgetType] = CanEqual.derived
+
   case object Tokens extends KnownClaudeTaskBudgetType {
     override def toString: String = _root_.com.bryzek.claude.models.ClaudeTaskBudgetType.Tokens.toString
     override def toClaudeTaskBudgetType: _root_.com.bryzek.claude.models.ClaudeTaskBudgetType = _root_.com.bryzek.claude.models.ClaudeTaskBudgetType.Tokens
@@ -2468,6 +2494,8 @@ sealed trait KnownClaudeThinkingType extends _root_.scala.Product with _root_.sc
 }
 
 object KnownClaudeThinkingType {
+  given CanEqual[KnownClaudeThinkingType, KnownClaudeThinkingType] = CanEqual.derived
+
   case object Disabled extends KnownClaudeThinkingType {
     override def toString: String = _root_.com.bryzek.claude.models.ClaudeThinkingType.Disabled.toString
     override def toClaudeThinkingType: _root_.com.bryzek.claude.models.ClaudeThinkingType = _root_.com.bryzek.claude.models.ClaudeThinkingType.Disabled
@@ -2498,6 +2526,8 @@ sealed trait KnownClaudeToolCaller extends _root_.scala.Product with _root_.scal
 }
 
 object KnownClaudeToolCaller {
+  given CanEqual[KnownClaudeToolCaller, KnownClaudeToolCaller] = CanEqual.derived
+
   case object Direct extends KnownClaudeToolCaller {
     override def toString: String = _root_.com.bryzek.claude.models.ClaudeToolCaller.Direct.toString
     override def toClaudeToolCaller: _root_.com.bryzek.claude.models.ClaudeToolCaller = _root_.com.bryzek.claude.models.ClaudeToolCaller.Direct
@@ -2533,6 +2563,8 @@ sealed trait KnownClaudeToolChoiceType extends _root_.scala.Product with _root_.
 }
 
 object KnownClaudeToolChoiceType {
+  given CanEqual[KnownClaudeToolChoiceType, KnownClaudeToolChoiceType] = CanEqual.derived
+
   case object Auto extends KnownClaudeToolChoiceType {
     override def toString: String = _root_.com.bryzek.claude.models.ClaudeToolChoiceType.Auto.toString
     override def toClaudeToolChoiceType: _root_.com.bryzek.claude.models.ClaudeToolChoiceType = _root_.com.bryzek.claude.models.ClaudeToolChoiceType.Auto
@@ -2568,6 +2600,8 @@ sealed trait KnownClaudeToolType extends _root_.scala.Product with _root_.scala.
 }
 
 object KnownClaudeToolType {
+  given CanEqual[KnownClaudeToolType, KnownClaudeToolType] = CanEqual.derived
+
   case object WebSearch20250305 extends KnownClaudeToolType {
     override def toString: String = _root_.com.bryzek.claude.models.ClaudeToolType.WebSearch20250305.toString
     override def toClaudeToolType: _root_.com.bryzek.claude.models.ClaudeToolType = _root_.com.bryzek.claude.models.ClaudeToolType.WebSearch20250305

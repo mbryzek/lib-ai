@@ -87,6 +87,6 @@ lazy val root = project
       // The suites the pin specs under test/scala/com/bryzek/pins subclass. Every dependency of
       // it is Provided, so each suite runs against what this build resolves. Same version as scala-build-sbt in
       // project/plugins.sbt.
-      "com.bryzek" %% "scala-build-testkit" % "0.0.31" % Test
+      "com.bryzek" %% "scala-build-testkit" % "0.0.33" % Test
     )
   )
