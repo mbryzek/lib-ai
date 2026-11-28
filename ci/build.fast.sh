@@ -93,8 +93,10 @@ dev ci step check-format || echo "check-format: could not measure this tree — 
 ci_th=$(dev ci template sbt-test-health/ci/test-health.sh) || exit 75
 source "$ci_th"
 ci_test_health_sbt
-sbt -Dsbt.log.noformat=true "${ci_sbt_test_commands[@]}"
+ci_sbt_suite
 # THE PROOF OF A QUARANTINE'S FIX (ISS-115750): when the lists hold `proof <spec>` lines, the
-# template's `ci_sbt_proof` runs scala-build-sbt's `ciProof` after the green suite and fails on a red
-# proof or on one that never printed `ci-proof: passed`; otherwise it does nothing.
+# template's `ci_sbt_proof` runs scala-build-sbt's `ciProof` and fails on a red proof or on one that
+# never printed `ci-proof: passed`; otherwise it does nothing. It runs after a green suite, and
+# `ci_sbt_suite` runs it itself after a suite red on specs that failed again, then returns the red
+# (ISS-181544): a spec `main` broke says nothing about whether the quarantined spec's fix works.
 ci_sbt_proof
