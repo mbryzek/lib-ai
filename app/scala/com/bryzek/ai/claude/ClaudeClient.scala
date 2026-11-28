@@ -77,13 +77,20 @@ object ClaudeEnvironment {
   * have been re-sent inside five minutes anyway (paying 2x for a write that 1.25x would have bought) or when it is not
   * re-sent at all (paying 2x for a write nothing ever reads). Measure the gap between consecutive calls of the same
   * shape before choosing -- and then measure `cache_read_input_tokens` afterwards to confirm it actually paid.
+  *
+  * What the choice covers: the breakpoints a single request places (`cacheSystem`, `cacheLastMessage`), and in a tool
+  * loop the static prefix (tools and system) only. A tool loop's rolling transcript breakpoints are always five-minute
+  * ones ([[ClaudeClient.cacheConversation]]): the next turn reads them seconds later and nothing reads them after the
+  * loop ends, so the 1h rate there buys no hit and doubles the write premium. A turn slower than five minutes only
+  * re-writes the transcript at 1.25x. The API requires longer-TTL breakpoints before shorter ones, which prefix (the
+  * caller's TTL) then transcript (5m) satisfies.
   */
 sealed abstract class ClaudeCacheTtl(val wireValue: String)
 
 object ClaudeCacheTtl {
 
-  /** The API's own default, and this library's. Right for calls that repeat back-to-back -- a tool loop's turns, or a
-    * per-club stage whose clubs run one after another.
+  /** The API's own default, and this library's. Right for calls that repeat back-to-back -- a per-club stage whose
+    * clubs run one after another -- and always what a tool loop's transcript uses.
     */
   case object FiveMinutes extends ClaudeCacheTtl("5m")
 
@@ -126,9 +133,10 @@ case class AiRequest(
   cacheLastMessage: Boolean = false,
   thinking: ClaudeThinkingType = ClaudeThinkingType.Adaptive,
   effort: Option[ClaudeEffort] = None,
-  /** TTL for every cache breakpoint this request writes -- the ones `cacheSystem`/`cacheLastMessage` place, and the
-    * ones a tool loop places on its own. See [[ClaudeCacheTtl]] for how to choose; it is a cost decision, and the wrong
-    * choice makes caching more expensive rather than merely less effective.
+  /** TTL for the cache breakpoints `cacheSystem`/`cacheLastMessage` place, and for the static-prefix breakpoint a tool
+    * loop places on its own. A tool loop's rolling transcript breakpoints are always five-minute ones, whatever this
+    * says. See [[ClaudeCacheTtl]] for how to choose; it is a cost decision, and the wrong choice makes caching more
+    * expensive rather than merely less effective.
     */
   cacheTtl: ClaudeCacheTtl = ClaudeCacheTtl.FiveMinutes
 ) {
@@ -579,12 +587,14 @@ object ClaudeClient {
     * it, whether that is tool results or the finalize instruction. Existing markers are cleared first so the count
     * stays fixed as the transcript grows rather than accumulating past the API's limit -- a breakpoint is a read point,
     * not part of the cached bytes, so moving one does not invalidate anything already written.
+    *
+    * These breakpoints are always five-minute ones, whatever TTL the caller chose for the prefix: the next turn reads
+    * them seconds later and nothing reads them once the loop ends, so a 1h write (2x input against 1.25x) buys nothing
+    * here. A turn slower than five minutes costs a re-write of the transcript, never an error. Sending no `ttl` keeps
+    * them after a 1h prefix breakpoint, the order the API requires (longer TTLs first).
     */
-  private[claude] def cacheConversation(
-    messages: Seq[ClaudeMessage],
-    ttl: ClaudeCacheTtl = ClaudeCacheTtl.FiveMinutes
-  ): Seq[ClaudeMessage] = {
-    val ephemeral = ephemeralFor(ttl)
+  private[claude] def cacheConversation(messages: Seq[ClaudeMessage]): Seq[ClaudeMessage] = {
+    val ephemeral = ephemeralFor(ClaudeCacheTtl.FiveMinutes)
     val cleared = messages.map(m => m.copy(content = m.content.map(_.copy(cacheControl = None))))
     val breakpoints = Seq.tabulate(ConversationBreakpoints)(i => cleared.size - 1 - (i * 2)).filter(_ >= 0).toSet
     cleared.zipWithIndex.map {
@@ -954,7 +964,7 @@ case class ClaudeClient(
       // `tools` stays on the request and `tool_choice: none` does the forbidding. Dropping the tools would change
       // the very front of the prefix and throw away the tools+system cache on the most expensive turn of the loop.
       val req = base.copy(
-        messages = cacheConversation(messages, request.cacheTtl),
+        messages = cacheConversation(messages),
         toolChoice = Some(ClaudeToolChoice(ClaudeToolChoiceType.None)),
         outputConfig = Some(mergeFormat(base.outputConfig, finalFormat))
       )
@@ -1014,7 +1024,7 @@ case class ClaudeClient(
       // `outputConfig` is carried through untouched rather than cleared: it also holds the caller's `effort`, and
       // it is only the FORMAT this loop declines to set.
       val req = base.copy(
-        messages = cacheConversation(messages, request.cacheTtl),
+        messages = cacheConversation(messages),
         toolChoice = Some(ClaudeToolChoice(ClaudeToolChoiceType.None)),
         outputConfig = base.outputConfig
       )
@@ -1049,7 +1059,8 @@ case class ClaudeClient(
     withEffortStepDown(request) { req =>
       tryModels(aiModels.resolveAll(feature, models)) { model =>
         // Bound before `loop`'s own `req` shadows the outer one. `withEffortStepDown` only ever copies the request
-        // with a lower effort, so this is the caller's TTL whichever attempt we are on.
+        // with a lower effort, so this is the caller's TTL whichever attempt we are on. It applies to the static
+        // prefix only; the transcript's breakpoints are five-minute ones (`cacheConversation`).
         val ttl = req.cacheTtl
         // Every turn resends tools + system + the whole transcript, so the prefix is cached unconditionally here.
         def baseFor(m: ClaudeModel): ClaudeRequest =
@@ -1060,7 +1071,7 @@ case class ClaudeClient(
         // re-run is this request on the new model, and the tool calls it asks for are never run.
         def openingTurn(b: ClaudeRequest): ClaudeRequest =
           b.copy(
-            messages = cacheConversation(b.messages, ttl),
+            messages = cacheConversation(b.messages),
             toolChoice = Some(ClaudeToolChoice(ClaudeToolChoiceType.Auto)),
             outputConfig = b.outputConfig
           )
@@ -1086,7 +1097,7 @@ case class ClaudeClient(
             finalize(withBudgetSpentNotice(messages, budgetSpentWith), invocations, turns)
           } else {
             val req = base.copy(
-              messages = cacheConversation(messages, ttl),
+              messages = cacheConversation(messages),
               toolChoice = Some(ClaudeToolChoice(ClaudeToolChoiceType.Auto)),
               outputConfig = base.outputConfig
             )

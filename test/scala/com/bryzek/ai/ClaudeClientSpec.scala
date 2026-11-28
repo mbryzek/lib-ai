@@ -1078,6 +1078,34 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       unansweredToolUses(sent.requests.last.messages) mustBe empty
     }
 
+    // A caller picks the 1h TTL for a static prefix shared by calls minutes apart. The transcript is read by the next
+    // turn seconds later and by nothing after the loop, so a 1h write there pays 2x input for what 1.25x buys
+    // (ISS-182278). Every turn -- the opening one, a turn after tool results, the finalize -- keeps the caller's TTL on
+    // the prefix and none on the transcript, which is also the order the API requires (longer TTLs first).
+    "keep a 1h cacheTtl on the static prefix and put five-minute breakpoints on the transcript" in {
+      val sent = scriptedClient(asksFor("toolu_one"), truncatedAnswer, answered)
+      val result = await(
+        sent.client.runToolLoopText(
+          request.copy(system = Some("investigator rules"), cacheTtl = ClaudeCacheTtl.OneHour),
+          tools = Seq(tool),
+          models = models,
+          maxCalls = 25,
+          feature = TestAiFeature
+        ) { _ =>
+          scala.concurrent.Future.successful(ClaudeToolOutput(content = """{"total": 42}"""))
+        }
+      )(using timeout)
+
+      result.isValid mustBe true
+      sent.requests.size mustBe 3
+      sent.requests.foreach { r =>
+        r.system.get.last.cacheControl.map(_.ttl) mustBe Some(Some("1h"))
+        val messageBreakpoints = r.messages.flatMap(_.content).flatMap(_.cacheControl)
+        messageBreakpoints must not be empty
+        messageBreakpoints.map(_.ttl).toSet mustBe Set(None)
+      }
+    }
+
     // The same fault reached through a stop reason this library does not know: whatever the API says
     // about how a turn ended, the blocks in it decide what the next message has to carry.
     "answer the tool calls of a turn whose stop reason this library does not know" in {
@@ -1308,13 +1336,20 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       prefixTtl(ClaudeCacheTtl.OneHour) mustBe Some("1h")
     }
 
-    "cacheConversation carries the ttl onto every rolling breakpoint" in {
+    "cacheConversation writes five-minute breakpoints, clearing a 1h marker it finds" in {
       val transcript = Seq("a", "b", "c").map(ClaudeClient.makeClaudeMessage(ClaudeRole.User, _))
-      def ttls(ttl: ClaudeCacheTtl): Seq[Option[String]] =
-        ClaudeClient.cacheConversation(transcript, ttl).flatMap(_.content).flatMap(_.cacheControl).map(_.ttl)
+      val oneHour = transcript.map(m =>
+        m.copy(content = m.content.map(_.copy(cacheControl = ClaudeClient.ephemeralFor(ClaudeCacheTtl.OneHour))))
+      )
+      def ttls(messages: Seq[ClaudeMessage]): Seq[Option[String]] =
+        ClaudeClient
+          .cacheConversation(messages)
+          .flatMap(_.content)
+          .flatMap(_.cacheControl)
+          .map(_.ttl)
 
-      ttls(ClaudeCacheTtl.FiveMinutes) mustBe Seq(None, None)
-      ttls(ClaudeCacheTtl.OneHour) mustBe Seq(Some("1h"), Some("1h"))
+      ttls(transcript) mustBe Seq(None, None)
+      ttls(oneHour) mustBe Seq(None, None)
     }
 
     "toClaudeRequest carries cacheTtl onto the system and last-message breakpoints" in {
