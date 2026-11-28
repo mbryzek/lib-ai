@@ -142,7 +142,22 @@ case class AiRequest(
 ) {
   require(!cacheSystem || system.isDefined, "cacheSystem=true requires system to be set")
 
-  def toClaudeRequest(model: ClaudeModel): ClaudeRequest = {
+  /** This request as ONE response: it carries the task budget [[AiRequest.taskBudgetFor]] sizes for one response. */
+  def toClaudeRequest(model: ClaudeModel): ClaudeRequest = build(model, AiRequest.taskBudgetFor(model, maxTokens))
+
+  /** This request as the turns of a tool loop: no task budget.
+    *
+    * A task budget is the API's countdown for a whole agentic turn, every request of it: the content the model reads
+    * (the opening prompt and every tool result) as well as what it generates, counted once and carried by the server
+    * from request to request. The budget [[AiRequest.taskBudgetFor]] sizes is 0.75 x `max_tokens`, a bound for ONE
+    * response, so on a loop whose prompt alone is larger than it the model starts out of budget and hands the work
+    * back before reading anything (ISS-182277). Nothing this library holds knows how much work a loop is: `maxCalls`
+    * bounds the calls, `max_tokens` still caps each turn, and [[ClaudeClient.withEffortStepDown]] still recovers a turn
+    * whose thinking ate its ceiling.
+    */
+  private[claude] def toLoopRequest(model: ClaudeModel): ClaudeRequest = build(model, taskBudget = None)
+
+  private def build(model: ClaudeModel, taskBudget: Option[ClaudeTaskBudget]): ClaudeRequest = {
     def ephemeral: Option[ClaudeCacheControl] = ClaudeClient.ephemeralFor(cacheTtl)
     val systemBlocks = system.map { text =>
       Seq(
@@ -171,10 +186,9 @@ case class AiRequest(
       tools = None,
       toolChoice = None,
       outputConfig = {
-        val budget = AiRequest.taskBudgetFor(model, maxTokens)
         val sentEffort = AiRequest.effortFor(model, effort)
-        Option.when(sentEffort.isDefined || budget.isDefined)(
-          ClaudeOutputConfig(effort = sentEffort, format = None, taskBudget = budget)
+        Option.when(sentEffort.isDefined || taskBudget.isDefined)(
+          ClaudeOutputConfig(effort = sentEffort, format = None, taskBudget = taskBudget)
         )
       },
       thinking = AiRequest.thinkingFor(model, thinking)
@@ -196,7 +210,8 @@ object AiRequest {
     */
   private[claude] val TaskBudgetFraction = 0.75
 
-  /** The advisory budget for a request, or None when there is no useful one to send.
+  /** The advisory budget for ONE response, or None when there is no useful one to send. A tool loop sends none
+    * ([[AiRequest.toLoopRequest]]): the API counts a budget across every request of an agentic turn.
     *
     * `effort` is a hint about how hard to think, not a bound on it, and `budget_tokens` is removed on every model in
     * this enum -- so before task budgets there was NOTHING bounding a thinking pass, and a large enough one could eat
@@ -1064,7 +1079,7 @@ case class ClaudeClient(
         val ttl = req.cacheTtl
         // Every turn resends tools + system + the whole transcript, so the prefix is cached unconditionally here.
         def baseFor(m: ClaudeModel): ClaudeRequest =
-          cacheStaticPrefix(req.toClaudeRequest(m).copy(tools = Some(tools)), ttl)
+          cacheStaticPrefix(req.toLoopRequest(m).copy(tools = Some(tools)), ttl)
         val base = baseFor(model)
 
         // The loop's opening turn, which is what a trial samples: a pair is one request's first response, so the
