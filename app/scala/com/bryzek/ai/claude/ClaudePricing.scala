@@ -42,17 +42,22 @@ object ClaudePricing {
     */
   val CacheReadMultiplier: BigDecimal = BigDecimal("0.1")
 
-  private case class Rate(inputPerM: BigDecimal, outputPerM: BigDecimal, cacheReadPerM: BigDecimal) {
+  /** One model's list rate, USD per million tokens. Public through [[listRate]], which platform's agent model
+    * roster reads so a version's price comes from the same row this file charges a lib-ai call at. A cache
+    * write is derived from the input rate per TTL; a cache read is carried outright (see
+    * [[CacheReadMultiplier]]).
+    */
+  final case class Rate(inputPerM: BigDecimal, outputPerM: BigDecimal, cacheReadPerM: BigDecimal) {
     def cacheWrite5mPerM: BigDecimal = inputPerM * CacheWrite5mMultiplier
     def cacheWrite1hPerM: BigDecimal = inputPerM * CacheWrite1hMultiplier
   }
 
-  private object Rate {
+  object Rate {
 
     /** A model on the standard cache-read multiplier -- the common case, spelled so that the
       * exception is the row that looks unusual rather than the rule.
       */
-    def standardCacheRead(inputPerM: BigDecimal, outputPerM: BigDecimal): Rate =
+    private[ClaudePricing] def standardCacheRead(inputPerM: BigDecimal, outputPerM: BigDecimal): Rate =
       Rate(inputPerM, outputPerM, inputPerM * CacheReadMultiplier)
   }
 
@@ -153,9 +158,18 @@ object ClaudePricing {
     * refuses the request before it is sent, so a new model is priced here before it is used, and a
     * budget is never measured against a call whose cost reads as $0.
     */
-  def isPriced(model: ClaudeModel): Boolean = isPriced(model.toString)
+  def isPriced(model: ClaudeModel): Boolean = listRate(model).isDefined
 
-  def isPriced(model: String): Boolean = Rates.contains(normalize(model))
+  def isPriced(model: String): Boolean = listRate(model).isDefined
+
+  /** The list rate of `model`, before any service-tier discount -- `None` for a model this table does not price.
+    * Every value of the generated `claude_model` enum has one (`ClaudePricingSpec` refuses a value without),
+    * so a caller deriving one row per `ClaudeModel.all` value meets `None` only for an `UNDEFINED` id.
+    * A dated snapshot reads its alias's rate (see [[normalize]]).
+    */
+  def listRate(model: ClaudeModel): Option[Rate] = listRate(model.toString)
+
+  def listRate(model: String): Option[Rate] = Rates.get(normalize(model))
 
   /** USD cost of one response, read straight off what the API reported -- `None` when the model is
     * not priced (see [[isPriced]]).
@@ -209,7 +223,7 @@ object ClaudePricing {
     cacheReadInputTokens: Long,
     serviceTier: Option[KnownClaudeServiceTier],
   ): Option[BigDecimal] = {
-    Rates.get(normalize(model)).map { rate =>
+    listRate(model).map { rate =>
       // Clamped rather than trusted: the subset relation is an invariant of what the API reports,
       // and a row that somehow violates it must not price the 5-minute part NEGATIVE and hand back
       // a total cheaper than the same usage with no caching at all.
