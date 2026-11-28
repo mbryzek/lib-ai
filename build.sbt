@@ -26,6 +26,24 @@ ThisBuild / resolvers += "Bryzek Maven repository" at "https://maven.bryzek.com"
 // both DECLARED (below, so the floor reaches consumers) and overridden, so the pair cannot split.
 ThisBuild / dependencyOverrides ++= BryzekPins.jackson2 ++ BryzekPins.logback
 
+// io.opentelemetry:opentelemetry-api (and opentelemetry-context, which moves with it) resolves to
+// 1.67.0, in every subproject.
+//
+// Below 1.67.0 parsing a W3C `tracestate` header costs time quadratic in its length
+// (GHSA-ccrj-gw8r-854m), and below 1.62.0 the W3C baggage propagator allocates without bound for a
+// large `baggage` header (GHSA-rcgg-9c38-7xpx). Both parsers live in the API artifact.
+//
+// It is not declared anywhere in this build: it reaches the TEST classpath alone, through
+// scalatestplus-play -> selenium 4.14.1 (selenium-remote-driver, selenium-http), which pins 1.28.0,
+// so an override is the only thing that moves it. `dependencyOverrides` governs this build's
+// resolution only and reaches no consumer. 1.67.0 stays at or below the API the fleet's OTel Java
+// agent embeds (devops lib/dependencies/denylist.yml). Drop this pin once the scalatestplus-play
+// this build resolves brings an opentelemetry-api at or above 1.67.0 of its own.
+ThisBuild / dependencyOverrides ++= Seq(
+  "io.opentelemetry" % "opentelemetry-api" % "1.67.0",
+  "io.opentelemetry" % "opentelemetry-context" % "1.67.0",
+)
+
 // at.yawk.lz4:lz4-java resolves to 1.11.4 or above, in every subproject.
 //
 // Below 1.11.4 three defects reach a caller: LZ4BlockInputStream with stopOnEmptyBlock=false
