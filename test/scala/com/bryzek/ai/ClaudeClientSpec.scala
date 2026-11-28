@@ -874,6 +874,59 @@ class ClaudeClientSpec extends AnyWordSpec with Matchers with GuiceOneAppPerSuit
       loop.model mustBe ClaudeModel.ClaudeSonnet5
     }
 
+    "send no task budget on any turn, while a single request keeps its own" in {
+      // A task budget counts a whole agentic turn across its requests; 0.75 x max_tokens is a bound for one response,
+      // and sent on a loop it told the model its whole task fit in that (ISS-182277).
+      val loopRequest = request.copy(maxTokens = 64000L, effort = Some(ClaudeEffort.High))
+      val structured = answered.copy(
+        content = Seq(
+          ClaudeClient.textBlock(Json.stringify(Json.obj("steps" -> Json.arr(), "insight" -> "You are doing amazing")))
+        )
+      )
+      val sent = scriptedClient(asksFor("toolu_a"), answered, structured)
+      val result = await(
+        sent.client.runToolLoop[SingleInsightResponse](
+          loopRequest,
+          tools = Seq(tool),
+          models = Seq(ClaudeModel.ClaudeOpus55),
+          maxCalls = 25,
+          finalFormat = ClaudeOutputFormats.SingleInsight,
+          feature = TestAiFeature
+        ) { _ =>
+          scala.concurrent.Future.successful(ClaudeToolOutput(content = """{"total": 42}"""))
+        }
+      )(using timeout)
+
+      result.isValid mustBe true
+      // The opening turn, the turn after the tool result, and the finalize turn.
+      sent.requests.size mustBe 3
+      sent.requests.foreach { turn =>
+        turn.outputConfig.flatMap(_.taskBudget) mustBe None
+        turn.outputConfig.flatMap(_.effort) mustBe Some(ClaudeEffort.High)
+      }
+      loopRequest.toClaudeRequest(ClaudeModel.ClaudeOpus55).outputConfig.flatMap(_.taskBudget).map(_.total) mustBe
+        Some(48000L)
+    }
+
+    "runToolLoopText sends no task budget on any turn either" in {
+      val sent = scriptedClient(asksFor("toolu_a"), answered)
+      val result = await(
+        sent.client.runToolLoopText(
+          request.copy(maxTokens = 64000L),
+          tools = Seq(tool),
+          models = Seq(ClaudeModel.ClaudeOpus55),
+          maxCalls = 25,
+          feature = TestAiFeature
+        ) { _ =>
+          scala.concurrent.Future.successful(ClaudeToolOutput(content = """{"total": 42}"""))
+        }
+      )(using timeout)
+
+      result.isValid mustBe true
+      sent.requests.size mustBe 2
+      sent.requests.flatMap(_.outputConfig.flatMap(_.taskBudget)) mustBe empty
+    }
+
     "finalizes directly when the tool-call budget is zero" in {
       var executed = 0
       val result = await(
