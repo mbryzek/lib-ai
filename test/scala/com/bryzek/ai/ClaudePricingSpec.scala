@@ -353,11 +353,13 @@ class ClaudePricingSpec extends AnyWordSpec with Matchers {
   }
 
   "isPriced" must {
-    "price every model the client can be asked to call" in {
-      // ClaudeClient refuses a model it cannot price, so a model in the generated enum with no row
-      // here is a model no caller can use.
-      com.bryzek.claude.models.KnownClaudeModel.all.foreach { m =>
-        withClue(m.toString)(ClaudePricing.isPriced(m.toClaudeModel) mustBe true)
+    "price every value of the generated claude_model enum" in {
+      // ClaudeClient refuses a model it cannot price, so a value with no row here is a model no caller can use.
+      // And the spec half of "a version never reaches the roster unpriced": platform derives one roster row per
+      // ClaudeModel.all value and reads its price from listRate, so a value added to the enum without a row
+      // here fails this build rather than seeding an unpriced row.
+      com.bryzek.claude.models.ClaudeModel.all.foreach { m =>
+        withClue(m.toString)(ClaudePricing.isPriced(m) mustBe true)
       }
     }
 
@@ -384,6 +386,26 @@ class ClaudePricingSpec extends AnyWordSpec with Matchers {
         withClue(id)(ClaudePricing.normalize(id) mustBe id)
       }
       ClaudePricing.isPriced("claude-opus-5-1") mustBe false
+    }
+  }
+
+  "listRate" must {
+    "answer the list rate, with the read rate carried outright" in {
+      val rate = ClaudePricing.listRate(com.bryzek.claude.models.ClaudeModel.ClaudeOpus55).getOrElse(fail("unpriced"))
+      rate.inputPerM mustBe BigDecimal(4)
+      rate.outputPerM mustBe BigDecimal(20)
+      rate.cacheReadPerM mustBe BigDecimal("0.20")
+      rate.cacheWrite1hPerM mustBe BigDecimal(4) * ClaudePricing.CacheWrite1hMultiplier
+      rate.cacheWrite5mPerM mustBe BigDecimal(4) * ClaudePricing.CacheWrite5mMultiplier
+    }
+
+    "read a dated snapshot at its alias's rate" in {
+      ClaudePricing.listRate("claude-haiku-4-5-20251001") mustBe ClaudePricing.listRate("claude-haiku-4-5")
+    }
+
+    "answer None for an id the table does not price" in {
+      ClaudePricing.listRate("claude-not-a-real-model") mustBe None
+      ClaudePricing.listRate(com.bryzek.claude.models.ClaudeModel.UNDEFINED("claude-opus-9")) mustBe None
     }
   }
 }
